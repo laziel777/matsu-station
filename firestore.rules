@@ -1,0 +1,75 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function isAdmin() {
+      return isSignedIn()
+             && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+             && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function isStationMaster() {
+      return isSignedIn() && request.auth.uid == 'gHHxF8p1DnbMkoeVmU5XpB18Elz2';
+    }
+
+    match /users/{userId} {
+      allow get: if isSignedIn();
+      allow list: if isAdmin();
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId)
+                    && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']);
+      allow update: if isAdmin();
+    }
+
+    match /posts/{postId} {
+      allow read: if true;
+      allow create: if isSignedIn();
+      allow update: if (isSignedIn()
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount', 'commentsCount']))
+                    || isOwner(resource.data.authorId)
+                    || isAdmin();
+      allow delete: if isOwner(resource.data.authorId) || isAdmin();
+
+      match /likes/{userId} {
+        allow read: if true;
+        allow create, delete: if isOwner(userId);
+      }
+
+      match /comments/{commentId} {
+        allow read: if true;
+        allow create: if isSignedIn();
+        allow delete: if isOwner(resource.data.authorId) || isAdmin();
+      }
+    }
+
+    match /reports/{reportId} {
+      allow create: if isSignedIn();
+      allow read, update, delete: if isAdmin() || isStationMaster();
+    }
+
+    match /notifications/{notificationId} {
+      allow create: if isSignedIn()
+                    && request.resource.data.senderId == request.auth.uid
+                    && request.resource.data.recipientId is string
+                    && request.resource.data.type in ['like', 'comment', 'mention', 'report']
+                    && request.resource.data.read == false;
+      allow read: if isSignedIn()
+                  && (resource.data.recipientId == request.auth.uid || isAdmin() || isStationMaster());
+      allow update: if isSignedIn()
+                    && resource.data.recipientId == request.auth.uid
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+      allow delete: if isAdmin() || isStationMaster();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

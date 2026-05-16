@@ -1,0 +1,78 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "User account information and settings",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["user", "admin"] },
+        "agreedToTerms": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "bio": { "type": "string" },
+        "title": { "type": "string" },
+        "lastProfileUpdate": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "displayName", "role"]
+    },
+    "Post": {
+      "title": "Community Post",
+      "description": "A post in the forum",
+      "type": "object",
+      "properties": {
+        "authorId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "authorPhoto": { "type": "string" },
+        "content": { "type": "string" },
+        "likesCount": { "type": "number" },
+        "commentsCount": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["authorId", "content"]
+    },
+    "Comment": {
+      "title": "Post Comment",
+      "description": "A comment on a post",
+      "type": "object",
+      "properties": {
+        "authorId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "authorPhoto": { "type": "string" },
+        "content": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["authorId", "content"]
+    },
+    "Like": {
+      "title": "Post Like",
+      "description": "A like interaction on a post",
+      "type": "object",
+      "properties": {
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "Report": {
+      "title": "Content Report",
+      "description": "A report for inappropriate content",
+      "type": "object",
+      "properties": {
+        "targetId": { "type": "string" },
+        "targetType": { "type": "string" },
+        "reporterId": { "type": "string" },
+        "reason": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "firestore": {
+    "users/{userId}": { "schema": "User", "description": "User profiles" },
+    "posts/{postId}": { "schema": "Post", "description": "Community posts" },
+    "posts/{postId}/comments/{commentId}": { "schema": "Comment", "description": "Comments on posts" },
+    "posts/{postId}/likes/{userId}": { "schema": "Like", "description": "User likes on posts" },
+    "reports/{reportId}": { "schema": "Report", "description": "System reports" }
+  }
+}

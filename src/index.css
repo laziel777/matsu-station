@@ -1,0 +1,227 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+:root {
+  --primary-glow: #00D9E8;
+  --accent-text: #00D9E8;
+  --bg-color: #0A0C10;
+  --text-primary: #FAFAF9; /* stone-50 */
+  --text-secondary: #D6D3D1; /* stone-300 */
+  --surface-color: #171B22;
+  --border-color: rgba(255, 255, 255, 0.12);
+  --glass-overlay: rgba(23, 27, 34, 0.72);
+}
+
+:root[data-theme-mode="light"] {
+  --bg-color: #F8FAFC;
+  --text-primary: #0F172A;
+  --text-secondary: #334155;
+  --surface-color: #FFFFFF;
+  --border-color: rgba(15, 23, 42, 0.12);
+  --glass-overlay: rgba(255, 255, 255, 0.95);
+}
+
+:root[data-theme-mode="light"] .glass-card {
+  background: var(--glass-overlay);
+  box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.08);
+  border: 1px solid var(--border-color);
+}
+
+:root[data-theme-mode="light"] .bg-white\/5,
+:root[data-theme-mode="light"] .hover\:bg-white\/5:hover {
+  background-color: rgba(15, 23, 42, 0.04);
+}
+
+:root[data-theme-mode="light"] .bg-white\/10,
+:root[data-theme-mode="light"] .hover\:bg-white\/10:hover {
+  background-color: rgba(15, 23, 42, 0.08);
+}
+
+:root[data-theme-mode="light"] .border-white\/5,
+:root[data-theme-mode="light"] .border-white\/10 {
+  border-color: rgba(15, 23, 42, 0.1);
+}
+
+:root[data-theme-mode="light"] .text-bio-glow,
+:root[data-theme-mode="light"] .hover\:text-bio-glow:hover {
+  color: var(--accent-text) !important;
+}
+
+:root[data-theme-mode="light"] .text-bio-glow\/50 {
+  color: color-mix(in srgb, var(--accent-text) 82%, var(--text-primary) 18%) !important;
+}
+
+:root[data-theme-mode="light"] .text-bio-glow\/40 {
+  color: color-mix(in srgb, var(--accent-text) 74%, var(--text-primary) 26%) !important;
+}
+
+:root[data-theme-mode="light"] .group:hover .group-hover\:text-bio-glow {
+  color: var(--accent-text) !important;
+}
+
+:root[data-theme-mode="light"] .text-deep-ocean {
+  color: #0f172a !important;
+}
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Outfit", sans-serif;
+  --color-deep-ocean: var(--bg-color, #0A0C10);
+  --color-mist: var(--surface-color, #1A1D23);
+  --color-mist-dark: color-mix(in srgb, var(--surface-color), black 10%);
+  --color-mist-light: color-mix(in srgb, var(--surface-color), white 10%);
+  --color-bio-glow: var(--primary-glow, #00F5FF);
+  --color-text-main: var(--text-primary);
+  --color-text-muted: var(--text-secondary);
+  --color-line: var(--border-color);
+  --color-mist-light: color-mix(in srgb, var(--text-primary) 5%, transparent);
+  --color-mist-medium: color-mix(in srgb, var(--text-primary) 12%, transparent);
+  --animate-spin-slow: spin-slow 10s linear infinite;
+  --animate-pulse-slow: pulse-glow 3s ease-in-out infinite;
+  --animate-flame: flame 2s infinite ease-in-out;
+  --animate-flicker: flicker 0.15s infinite;
+}
+
+@keyframes flame {
+  0%, 100% { transform: scaleY(1) translateY(0); opacity: 0.8; }
+  50% { transform: scaleY(1.1) translateY(-2px); opacity: 1; }
+}
+
+@keyframes flicker {
+  0% { opacity: 0.8; transform: skewX(0deg); }
+  25% { opacity: 0.9; transform: skewX(1deg); }
+  50% { opacity: 0.8; transform: skewX(-1deg); }
+  75% { opacity: 1; transform: skewX(0.5deg); }
+  100% { opacity: 0.9; transform: skewX(0deg); }
+}
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 15px rgba(245,158,11,0.5); transform: scale(1); }
+  50% { box-shadow: 0 0 25px rgba(245,158,11,0.8), 0 0 40px rgba(59,130,246,0.3); transform: scale(1.02); }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-color);
+}
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--primary-glow, #00F5FF) 20%, transparent);
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--primary-glow, #00F5FF) 50%, transparent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--primary-glow, #00F5FF) 30%, transparent);
+}
+
+@layer base {
+  body {
+    @apply bg-deep-ocean;
+    color: var(--text-primary);
+    background-image: 
+      radial-gradient(circle at 20% 30%, color-mix(in srgb, var(--primary-glow, #00F5FF) 3%, transparent) 0%, transparent 50%),
+      radial-gradient(circle at 80% 70%, color-mix(in srgb, var(--primary-glow, #00F5FF) 4%, transparent) 0%, transparent 50%);
+    background-attachment: fixed;
+  }
+}
+
+.glass-card {
+  background: color-mix(in srgb, var(--surface-color) 60%, transparent);
+  backdrop-filter: blur(20px);
+  border: 1px solid var(--border-color);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.1);
+}
+
+.dropdown-panel {
+  background: color-mix(in srgb, var(--surface-color) 94%, var(--bg-color) 6%);
+  backdrop-filter: blur(24px);
+  border: 1px solid var(--border-color);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.34);
+}
+
+:root[data-theme-mode="light"] .dropdown-panel {
+  background: rgba(255, 255, 255, 0.98);
+  border-color: rgba(15, 23, 42, 0.14);
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.18);
+}
+
+.weather-chip {
+  background: color-mix(in srgb, var(--primary-glow) 12%, var(--surface-color) 88%);
+  border-color: color-mix(in srgb, var(--primary-glow) 34%, transparent);
+  box-shadow: 0 0 15px color-mix(in srgb, var(--primary-glow) 10%, transparent);
+}
+
+.weather-chip:hover {
+  background: color-mix(in srgb, var(--primary-glow) 18%, var(--surface-color) 82%);
+}
+
+.weather-chip-label {
+  color: color-mix(in srgb, var(--primary-glow) 72%, var(--text-primary) 28%);
+}
+
+.flight-chip {
+  background: color-mix(in srgb, #6366f1 14%, var(--surface-color) 86%);
+  border-color: color-mix(in srgb, #6366f1 34%, transparent);
+}
+
+.flight-chip:hover {
+  background: color-mix(in srgb, #6366f1 20%, var(--surface-color) 80%);
+}
+
+.flight-chip-icon,
+.flight-chip-label {
+  color: #a5b4fc;
+}
+
+.ferry-chip {
+  background: color-mix(in srgb, #10b981 14%, var(--surface-color) 86%);
+  border-color: color-mix(in srgb, #10b981 34%, transparent);
+}
+
+.ferry-chip:hover {
+  background: color-mix(in srgb, #10b981 20%, var(--surface-color) 80%);
+}
+
+.ferry-chip-icon,
+.ferry-chip-label {
+  color: #6ee7b7;
+}
+
+:root[data-theme-mode="light"] .weather-chip-label {
+  color: color-mix(in srgb, var(--primary-glow) 42%, #0f172a 58%);
+}
+
+:root[data-theme-mode="light"] .flight-chip-icon,
+:root[data-theme-mode="light"] .flight-chip-label {
+  color: #3730a3;
+}
+
+:root[data-theme-mode="light"] .ferry-chip-icon,
+:root[data-theme-mode="light"] .ferry-chip-label {
+  color: #065f46;
+}
+
+.glow-text {
+  text-shadow: 0 0 10px color-mix(in srgb, var(--primary-glow, #00F5FF) 40%, transparent);
+}
+
+@keyframes rgb-slide {
+  to { background-position: 200% center; }
+}
+
+.rgb-text {
+  background: linear-gradient(to right, #ff0000, #ff7f00, #ffff00, #00ff00, #0000ff, #4b0082, #8b00ff, #ff0000);
+  background-size: 200% auto;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: rgb-slide 3s linear infinite;
+  text-shadow: 0 0 8px rgba(255, 255, 255, 0.1);
+}
