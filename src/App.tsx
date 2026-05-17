@@ -412,6 +412,7 @@ export default function App() {
 const [onlineCount, setOnlineCount] = useState(1);
 const canReviewReports = Boolean(user && (profile?.role === 'admin' || user.uid === STATION_MASTER_UID));
 const pendingReportsCount = reports.filter(report => (report.status || 'pending') === 'pending').length;
+const isOnboarding = Boolean(user && profile && profile.role !== 'admin' && (!profile.agreedToTerms || !profile.isProfileSetup));
 
   useEffect(() => {
     localStorage.setItem('matsu-font-size', fontSize.toString());
@@ -1345,7 +1346,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
             <motion.div 
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
-              className="glass-card rounded-[2rem] w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[80vh] border-white/10"
+              className="glass-card rounded-[2rem] w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[92dvh] sm:max-h-[80vh] border-white/10"
             >
               <div className="p-6 border-b border-white/5 flex items-center justify-between">
                 <h2 className="text-xl font-bold font-display text-text-main">
@@ -1362,87 +1363,89 @@ const HOT_TOPICS = Object.entries(topicCounts)
                 className="p-6 overflow-y-auto space-y-8 text-text-muted leading-relaxed text-sm custom-scrollbar"
               >
                 {/* Initial Profile Setup */}
-                <section className="space-y-6 pb-8 border-b border-white/5">
-                  <div className="flex flex-col items-center gap-4">
-                    <div className="relative group">
-                      <div className="w-24 h-24 rounded-full overflow-hidden border-2 border-bio-glow/30 bg-white/5 flex items-center justify-center relative">
-                        {setupPhoto === DEFAULT_ISLANDER_PHOTO || !setupPhoto ? (
-                          <DefaultIslanderAvatar className="w-full h-full rounded-none" />
-                        ) : (
-                          <img src={setupPhoto} alt="Preview" className="w-full h-full object-cover" />
-                        )}
-                        {isUploadingAvatar && (
-                          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center">
-                            <motion.div
-                              animate={{ rotate: 360 }}
-                              transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                            >
-                              <Waves className="w-6 h-6 text-bio-glow" />
-                            </motion.div>
-                          </div>
-                        )}
+                {isOnboarding && (
+                  <section className="space-y-6 pb-8 border-b border-white/5">
+                    <div className="flex flex-col items-center gap-4">
+                      <div className="relative group">
+                        <div className="w-24 h-24 rounded-full overflow-hidden border-2 border-bio-glow/30 bg-white/5 flex items-center justify-center relative">
+                          {setupPhoto === DEFAULT_ISLANDER_PHOTO || !setupPhoto ? (
+                            <DefaultIslanderAvatar className="w-full h-full rounded-none" />
+                          ) : (
+                            <img src={setupPhoto} alt="Preview" className="w-full h-full object-cover" />
+                          )}
+                          {isUploadingAvatar && (
+                            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center">
+                              <motion.div
+                                animate={{ rotate: 360 }}
+                                transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                              >
+                                <Waves className="w-6 h-6 text-bio-glow" />
+                              </motion.div>
+                            </div>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => avatarInputRef.current?.click()}
+                          className="absolute -bottom-1 -right-1 bg-bio-glow text-deep-ocean p-2 rounded-full shadow-lg hover:scale-110 transition-transform cursor-pointer"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        <input 
+                          type="file" 
+                          ref={avatarInputRef}
+                          onChange={handleAvatarSelect}
+                          accept="image/*"
+                          className="hidden"
+                        />
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => avatarInputRef.current?.click()}
-                        className="absolute -bottom-1 -right-1 bg-bio-glow text-deep-ocean p-2 rounded-full shadow-lg hover:scale-110 transition-transform cursor-pointer"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
-                      <input 
-                        type="file" 
-                        ref={avatarInputRef}
-                        onChange={handleAvatarSelect}
-                        accept="image/*"
-                        className="hidden"
-                      />
-                    </div>
-                    <div className="text-center space-y-1">
-                      <h3 className="text-text-main font-bold text-base">設定您的島民身分</h3>
-                      <div className="flex items-center justify-center gap-2 mb-1">
-                        <span className="text-[0.625rem] bg-white/10 text-text-muted px-2 py-0.5 rounded-full font-mono font-bold tracking-wider">
-                          島內ID: {profile?.islanderId}
-                        </span>
+                      <div className="text-center space-y-1">
+                        <h3 className="text-text-main font-bold text-base">設定您的島民身分</h3>
+                        <div className="flex items-center justify-center gap-2 mb-1">
+                          <span className="text-[0.625rem] bg-white/10 text-text-muted px-2 py-0.5 rounded-full font-mono font-bold tracking-wider">
+                            島內ID: {profile?.islanderId}
+                          </span>
+                        </div>
+                        <p className="text-[0.625rem] text-text-muted uppercase tracking-widest">請設定一個在群島中使用的暱稱與頭像</p>
                       </div>
-                      <p className="text-[0.625rem] text-text-muted uppercase tracking-widest">請設定一個在群島中使用的暱稱與頭像</p>
                     </div>
-                  </div>
 
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                       <label className="text-[0.625rem] font-bold text-text-muted uppercase tracking-widest px-1">暱稱 (暱稱一旦設定將鎖定 3 個月)</label>
-                       <input 
-                         type="text"
-                         placeholder="例如：北竿阿銘"
-                         value={setupName}
-                         onChange={(e) => setSetupName(e.target.value)}
-                         className={`w-full bg-white/5 border rounded-xl px-4 py-3 text-text-main placeholder:text-text-muted/50 outline-none transition-all ${
-                           setupNameError ? 'border-red-500/50 focus:border-red-500' : 'border-white/10 focus:border-bio-glow/50'
-                         }`}
-                       />
-                       <div className="px-1 flex flex-col gap-1">
-                         <p className="text-[0.625rem] text-text-muted">
-                           規則：中英文、數字或底線 (_)，長度限制 2-12 字
-                         </p>
-                         <p className="text-[0.5625rem] text-text-muted/70">
-                           島內ID一旦設定將鎖定 6 個月。
-                         </p>
-                         {isCheckingSetupName ? (
-                           <p className="text-[0.625rem] text-blue-400 animate-pulse">正在檢查暱稱可用性...</p>
-                         ) : setupNameError ? (
-                           <p className="text-[0.625rem] text-red-500 font-bold">{setupNameError}</p>
-                         ) : setupName.trim().length >= 2 && (
-                            <p className="text-[0.625rem] text-green-500 font-bold">此暱稱可以使用 ✓</p>
-                         )}
-                       </div>
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                         <label className="text-[0.625rem] font-bold text-text-muted uppercase tracking-widest px-1">暱稱 (暱稱一旦設定將鎖定 3 個月)</label>
+                         <input 
+                           type="text"
+                           placeholder="例如：北竿阿銘"
+                           value={setupName}
+                           onChange={(e) => setSetupName(e.target.value)}
+                           className={`w-full bg-white/5 border rounded-xl px-4 py-3 text-text-main placeholder:text-text-muted/50 outline-none transition-all ${
+                             setupNameError ? 'border-red-500/50 focus:border-red-500' : 'border-white/10 focus:border-bio-glow/50'
+                           }`}
+                         />
+                         <div className="px-1 flex flex-col gap-1">
+                           <p className="text-[0.625rem] text-text-muted">
+                             規則：中英文、數字或底線 (_)，長度限制 2-12 字
+                           </p>
+                           <p className="text-[0.5625rem] text-text-muted/70">
+                             島內ID一旦設定將鎖定 6 個月。
+                           </p>
+                           {isCheckingSetupName ? (
+                             <p className="text-[0.625rem] text-blue-400 animate-pulse">正在檢查暱稱可用性...</p>
+                           ) : setupNameError ? (
+                             <p className="text-[0.625rem] text-red-500 font-bold">{setupNameError}</p>
+                           ) : setupName.trim().length >= 2 && (
+                              <p className="text-[0.625rem] text-green-500 font-bold">此暱稱可以使用 ✓</p>
+                           )}
+                         </div>
+                      </div>
+                      {setupPhoto === user?.photoURL && (
+                        <p className="text-[0.625rem] text-amber-500 font-bold bg-amber-500/10 p-3 rounded-lg border border-amber-500/20">
+                           ⚠️ 站長提醒：為了保護您的隱私，請更換一個不同於 Google 的頭相。
+                        </p>
+                      )}
                     </div>
-                    {setupPhoto === user?.photoURL && (
-                      <p className="text-[0.625rem] text-amber-500 font-bold bg-amber-500/10 p-3 rounded-lg border border-amber-500/20">
-                         ⚠️ 站長提醒：為了保護您的隱私，請更換一個不同於 Google 的頭相。
-                      </p>
-                    )}
-                  </div>
-                </section>
+                  </section>
+                )}
 
                 {profile?.role !== 'admin' && (
                   <>
@@ -1517,23 +1520,34 @@ const HOT_TOPICS = Object.entries(topicCounts)
                     <p className="text-[0.625rem] text-bio-glow font-bold uppercase tracking-widest animate-pulse">請滑動至底部以閱讀完整條款</p>
                   </div>
                 )}
-                <p className="text-[0.625rem] text-center text-text-muted uppercase tracking-widest">點擊下方按鈕即表示您已閱讀並同意上述條款。</p>
-                <button 
-                  onClick={handleAgree}
-                  className={`w-full py-4 rounded-xl font-bold transition-all shadow-lg active:scale-95 ${
-                    hasReadToBottom && setupName.trim() && setupPhoto && setupPhoto !== user?.photoURL
-                      ? 'bg-blue-600 text-white hover:bg-blue-500 shadow-blue-500/20' 
-                      : 'bg-white/5 text-text-muted border border-white/10 shadow-none hover:bg-white/10'
-                  }`}
-                >
-                  確認設定並進入馬祖小站
-                </button>
-                <button 
-                  onClick={handleLogout}
-                  className="w-full py-2 text-text-muted hover:text-text-main transition-colors text-sm"
-                >
-                  取消並登出
-                </button>
+                {isOnboarding ? (
+                  <>
+                    <p className="text-[0.625rem] text-center text-text-muted uppercase tracking-widest">點擊下方按鈕即表示您已閱讀並同意上述條款。</p>
+                    <button 
+                      onClick={handleAgree}
+                      className={`w-full py-4 rounded-xl font-bold transition-all shadow-lg active:scale-95 ${
+                        hasReadToBottom && setupName.trim() && setupPhoto && setupPhoto !== user?.photoURL
+                          ? 'bg-blue-600 text-white hover:bg-blue-500 shadow-blue-500/20' 
+                          : 'bg-white/5 text-text-muted border border-white/10 shadow-none hover:bg-white/10'
+                      }`}
+                    >
+                      確認設定並進入馬祖小站
+                    </button>
+                    <button 
+                      onClick={handleLogout}
+                      className="w-full py-2 text-text-muted hover:text-text-main transition-colors text-sm"
+                    >
+                      取消並登出
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => setShowTerms(false)}
+                    className="w-full py-4 rounded-xl font-bold transition-all active:scale-95 bg-mist-medium text-text-main hover:bg-mist border border-line"
+                  >
+                    關閉
+                  </button>
+                )}
               </div>
             </motion.div>
           </motion.div>
@@ -1730,14 +1744,14 @@ const HOT_TOPICS = Object.entries(topicCounts)
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.95 }}
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-              className="flex items-center gap-2 group cursor-pointer"
+              className="flex min-w-0 items-center gap-2 group cursor-pointer"
             >
               <div className="bg-mist p-1.5 rounded-xl shadow-lg border border-white/5 group-hover:border-bio-glow/50 transition-colors">
                 <Waves className="text-bio-glow w-6 h-6 glow-text group-hover:animate-pulse" />
               </div>
-              <h1 className="font-display font-bold text-xl sm:text-2xl tracking-tight text-text-main flex items-baseline gap-2">
+              <h1 className="font-display font-bold text-lg sm:text-2xl tracking-tight text-text-main flex items-baseline gap-2 whitespace-nowrap">
                 <span>馬祖小站</span>
-                <span className="text-bio-glow glow-text text-sm sm:text-lg font-medium">Matsu Station</span>
+                <span className="hidden sm:inline text-bio-glow glow-text text-sm sm:text-lg font-medium">Matsu Station</span>
               </h1>
             </motion.button>
 
