@@ -876,7 +876,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
       const nextUpdateAllowed = addMonths(lastUpdate, 3);
       if (isAfter(nextUpdateAllowed, new Date())) {
         const remaining = formatDistanceToNow(nextUpdateAllowed, { locale: zhTW });
-        alert(`島嶼規範：稱號與簡介每 3 個月只能修改一次。您還需要等待 ${remaining}。`);
+        alert(`島嶼規範：暱稱、個人標籤與簡介每 3 個月只能修改一次。您還需要等待 ${remaining}。`);
         return;
       }
     }
@@ -1401,7 +1401,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
                       <h3 className="text-text-main font-bold text-base">設定您的島民身分</h3>
                       <div className="flex items-center justify-center gap-2 mb-1">
                         <span className="text-[0.625rem] bg-white/10 text-text-muted px-2 py-0.5 rounded-full font-mono font-bold tracking-wider">
-                          UID: {profile?.islanderId}
+                          島內ID: {profile?.islanderId}
                         </span>
                       </div>
                       <p className="text-[0.625rem] text-text-muted uppercase tracking-widest">請設定一個在群島中使用的暱稱與頭像</p>
@@ -1410,7 +1410,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
 
                   <div className="space-y-4">
                     <div className="space-y-2">
-                       <label className="text-[0.625rem] font-bold text-text-muted uppercase tracking-widest px-1">您的暱稱</label>
+                       <label className="text-[0.625rem] font-bold text-text-muted uppercase tracking-widest px-1">暱稱 (暱稱一旦設定將鎖定 3 個月)</label>
                        <input 
                          type="text"
                          placeholder="例如：北竿阿銘"
@@ -1423,6 +1423,9 @@ const HOT_TOPICS = Object.entries(topicCounts)
                        <div className="px-1 flex flex-col gap-1">
                          <p className="text-[0.625rem] text-text-muted">
                            規則：中英文、數字或底線 (_)，長度限制 2-12 字
+                         </p>
+                         <p className="text-[0.5625rem] text-text-muted/70">
+                           島內ID一旦設定將鎖定 6 個月。
                          </p>
                          {isCheckingSetupName ? (
                            <p className="text-[0.625rem] text-blue-400 animate-pulse">正在檢查暱稱可用性...</p>
@@ -1862,7 +1865,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={() => setShowWeatherModal(true)}
-                className="weather-chip flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all cursor-pointer"
+                className="weather-chip flex items-center gap-2.5 px-3.5 py-1.5 rounded-full border transition-all cursor-pointer"
                 title="馬祖氣象站詳情"
               >
                 {weather.icon === 'Sun' && <Sun className="w-4 h-4 text-amber-400 animate-spin-slow" />}
@@ -1870,9 +1873,9 @@ const HOT_TOPICS = Object.entries(topicCounts)
                 {weather.icon === 'CloudRain' && <CloudRain className="w-4 h-4 text-blue-400" />}
                 {weather.icon === 'Snowflake' && <Snowflake className="w-4 h-4 text-text-main" />}
                 {weather.icon === 'CloudLightning' && <CloudLightning className="w-4 h-4 text-yellow-500" />}
-                <div className="flex flex-col -space-y-1">
-                  <span className="weather-chip-label text-[0.625rem] font-bold uppercase tracking-tighter text-left">馬祖氣象</span>
-                  <span className="text-[0.6875rem] font-mono font-bold text-text-main leading-none">{weather.temp}°C</span>
+                <div className="flex flex-col items-start gap-0.5">
+                  <span className="weather-chip-label text-[0.625rem] font-bold uppercase tracking-tighter leading-none text-left">馬祖氣象</span>
+                  <span className="text-[0.75rem] font-mono font-bold text-text-main leading-none">{weather.temp}°C</span>
                 </div>
               </motion.button>
             )}
@@ -1883,10 +1886,10 @@ const HOT_TOPICS = Object.entries(topicCounts)
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={() => setShowTransportModal('flight')}
-                className="flight-chip flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all cursor-pointer"
+                className="flight-chip flex items-center gap-2 px-3.5 py-1.5 rounded-full border transition-all cursor-pointer"
                 title="航班資訊"
               >
-                <Plane className="flight-chip-icon w-3.5 h-3.5" />
+                <Plane className="flight-chip-icon w-3.5 h-3.5 drop-shadow-sm" />
                 <span className="flight-chip-label text-[0.625rem] font-bold uppercase tracking-tighter">航班</span>
               </motion.button>
 
@@ -1894,10 +1897,10 @@ const HOT_TOPICS = Object.entries(topicCounts)
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={() => setShowTransportModal('ferry')}
-                className="ferry-chip flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all cursor-pointer"
+                className="ferry-chip flex items-center gap-2 px-3.5 py-1.5 rounded-full border transition-all cursor-pointer"
                 title="船班資訊"
               >
-                <Ship className="ferry-chip-icon w-3.5 h-3.5" />
+                <Ship className="ferry-chip-icon w-3.5 h-3.5 drop-shadow-sm" />
                 <span className="ferry-chip-label text-[0.625rem] font-bold uppercase tracking-tighter">船班</span>
               </motion.button>
             </div>
@@ -2236,7 +2239,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
                     <form onSubmit={handleUpdateProfile} className="space-y-6">
                       <div className="space-y-4">
                         <div>
-                          <label className="text-[0.625rem] text-text-muted font-bold uppercase tracking-widest px-1 block mb-1">島內暱稱</label>
+                          <label className="text-[0.625rem] text-text-muted font-bold uppercase tracking-widest px-1 block mb-1">暱稱 (暱稱一旦設定將鎖定 3 個月)</label>
                           <input 
                             type="text" 
                             className={`bg-mist border rounded-xl px-4 py-2 text-text-main text-lg font-bold outline-none w-full transition-all ${
@@ -2260,12 +2263,13 @@ const HOT_TOPICS = Object.entries(topicCounts)
                         </div>
                         <div className="flex items-center gap-2">
                            <span className="text-[0.625rem] bg-mist-medium text-text-muted px-2 py-0.5 rounded-full font-mono font-bold tracking-wider uppercase">
-                             UID: {viewingProfile.islanderId}
+                             島內ID: {viewingProfile.islanderId}
                            </span>
                         </div>
+                        <p className="text-[0.5625rem] text-text-muted/70 px-1">島內ID一旦設定將鎖定 6 個月。</p>
                       </div>
                       <div className="space-y-2">
-                        <label className="text-[0.625rem] text-text-muted font-bold uppercase tracking-widest px-1">島嶼稱號 (稱號一旦設定將鎖定 3 個月)</label>
+                        <label className="text-[0.625rem] text-text-muted font-bold uppercase tracking-widest px-1">個人標籤</label>
                         <input 
                           type="text" 
                           maxLength={15}
@@ -2288,7 +2292,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
                       <div className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-2xl flex gap-3">
                         <Calendar className="w-5 h-5 text-amber-500 shrink-0" />
                         <p className="text-xs text-amber-500/80 leading-relaxed italic">
-                          提神提醒：為了維持社群穩定，稱號與簡介每 90 天僅能修改一次。
+                          提醒：為了維持社群穩定，暱稱、個人標籤與簡介每 90 天僅能修改一次；島內ID一旦設定將鎖定 6 個月。
                         </p>
                       </div>
                       <div className="flex gap-3 pt-2">
@@ -2328,7 +2332,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
                          </div>
                          <div className="flex items-center gap-2">
                            <span className="text-[0.625rem] bg-mist-medium text-text-muted px-2 py-0.5 rounded-full font-mono font-bold tracking-wider uppercase">
-                             UID: {viewingProfile.islanderId}
+                             島內ID: {viewingProfile.islanderId}
                            </span>
                          </div>
                       </div>

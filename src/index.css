@@ -153,13 +153,17 @@
 }
 
 .weather-chip {
-  background: color-mix(in srgb, var(--primary-glow) 12%, var(--surface-color) 88%);
-  border-color: color-mix(in srgb, var(--primary-glow) 34%, transparent);
-  box-shadow: 0 0 15px color-mix(in srgb, var(--primary-glow) 10%, transparent);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--primary-glow) 18%, transparent), transparent 55%),
+    color-mix(in srgb, var(--primary-glow) 10%, var(--surface-color) 90%);
+  border-color: color-mix(in srgb, var(--primary-glow) 38%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 0 15px color-mix(in srgb, var(--primary-glow) 10%, transparent);
 }
 
 .weather-chip:hover {
-  background: color-mix(in srgb, var(--primary-glow) 18%, var(--surface-color) 82%);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--primary-glow) 24%, transparent), transparent 55%),
+    color-mix(in srgb, var(--primary-glow) 16%, var(--surface-color) 84%);
 }
 
 .weather-chip-label {
@@ -167,12 +171,17 @@
 }
 
 .flight-chip {
-  background: color-mix(in srgb, #6366f1 14%, var(--surface-color) 86%);
-  border-color: color-mix(in srgb, #6366f1 34%, transparent);
+  background:
+    linear-gradient(135deg, rgba(99,102,241,0.28), rgba(59,130,246,0.08) 55%, transparent),
+    color-mix(in srgb, #1e1b4b 26%, var(--surface-color) 74%);
+  border-color: color-mix(in srgb, #818cf8 44%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 10px 24px rgba(79,70,229,0.1);
 }
 
 .flight-chip:hover {
-  background: color-mix(in srgb, #6366f1 20%, var(--surface-color) 80%);
+  background:
+    linear-gradient(135deg, rgba(99,102,241,0.36), rgba(59,130,246,0.14) 55%, transparent),
+    color-mix(in srgb, #312e81 30%, var(--surface-color) 70%);
 }
 
 .flight-chip-icon,
@@ -181,12 +190,17 @@
 }
 
 .ferry-chip {
-  background: color-mix(in srgb, #10b981 14%, var(--surface-color) 86%);
-  border-color: color-mix(in srgb, #10b981 34%, transparent);
+  background:
+    linear-gradient(135deg, rgba(16,185,129,0.26), rgba(20,184,166,0.1) 55%, transparent),
+    color-mix(in srgb, #064e3b 24%, var(--surface-color) 76%);
+  border-color: color-mix(in srgb, #34d399 44%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 10px 24px rgba(16,185,129,0.1);
 }
 
 .ferry-chip:hover {
-  background: color-mix(in srgb, #10b981 20%, var(--surface-color) 80%);
+  background:
+    linear-gradient(135deg, rgba(16,185,129,0.34), rgba(20,184,166,0.16) 55%, transparent),
+    color-mix(in srgb, #065f46 30%, var(--surface-color) 70%);
 }
 
 .ferry-chip-icon,
