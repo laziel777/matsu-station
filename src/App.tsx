@@ -1,7 +1,7 @@
 ﻿import React, { useState, useEffect } from 'react';
 import { useAuth, UserProfile, DEFAULT_ISLANDER_PHOTO } from './lib/AuthContext';
 import { signInWithPopup, googleProvider, auth, signOut } from './lib/firebase';
-import { LogIn, LogOut, MessageSquare, Heart, Share2, Send, Plus, User, Waves, Search, Flag, Edit2, Calendar, Menu, X, ChevronRight, Palette, Settings, Image as ImageIcon, Facebook, Instagram, Copy, Check, ExternalLink, Trash2, Bell, Shield, TrendingUp, Zap, Star, Compass, Clock, AlertCircle, Cloud, CloudRain, Snowflake, CloudLightning, Sun, Plane, Ship, Info, Wind, Eye, Activity, MapPin, RotateCcw } from 'lucide-react';
+import { LogIn, LogOut, MessageSquare, Share2, Send, Plus, User, Waves, Search, Flag, Edit2, Calendar, Menu, X, ChevronRight, Palette, Settings, Image as ImageIcon, Facebook, Instagram, Copy, Check, ExternalLink, Trash2, Bell, Shield, TrendingUp, Zap, Star, Compass, Clock, AlertCircle, Cloud, CloudRain, Snowflake, CloudLightning, Sun, Plane, Ship, Info, Wind, Eye, Activity, MapPin, RotateCcw } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { formatDistanceToNow, addMonths, isAfter } from 'date-fns';
 import { zhTW } from 'date-fns/locale';
@@ -19,6 +19,28 @@ const POST_COOLDOWN_MS = 30 * 1000;
 const NEW_ACCOUNT_WINDOW_MS = 30 * 60 * 1000;
 const DAILY_POST_LIMIT = 20;
 const ANTI_ABUSE_NOTICE = '為了防止惡意攻擊、複製垃圾文、洗文與攻擊性內容，馬祖小站會限制發文頻率。';
+const REACTION_OPTIONS = ['❤️', '😂', '😭', '🔥', '👍', '👎', '😡', '😍', '🤔', '😮'];
+const DEFAULT_REACTION = '❤️';
+const PROFILE_TABS = [
+  { id: 'posts', label: '歷史發文' },
+  { id: 'liked', label: '按讚內容' },
+] as const;
+
+type ProfileTabId = typeof PROFILE_TABS[number]['id'];
+
+interface ProfileStats {
+  postCount: number;
+  friendCount: number;
+  followingCount: number;
+  followerCount: number;
+}
+
+const EMPTY_PROFILE_STATS: ProfileStats = {
+  postCount: 0,
+  friendCount: 0,
+  followingCount: 0,
+  followerCount: 0,
+};
 
 const BACKGROUND_MODES = [
   { id: 'dark', name: '深色背景', description: '夜間閱讀', previewBackground: '#0A0C10', previewText: '#FAFAF9' },
@@ -372,6 +394,67 @@ const UserAvatar = ({ p, className = "w-10 h-10" }: { p?: { islanderId?: string,
   );
 };
 
+const ReactionButton = ({
+  currentReaction,
+  count,
+  onSelect,
+  compact = false,
+}: {
+  currentReaction?: string | null;
+  count: number;
+  onSelect: (reaction: string) => void;
+  compact?: boolean;
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const displayReaction = currentReaction || DEFAULT_REACTION;
+
+  return (
+    <div className="relative inline-flex">
+      <button
+        type="button"
+        onClick={() => setIsOpen(previous => !previous)}
+        className={`flex items-center gap-1.5 font-bold transition-all cursor-pointer active:scale-110 ${
+          compact ? 'text-[0.6875rem]' : 'text-xs'
+        } ${currentReaction ? 'text-rose-500' : 'text-text-muted hover:text-rose-500'}`}
+        title="選擇表情反應"
+      >
+        <span className={compact ? 'text-base leading-none' : 'text-lg leading-none'}>
+          {displayReaction}
+        </span>
+        <span>{count}</span>
+      </button>
+
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: 8, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 8, scale: 0.96 }}
+            className="absolute bottom-full left-0 z-[80] mb-2 grid grid-cols-5 gap-1 rounded-2xl border border-line bg-mist-medium/95 p-2 shadow-2xl backdrop-blur-xl"
+          >
+            {REACTION_OPTIONS.map(reaction => (
+              <button
+                key={reaction}
+                type="button"
+                onClick={() => {
+                  onSelect(reaction);
+                  setIsOpen(false);
+                }}
+                className={`flex h-8 w-8 items-center justify-center rounded-xl text-lg transition-all hover:bg-mist-light active:scale-90 ${
+                  currentReaction === reaction ? 'bg-bio-glow/20 ring-1 ring-bio-glow/40' : ''
+                }`}
+                title={currentReaction === reaction ? '再點一次取消反應' : `使用 ${reaction} 反應`}
+              >
+                {reaction}
+              </button>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
 export default function App() {
   const { user, loading, error: authError, profile, agreeToTerms, updateProfileData } = useAuth();
   const [posts, setPosts] = useState<Post[]>([]);
@@ -623,6 +706,15 @@ const HOT_TOPICS = Object.entries(topicCounts)
   
   // Profile Modal State
   const [viewingProfile, setViewingProfile] = useState<UserProfile | null>(null);
+  const [profileTab, setProfileTab] = useState<ProfileTabId>('posts');
+  const [profileLikedPosts, setProfileLikedPosts] = useState<Post[]>([]);
+  const [profileStats, setProfileStats] = useState<ProfileStats>(EMPTY_PROFILE_STATS);
+  const [isLoadingProfileActivity, setIsLoadingProfileActivity] = useState(false);
+  const [friendIslandIdInput, setFriendIslandIdInput] = useState('');
+  const [friendActionMessage, setFriendActionMessage] = useState<string | null>(null);
+  const [isFollowingProfile, setIsFollowingProfile] = useState(false);
+  const [isFriendProfile, setIsFriendProfile] = useState(false);
+  const [isSavingRelationship, setIsSavingRelationship] = useState(false);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [editBio, setEditBio] = useState('');
   const [editTitle, setEditTitle] = useState('');
@@ -829,11 +921,15 @@ const HOT_TOPICS = Object.entries(topicCounts)
     }
   };
 
-  const handleOpenProfile = async (userId: string) => {
+  const handleOpenProfile = async (userId: string, options?: { edit?: boolean; tab?: ProfileTabId }) => {
     if (!user) {
       alert("請先登入後再查看個人檔案。");
       return;
     }
+
+    setProfileTab(options?.tab || 'posts');
+    setFriendActionMessage(null);
+    setFriendIslandIdInput('');
 
     if (user && userId === user.uid && profile) {
       setViewingProfile(profile);
@@ -841,6 +937,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
       setEditTitle(profile.title || '');
       setEditDisplayName(profile.displayName || '');
       setEditPhotoURL(profile.photoURL || '');
+      setIsEditingProfile(Boolean(options?.edit));
       return;
     }
 
@@ -849,6 +946,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
       const snap = await getDoc(userRef);
       if (snap.exists()) {
         setViewingProfile({ id: snap.id, ...snap.data() } as any);
+        setIsEditingProfile(false);
       } else {
         alert("此使用者的檔案尚未初始化。");
       }
@@ -904,6 +1002,207 @@ const HOT_TOPICS = Object.entries(topicCounts)
       console.error(err);
     } finally {
       setIsUpdatingProfile(false);
+    }
+  };
+
+  React.useEffect(() => {
+    if (!viewingProfile?.uid) {
+      setProfileLikedPosts([]);
+      setProfileStats(EMPTY_PROFILE_STATS);
+      setIsFollowingProfile(false);
+      setIsFriendProfile(false);
+      return;
+    }
+
+    let isCancelled = false;
+    const targetUid = viewingProfile.uid;
+    const authoredPosts = posts.filter(post => post.authorId === targetUid);
+
+    setProfileStats(previous => ({
+      ...previous,
+      postCount: authoredPosts.length,
+    }));
+    setIsLoadingProfileActivity(true);
+
+    const loadProfileActivity = async () => {
+      try {
+        const likedPostResults = await Promise.all(
+          posts.map(async post => {
+            if (post.id.startsWith('sample-')) return null;
+            const likeSnap = await getDoc(doc(db, 'posts', post.id, 'likes', targetUid));
+            return likeSnap.exists() ? post : null;
+          })
+        );
+
+        const [friendsSnap, followingSnap, followersSnap] = await Promise.all([
+          getDocs(collection(db, 'users', targetUid, 'friends')),
+          getDocs(collection(db, 'users', targetUid, 'following')),
+          getDocs(collection(db, 'users', targetUid, 'followers')),
+        ]);
+
+        const [currentFollowingSnap, currentFriendSnap] = user && user.uid !== targetUid
+          ? await Promise.all([
+              getDoc(doc(db, 'users', user.uid, 'following', targetUid)),
+              getDoc(doc(db, 'users', user.uid, 'friends', targetUid)),
+            ])
+          : [null, null];
+
+        if (isCancelled) return;
+
+        setProfileLikedPosts(likedPostResults.filter(Boolean) as Post[]);
+        setProfileStats({
+          postCount: authoredPosts.length,
+          friendCount: friendsSnap.size,
+          followingCount: followingSnap.size,
+          followerCount: followersSnap.size,
+        });
+        setIsFollowingProfile(Boolean(currentFollowingSnap?.exists()));
+        setIsFriendProfile(Boolean(currentFriendSnap?.exists()));
+      } catch (err) {
+        console.warn('Profile activity fetch failed:', err);
+        if (!isCancelled) {
+          setProfileLikedPosts([]);
+          setProfileStats(previous => ({
+            ...previous,
+            postCount: authoredPosts.length,
+          }));
+        }
+      } finally {
+        if (!isCancelled) setIsLoadingProfileActivity(false);
+      }
+    };
+
+    loadProfileActivity();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [viewingProfile?.uid, posts, user?.uid]);
+
+  const saveFriend = async (targetProfile: UserProfile) => {
+    if (!user || !profile) {
+      alert('請先登入後再加好友。');
+      return;
+    }
+
+    if (targetProfile.uid === user.uid) {
+      setFriendActionMessage('不能把自己加入好友。');
+      return;
+    }
+
+    setIsSavingRelationship(true);
+    setFriendActionMessage(null);
+
+    try {
+      const friendRef = doc(db, 'users', user.uid, 'friends', targetProfile.uid);
+      const existingFriend = await getDoc(friendRef);
+
+      if (existingFriend.exists()) {
+        setIsFriendProfile(viewingProfile?.uid === targetProfile.uid ? true : isFriendProfile);
+        setFriendActionMessage(`${targetProfile.displayName || targetProfile.islanderId} 已經在好友名單裡。`);
+        return;
+      }
+
+      await setDoc(friendRef, {
+        friendId: targetProfile.uid,
+        islanderId: targetProfile.islanderId,
+        displayName: targetProfile.displayName || targetProfile.islanderId,
+        photoURL: targetProfile.photoURL || DEFAULT_ISLANDER_PHOTO,
+        createdAt: serverTimestamp(),
+      });
+
+      if (viewingProfile?.uid === targetProfile.uid) setIsFriendProfile(true);
+      if (viewingProfile?.uid === user.uid) {
+        setProfileStats(previous => ({
+          ...previous,
+          friendCount: previous.friendCount + 1,
+        }));
+      }
+      setFriendActionMessage(`已加入 ${targetProfile.displayName || targetProfile.islanderId}。`);
+    } catch (err: any) {
+      console.error('Add friend failed:', err);
+      setFriendActionMessage(err.message?.includes('permission-denied') ? '加好友失敗，請確認 Firebase Rules 已更新。' : '加好友失敗，請稍後再試。');
+    } finally {
+      setIsSavingRelationship(false);
+    }
+  };
+
+  const handleAddFriendByIslandId = async () => {
+    const islanderId = friendIslandIdInput.trim();
+    if (!islanderId) {
+      setFriendActionMessage('請輸入島民ID。');
+      return;
+    }
+
+    setIsSavingRelationship(true);
+    setFriendActionMessage(null);
+
+    try {
+      const usersQuery = query(collection(db, 'users'), where('islanderId', '==', islanderId));
+      const snap = await getDocs(usersQuery);
+
+      if (snap.empty) {
+        setFriendActionMessage('找不到這個島民ID。');
+        return;
+      }
+
+      const targetDoc = snap.docs[0];
+      await saveFriend({ uid: targetDoc.id, ...targetDoc.data() } as UserProfile);
+      setFriendIslandIdInput('');
+    } catch (err: any) {
+      console.error('Find friend failed:', err);
+      setFriendActionMessage(err.message?.includes('permission-denied') ? '搜尋島民失敗，請確認 Firebase Rules 已更新。' : '搜尋島民失敗，請稍後再試。');
+    } finally {
+      setIsSavingRelationship(false);
+    }
+  };
+
+  const handleToggleFollow = async () => {
+    if (!user || !profile || !viewingProfile || viewingProfile.uid === user.uid) {
+      return;
+    }
+
+    setIsSavingRelationship(true);
+    setFriendActionMessage(null);
+
+    const followingRef = doc(db, 'users', user.uid, 'following', viewingProfile.uid);
+    const followerRef = doc(db, 'users', viewingProfile.uid, 'followers', user.uid);
+
+    try {
+      if (isFollowingProfile) {
+        await deleteDoc(followingRef);
+        await deleteDoc(followerRef);
+        setIsFollowingProfile(false);
+        setProfileStats(previous => ({
+          ...previous,
+          followerCount: Math.max(0, previous.followerCount - 1),
+        }));
+      } else {
+        await setDoc(followingRef, {
+          targetUserId: viewingProfile.uid,
+          islanderId: viewingProfile.islanderId,
+          displayName: viewingProfile.displayName || viewingProfile.islanderId,
+          photoURL: viewingProfile.photoURL || DEFAULT_ISLANDER_PHOTO,
+          createdAt: serverTimestamp(),
+        });
+        await setDoc(followerRef, {
+          followerId: user.uid,
+          islanderId: profile.islanderId,
+          displayName: profile.displayName || profile.islanderId,
+          photoURL: profile.photoURL || DEFAULT_ISLANDER_PHOTO,
+          createdAt: serverTimestamp(),
+        });
+        setIsFollowingProfile(true);
+        setProfileStats(previous => ({
+          ...previous,
+          followerCount: previous.followerCount + 1,
+        }));
+      }
+    } catch (err: any) {
+      console.error('Follow failed:', err);
+      setFriendActionMessage(err.message?.includes('permission-denied') ? '追蹤失敗，請確認 Firebase Rules 已更新。' : '追蹤失敗，請稍後再試。');
+    } finally {
+      setIsSavingRelationship(false);
     }
   };
 
@@ -1259,10 +1558,22 @@ const HOT_TOPICS = Object.entries(topicCounts)
     }
   };
 
+  const normalizedSearchQuery = searchQuery.trim().toLowerCase();
+  const postMatchesSearch = (post: Post) => {
+    if (!normalizedSearchQuery) return true;
+    return [
+      post.content,
+      post.authorName,
+      post.category,
+      post.aiTag,
+      post.aiSummary,
+    ].some(value => String(value || '').toLowerCase().includes(normalizedSearchQuery));
+  };
+  const searchResultCount = normalizedSearchQuery ? posts.filter(postMatchesSearch).length : posts.length;
+
   const filteredPosts = posts
     .filter(post => {
-      const matchesSearch = post.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                           post.authorName.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesSearch = postMatchesSearch(post);
       
       if (activeCategory === '熱門話題') {
         return matchesSearch && (post.likesCount >= 3);
@@ -1277,6 +1588,11 @@ const HOT_TOPICS = Object.entries(topicCounts)
       }
       return 0; // Keep Firestore order (desc ending)
     });
+  const searchCategoryShortcuts = POST_TAGS.slice(0, 8);
+  const searchPreviewPosts = normalizedSearchQuery ? posts.filter(postMatchesSearch).slice(0, 3) : [];
+  const viewingProfilePosts = viewingProfile ? posts.filter(post => post.authorId === viewingProfile.uid) : [];
+  const visibleProfilePosts = profileTab === 'posts' ? viewingProfilePosts : profileLikedPosts;
+  const isViewingOwnProfile = Boolean(user && viewingProfile && user.uid === viewingProfile.uid);
 
   if (loading) {
     return (
@@ -1680,32 +1996,6 @@ const HOT_TOPICS = Object.entries(topicCounts)
                   <p className="text-[0.5625rem] text-text-muted mt-2 px-1 italic">調整後會即時改變全站介面文字的大小比例。</p>
                 </div>
 
-                {user && (
-                  <div>
-                    <label className="text-[0.625rem] text-text-muted font-bold uppercase tracking-widest mb-4 block">帳號管理</label>
-                    <button
-                      onClick={() => {
-                        setShowSettings(false);
-                        handleOpenProfile(user.uid);
-                        // Delay editing to let profile modal open first
-                        setTimeout(() => setIsEditingProfile(true), 300);
-                      }}
-                      className="w-full flex items-center justify-between p-4 rounded-2xl bg-mist border border-line hover:border-bio-glow/50 transition-all group cursor-pointer"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10">
-                          <UserAvatar p={{ ...profile, islanderId: profile?.islanderId || user.uid, role: profile?.role }} className="w-full h-full" />
-                        </div>
-                        <div className="text-left">
-                          <p className="text-sm font-bold text-text-main group-hover:text-bio-glow transition-colors">{profile?.displayName}</p>
-                          <p className="text-[0.625rem] text-text-muted font-mono tracking-wider">{profile?.islanderId}</p>
-                        </div>
-                      </div>
-                      <Edit2 className="w-4 h-4 text-text-muted group-hover:text-text-main transition-colors" />
-                    </button>
-                  </div>
-                )}
-
                 <div className="pt-4 border-t border-line">
                   <div className="flex items-center justify-between p-4 rounded-2xl bg-mist border border-line opacity-80">
                     <div className="flex items-center gap-3">
@@ -1835,6 +2125,16 @@ const HOT_TOPICS = Object.entries(topicCounts)
                             <button onClick={() => { setShowSettings(true); setShowSettingsMenu(false); }} className="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium text-text-main hover:bg-mist-light rounded-lg transition-colors">
                               <Settings className="w-3.5 h-3.5 text-text-muted" /> 偏好設定
                             </button>
+                            {user && (
+                              <>
+                                <button onClick={() => { handleOpenProfile(user.uid, { tab: 'posts' }); setShowSettingsMenu(false); }} className="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium text-text-main hover:bg-mist-light rounded-lg transition-colors">
+                                  <User className="w-3.5 h-3.5 text-text-muted" /> 我的主頁
+                                </button>
+                                <button onClick={() => { handleOpenProfile(user.uid, { edit: true }); setShowSettingsMenu(false); }} className="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium text-text-main hover:bg-mist-light rounded-lg transition-colors">
+                                  <Edit2 className="w-3.5 h-3.5 text-text-muted" /> 編輯個人資料
+                                </button>
+                              </>
+                            )}
                             {canReviewReports && (
                               <button onClick={() => { setShowReportsPanel(true); setShowSettingsMenu(false); }} className="w-full flex items-center justify-between gap-3 px-3 py-2.5 text-sm font-medium text-text-main hover:bg-mist-light rounded-lg transition-colors">
                                 <span className="flex items-center gap-3">
@@ -1919,17 +2219,32 @@ const HOT_TOPICS = Object.entries(topicCounts)
               </motion.button>
             </div>
 
-            <div className="flex-1 max-w-full sm:max-w-[240px] relative group hidden sm:block">
-               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
+            <div className="flex-1 max-w-full sm:max-w-[320px] relative group hidden sm:block">
+               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-bio-glow/80" />
              <input 
                type="text" 
-               placeholder="搜尋馬祖的小事..."
-               className="w-full bg-mist-light border border-line rounded-full py-2 pl-10 pr-4 text-sm text-text-main placeholder:text-text-muted/40 focus:ring-2 focus:ring-blue-500/50 transition-all outline-none"
+               placeholder="搜尋貼文、作者、分類..."
+               className="w-full bg-deep-ocean/70 border border-line rounded-full py-2.5 pl-10 pr-10 text-sm text-text-main placeholder:text-text-muted/70 focus:border-bio-glow/70 focus:bg-mist-light focus:ring-2 focus:ring-bio-glow/20 transition-all outline-none shadow-sm"
                value={searchQuery}
-               onChange={(e) => setSearchQuery(e.target.value)}
+               onChange={(e) => {
+                 setSearchQuery(e.target.value);
+                 setIsSearchFocused(true);
+               }}
                onFocus={() => setIsSearchFocused(true)}
+               onClick={() => setIsSearchFocused(true)}
                onBlur={() => setTimeout(() => setIsSearchFocused(false), 200)}
              />
+             {searchQuery && (
+               <button
+                 type="button"
+                 onMouseDown={(e) => e.preventDefault()}
+                 onClick={() => setSearchQuery('')}
+                 className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded-full text-text-muted hover:text-text-main hover:bg-mist-medium transition-colors"
+                 title="清除搜尋"
+               >
+                 <X className="w-3.5 h-3.5" />
+               </button>
+             )}
 
              <AnimatePresence>
                {isSearchFocused && (
@@ -1937,8 +2252,93 @@ const HOT_TOPICS = Object.entries(topicCounts)
                    initial={{ opacity: 0, y: 10 }}
                    animate={{ opacity: 1, y: 0 }}
                    exit={{ opacity: 0, y: 10 }}
-                   className="absolute top-full left-0 right-0 mt-2 p-4 glass-card rounded-2xl z-50 shadow-2xl border-line"
+                   className="absolute top-full left-0 right-0 mt-2 p-4 glass-card rounded-2xl z-50 shadow-2xl border-line max-h-[70vh] overflow-y-auto"
                  >
+                   <div className="rounded-xl bg-mist-light border border-line p-3 mb-4">
+                     <div className="flex items-center justify-between gap-3">
+                       <div className="min-w-0">
+                         <p className="text-[0.625rem] text-text-muted font-bold uppercase tracking-widest">智慧搜尋</p>
+                         <p className="text-sm text-text-main font-bold mt-1">
+                           {normalizedSearchQuery ? `找到 ${searchResultCount} 則相關動態` : '輸入關鍵字，或直接選分類'}
+                         </p>
+                       </div>
+                       {normalizedSearchQuery && (
+                         <button
+                           type="button"
+                           onMouseDown={(e) => e.preventDefault()}
+                           onClick={() => setSearchQuery('')}
+                           className="shrink-0 text-[0.625rem] font-bold text-text-muted hover:text-bio-glow transition-colors"
+                         >
+                           清除
+                         </button>
+                       )}
+                     </div>
+                     <p className="text-[0.6875rem] text-text-muted leading-relaxed mt-2">
+                       會比對貼文內容、作者名稱、分類與 AI 標籤。
+                     </p>
+                   </div>
+
+                   {normalizedSearchQuery && searchPreviewPosts.length > 0 && (
+                     <div className="mb-4">
+                       <div className="flex items-center justify-between mb-2 px-1">
+                         <span className="text-[0.625rem] text-text-muted font-bold uppercase tracking-widest">搜尋預覽</span>
+                         <span className="text-[0.625rem] text-text-muted font-mono">{searchPreviewPosts.length}/{searchResultCount}</span>
+                       </div>
+                       <div className="space-y-1.5">
+                         {searchPreviewPosts.map(post => (
+                           <button
+                             key={post.id}
+                             type="button"
+                             onClick={() => {
+                               setIsSearchFocused(false);
+                               setActiveCategory('全部');
+                               setTimeout(() => {
+                                 document.getElementById(`post-${post.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                               }, 80);
+                             }}
+                             className="w-full text-left p-2.5 rounded-xl hover:bg-mist-light transition-colors"
+                           >
+                             <div className="flex items-center justify-between gap-3">
+                               <span className="text-xs font-bold text-text-main truncate">{post.authorName}</span>
+                               <span className="text-[0.625rem] text-bio-glow shrink-0">{normalizeCategoryName(post.category) || post.aiTag || '未分類'}</span>
+                             </div>
+                             <p className="text-[0.6875rem] text-text-muted line-clamp-2 mt-1 leading-relaxed">{post.content || '圖片貼文'}</p>
+                           </button>
+                         ))}
+                       </div>
+                     </div>
+                   )}
+                   {normalizedSearchQuery && searchPreviewPosts.length === 0 && (
+                     <div className="mb-4 rounded-xl border border-line bg-mist-light p-3">
+                       <p className="text-sm font-bold text-text-main">目前沒有符合的動態</p>
+                       <p className="text-[0.6875rem] text-text-muted leading-relaxed mt-1">可以換個關鍵字，或用下方分類快速瀏覽。</p>
+                     </div>
+                   )}
+
+                   <div className="mb-4">
+                     <div className="flex items-center justify-between mb-2 px-1">
+                       <span className="text-[0.625rem] text-text-muted font-bold uppercase tracking-widest">快速分類</span>
+                       <Compass className="w-3.5 h-3.5 text-text-muted" />
+                     </div>
+                     <div className="grid grid-cols-2 gap-2">
+                       {searchCategoryShortcuts.map(cat => (
+                         <button
+                           key={cat.id}
+                           type="button"
+                           onClick={() => {
+                             setActiveCategory(cat.name);
+                             setSearchQuery('');
+                             setIsSearchFocused(false);
+                           }}
+                           className="flex items-center gap-2 rounded-xl border border-line bg-mist-light px-2.5 py-2 text-left hover:border-bio-glow/40 hover:text-bio-glow transition-all"
+                         >
+                           <span className="text-sm">{cat.icon}</span>
+                           <span className="text-[0.6875rem] font-bold text-text-main truncate">{cat.name}</span>
+                         </button>
+                       ))}
+                     </div>
+                   </div>
+
                    <div className="flex items-center justify-between mb-3 px-1">
                      <span className="text-[0.625rem] text-text-muted font-bold uppercase tracking-widest">熱門地圖話題</span>
                      <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
@@ -2066,13 +2466,25 @@ const HOT_TOPICS = Object.entries(topicCounts)
                         {user && (
                           <button 
                             onClick={() => { 
-                              handleOpenProfile(user.uid); 
+                              handleOpenProfile(user.uid, { tab: 'posts' }); 
                               setShowSettingsMenu(false); 
                             }}
                             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-text-main hover:bg-white/10 transition-all text-sm font-medium group"
                           >
                             <User className="w-4 h-4 text-text-muted group-hover:text-bio-glow" />
-                            我的檔案
+                            我的主頁
+                          </button>
+                        )}
+                        {user && (
+                          <button 
+                            onClick={() => { 
+                              handleOpenProfile(user.uid, { edit: true }); 
+                              setShowSettingsMenu(false); 
+                            }}
+                            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-text-main hover:bg-white/10 transition-all text-sm font-medium group"
+                          >
+                            <Edit2 className="w-4 h-4 text-text-muted group-hover:text-bio-glow" />
+                            編輯個人資料
                           </button>
                         )}
                         {canReviewReports && (
@@ -2179,7 +2591,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
             <motion.div 
               initial={{ scale: 0.9, opacity: 0, y: 30 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
-              className="glass-card rounded-[2.5rem] w-full max-w-lg shadow-2xl overflow-hidden border-line relative max-h-[90vh] flex flex-col"
+              className="glass-card rounded-[2.5rem] w-full max-w-4xl shadow-2xl overflow-hidden border-line relative max-h-[90vh] flex flex-col"
             >
               <button 
                 onClick={() => { setViewingProfile(null); setIsEditingProfile(false); }}
@@ -2238,14 +2650,29 @@ const HOT_TOPICS = Object.entries(topicCounts)
                         </>
                       )}
                     </div>
-                    {user?.uid === viewingProfile.uid && !isEditingProfile && (
-                      <button 
-                        onClick={() => setIsEditingProfile(true)}
-                        className="bg-mist-medium text-text-main px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-mist border border-line transition-all mb-2"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                        修改檔案
-                      </button>
+                    {!isViewingOwnProfile && user && !isEditingProfile && (
+                      <div className="flex flex-wrap justify-end gap-2 mb-2">
+                        <button
+                          type="button"
+                          disabled={isSavingRelationship}
+                          onClick={handleToggleFollow}
+                          className={`px-4 py-2 rounded-xl text-sm font-bold border transition-all ${
+                            isFollowingProfile
+                              ? 'bg-bio-glow/10 text-bio-glow border-bio-glow/30'
+                              : 'bg-bio-glow text-deep-ocean border-bio-glow hover:bg-white'
+                          } disabled:opacity-50`}
+                        >
+                          {isFollowingProfile ? '已追蹤' : '追蹤'}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isSavingRelationship || isFriendProfile}
+                          onClick={() => saveFriend(viewingProfile)}
+                          className="px-4 py-2 rounded-xl text-sm font-bold bg-mist-medium text-text-main border border-line hover:bg-mist disabled:opacity-50 transition-all"
+                        >
+                          {isFriendProfile ? '已是好友' : '加好友'}
+                        </button>
+                      </div>
                     )}
                   </div>
 
@@ -2328,8 +2755,8 @@ const HOT_TOPICS = Object.entries(topicCounts)
                     </form>
                   ) : (
                     <div className="space-y-6">
-                      <div className="space-y-1">
-                         <div className="flex items-center gap-3">
+                      <div className="space-y-3">
+                         <div className="flex flex-wrap items-center gap-3">
                            <h2 className={`text-2xl font-bold ${viewingProfile.role === 'admin' ? 'rgb-text' : 'text-text-main'}`}>
                              {viewingProfile.displayName}
                            </h2>
@@ -2346,15 +2773,136 @@ const HOT_TOPICS = Object.entries(topicCounts)
                          </div>
                          <div className="flex items-center gap-2">
                            <span className="text-[0.625rem] bg-mist-medium text-text-muted px-2 py-0.5 rounded-full font-mono font-bold tracking-wider uppercase">
-                             島內ID: {viewingProfile.islanderId}
+                             島民ID: {viewingProfile.islanderId}
                            </span>
+                           {isViewingOwnProfile && (
+                             <span className="text-[0.625rem] bg-blue-500/10 text-blue-300 px-2 py-0.5 rounded-full font-bold border border-blue-500/20">
+                               你的主頁
+                             </span>
+                           )}
                          </div>
                       </div>
 
-                      <div className="p-5 bg-mist-light border border-line rounded-[2rem] min-h-[100px]">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        {[
+                          ['發文', profileStats.postCount],
+                          ['好友', profileStats.friendCount],
+                          ['追蹤中', profileStats.followingCount],
+                          ['追蹤者', profileStats.followerCount],
+                        ].map(([label, value]) => (
+                          <div key={label} className="rounded-2xl border border-line bg-mist-light p-3 text-center">
+                            <p className="text-lg font-bold text-text-main font-mono">{value}</p>
+                            <p className="text-[0.625rem] text-text-muted font-bold uppercase tracking-widest mt-0.5">{label}</p>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="p-5 bg-mist-light border border-line rounded-[2rem] min-h-[96px]">
                          <p className="text-text-muted text-sm leading-relaxed whitespace-pre-wrap">
                            {viewingProfile.bio || "這個島民很神秘，還沒有留下任何簡介。"}
                          </p>
+                      </div>
+
+                      {isViewingOwnProfile && (
+                        <form
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            handleAddFriendByIslandId();
+                          }}
+                          className="rounded-[1.5rem] border border-line bg-mist/70 p-4 space-y-3"
+                        >
+                          <div>
+                            <p className="text-xs font-bold text-text-main">用島民ID加好友</p>
+                            <p className="text-[0.6875rem] text-text-muted mt-1">輸入對方個人資訊頁上的島民ID，就能加入自己的好友名單。</p>
+                          </div>
+                          <div className="flex flex-col sm:flex-row gap-2">
+                            <input
+                              type="text"
+                              value={friendIslandIdInput}
+                              onChange={(e) => setFriendIslandIdInput(e.target.value)}
+                              placeholder="例如：L"
+                              className="flex-1 rounded-xl border border-line bg-mist px-4 py-2.5 text-sm text-text-main outline-none focus:border-bio-glow/50 placeholder:text-text-muted/40"
+                            />
+                            <button
+                              type="submit"
+                              disabled={isSavingRelationship}
+                              className="rounded-xl bg-bio-glow px-4 py-2.5 text-sm font-bold text-deep-ocean hover:bg-white disabled:opacity-50 transition-all"
+                            >
+                              加好友
+                            </button>
+                          </div>
+                          {friendActionMessage && (
+                            <p className="text-[0.6875rem] text-bio-glow">{friendActionMessage}</p>
+                          )}
+                        </form>
+                      )}
+
+                      {!isViewingOwnProfile && friendActionMessage && (
+                        <div className="rounded-2xl border border-bio-glow/20 bg-bio-glow/10 px-4 py-3 text-sm text-bio-glow">
+                          {friendActionMessage}
+                        </div>
+                      )}
+
+                      <div className="rounded-[1.5rem] border border-line bg-mist/60 overflow-hidden">
+                        <div className="flex border-b border-line bg-mist-light p-1">
+                          {PROFILE_TABS.map(tab => (
+                            <button
+                              key={tab.id}
+                              type="button"
+                              onClick={() => setProfileTab(tab.id)}
+                              className={`flex-1 rounded-xl px-3 py-2 text-xs font-bold transition-all ${
+                                profileTab === tab.id
+                                  ? 'bg-bio-glow text-deep-ocean shadow-lg shadow-bio-glow/10'
+                                  : 'text-text-muted hover:text-text-main'
+                              }`}
+                            >
+                              {tab.label}
+                            </button>
+                          ))}
+                        </div>
+
+                        <div className="max-h-[360px] overflow-y-auto custom-scrollbar p-3 space-y-2">
+                          {isLoadingProfileActivity ? (
+                            <div className="p-8 text-center text-sm text-text-muted">讀取個人動態中...</div>
+                          ) : visibleProfilePosts.length > 0 ? (
+                            visibleProfilePosts.map(profilePost => (
+                              <button
+                                key={profilePost.id}
+                                type="button"
+                                onClick={() => {
+                                  setViewingProfile(null);
+                                  setIsEditingProfile(false);
+                                  setActiveCategory('全部');
+                                  setTimeout(() => {
+                                    document.getElementById(`post-${profilePost.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                  }, 80);
+                                }}
+                                className="w-full rounded-2xl border border-line bg-mist-light p-4 text-left hover:border-bio-glow/40 hover:bg-mist transition-all"
+                              >
+                                <div className="flex items-center justify-between gap-3">
+                                  <span className="text-[0.625rem] font-bold text-bio-glow">{normalizeCategoryName(profilePost.category) || profilePost.aiTag || '未分類'}</span>
+                                  <span className="text-[0.625rem] text-text-muted">
+                                    {profilePost.createdAt?.toDate ? formatDistanceToNow(profilePost.createdAt.toDate(), { addSuffix: true, locale: zhTW }) : '剛剛'}
+                                  </span>
+                                </div>
+                                <p className="mt-2 line-clamp-2 text-sm text-text-main/90 leading-relaxed">{profilePost.content || '圖片貼文'}</p>
+                                <div className="mt-3 flex items-center gap-4 text-[0.6875rem] text-text-muted">
+                                  <span>{profilePost.likesCount || 0} 個反應</span>
+                                  <span>{profilePost.commentsCount || 0} 則留言</span>
+                                </div>
+                              </button>
+                            ))
+                          ) : (
+                            <div className="p-8 text-center">
+                              <p className="text-sm font-bold text-text-main">
+                                {profileTab === 'posts' ? '目前沒有發文' : '目前沒有按讚內容'}
+                              </p>
+                              <p className="text-[0.6875rem] text-text-muted mt-1">
+                                {profileTab === 'posts' ? '這裡會顯示這位島民的歷史發文。' : '這裡會顯示這位島民按過反應的貼文。'}
+                              </p>
+                            </div>
+                          )}
+                        </div>
                       </div>
 
                       <div className="flex items-center justify-between pt-4 opacity-50 border-t border-line">
@@ -2799,13 +3347,6 @@ const HOT_TOPICS = Object.entries(topicCounts)
               </div>
             </div>
 
-            {/* Footer Links Small */}
-            <div className="px-4 flex flex-wrap gap-x-4 gap-y-2 opacity-30 group hover:opacity-100 transition-opacity">
-               <button onClick={() => setShowTerms(true)} className="text-[0.625rem] text-text-muted hover:text-text-main uppercase font-bold tracking-widest whitespace-nowrap">條款</button>
-               <button onClick={() => setShowTerms(true)} className="text-[0.625rem] text-text-muted hover:text-text-main uppercase font-bold tracking-widest whitespace-nowrap">隱私</button>
-               <button onClick={() => setShowTerms(true)} className="text-[0.625rem] text-text-muted hover:text-text-main uppercase font-bold tracking-widest whitespace-nowrap">贊助</button>
-               <button onClick={() => setShowTerms(true)} className="text-[0.625rem] text-text-muted hover:text-text-main uppercase font-bold tracking-widest whitespace-nowrap">API</button>
-            </div>
           </div>
         </aside>
       </main>
@@ -3345,12 +3886,12 @@ function PostCard({
   onShare: (post: Post) => void;
 }) {
   const { user, profile } = useAuth();
-  const [isLiked, setIsLiked] = useState(false);
+  const [selectedReaction, setSelectedReaction] = useState<string | null>(null);
   const [likes, setLikes] = useState(post.likesCount);
   const [showComments, setShowComments] = useState(false);
   const [comments, setComments] = useState<Comment[]>([]);
-  const [commentLikes, setCommentLikes] = useState<Record<string, boolean>>({});
-  const [replyLikes, setReplyLikes] = useState<Record<string, boolean>>({});
+  const [commentReactions, setCommentReactions] = useState<Record<string, string>>({});
+  const [replyReactions, setReplyReactions] = useState<Record<string, string>>({});
   const [replyingToCommentId, setReplyingToCommentId] = useState<string | null>(null);
   const [replyInputs, setReplyInputs] = useState<Record<string, string>>({});
   const [highlightedDiscussionId, setHighlightedDiscussionId] = useState<string | null>(null);
@@ -3366,7 +3907,7 @@ function PostCard({
       const likePath = `posts/${post.id}/likes/${user.uid}`;
       const likeRef = doc(db, 'posts', post.id, 'likes', user.uid);
       getDoc(likeRef)
-        .then(snap => setIsLiked(snap.exists()))
+        .then(snap => setSelectedReaction(snap.exists() ? (snap.data().reaction || DEFAULT_REACTION) : null))
         .catch(error => {
           console.warn('Like status fetch failed (likely offline or missing doc):', error.message);
         });
@@ -3395,9 +3936,9 @@ function PostCard({
     };
   }, []);
 
-  const handleLike = async () => {
+  const handleReaction = async (reaction: string) => {
     if (!user) {
-      alert("請登入後再點擊愛心。");
+      alert("請登入後再使用表情反應。");
       return;
     }
     
@@ -3410,21 +3951,30 @@ function PostCard({
     const postPath = `posts/${post.id}`;
     const likeRef = doc(db, 'posts', post.id, 'likes', user.uid);
     const postRef = doc(db, 'posts', post.id);
+    const previousReaction = selectedReaction;
+    const isRemovingReaction = previousReaction === reaction;
+    const isNewReaction = !previousReaction;
 
     try {
-      if (isLiked) {
-        setIsLiked(false);
-        setLikes(prev => prev - 1);
+      if (isRemovingReaction) {
+        setSelectedReaction(null);
+        setLikes(prev => Math.max(0, prev - 1));
         await deleteDoc(likeRef);
         await updateDoc(postRef, { likesCount: increment(-1) });
       } else {
-        setIsLiked(true);
-        setLikes(prev => prev + 1);
-        await setDoc(likeRef, { createdAt: serverTimestamp() });
-        await updateDoc(postRef, { likesCount: increment(1) });
+        setSelectedReaction(reaction);
+        if (isNewReaction) setLikes(prev => prev + 1);
+        await setDoc(likeRef, {
+          reaction,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        }, { merge: true });
+        if (isNewReaction) {
+          await updateDoc(postRef, { likesCount: increment(1) });
+        }
         
         // Send notification to author
-        if (user.uid !== post.authorId) {
+        if (isNewReaction && user.uid !== post.authorId) {
           await addDoc(collection(db, 'notifications'), {
             recipientId: post.authorId,
             senderId: user.uid,
@@ -3433,7 +3983,7 @@ function PostCard({
             postId: post.id,
             category: post.category,
             title: '有人也喜歡這則動態',
-            content: `${profile?.displayName || user.displayName} 點擊了你的動態愛心。`,
+            content: `${profile?.displayName || user.displayName} 用 ${reaction} 回應了你的動態。`,
             read: false,
             createdAt: serverTimestamp()
           });
@@ -3442,12 +3992,11 @@ function PostCard({
     } catch (err: any) {
       console.error(err);
       // Revert state on error
-      if (isLiked) {
-        setIsLiked(true);
+      setSelectedReaction(previousReaction);
+      if (isRemovingReaction) {
         setLikes(prev => prev + 1);
-      } else {
-        setIsLiked(false);
-        setLikes(prev => prev - 1);
+      } else if (isNewReaction) {
+        setLikes(prev => Math.max(0, prev - 1));
       }
       
       if (err.message.includes('permission-denied') || err.message.includes('insufficient permissions')) {
@@ -3455,7 +4004,7 @@ function PostCard({
       } else {
         alert("操作失敗，可能是因為網路連線問題，或您的資料庫尚未初始化。");
       }
-      handleFirestoreError(err, OperationType.WRITE, isLiked ? likePath : postPath);
+      handleFirestoreError(err, OperationType.WRITE, isRemovingReaction ? likePath : postPath);
     }
   };
 
@@ -3486,8 +4035,8 @@ function PostCard({
     commentsUnsubscribeRef.current = null;
     closeReplySubscriptions();
     setComments([]);
-    setCommentLikes({});
-    setReplyLikes({});
+    setCommentReactions({});
+    setReplyReactions({});
     setReplyingToCommentId(null);
     setReplyInputs({});
     setShowComments(false);
@@ -3531,19 +4080,19 @@ function PostCard({
           Promise.all(
             nextComments.map(async comment => {
               const likeSnap = await getDoc(doc(db, 'posts', post.id, 'comments', comment.id, 'likes', user.uid));
-              return [comment.id, likeSnap.exists()] as const;
+              return [comment.id, likeSnap.exists() ? (likeSnap.data().reaction || DEFAULT_REACTION) : ''] as const;
             })
           )
             .then(entries => {
-              const nextLikes = Object.fromEntries(entries);
-              setCommentLikes(nextLikes);
+              const nextReactions = Object.fromEntries(entries.filter(([, reaction]) => Boolean(reaction)));
+              setCommentReactions(nextReactions);
             })
             .catch(error => {
               console.warn('Comment like status fetch failed:', error.message);
             });
         } else {
-          setCommentLikes({});
-          setReplyLikes({});
+          setCommentReactions({});
+          setReplyReactions({});
         }
 
         nextComments.forEach(comment => {
@@ -3564,11 +4113,12 @@ function PostCard({
               Promise.all(
                 replies.map(async reply => {
                   const likeSnap = await getDoc(doc(db, 'posts', post.id, 'comments', comment.id, 'replies', reply.id, 'likes', user.uid));
-                  return [getReplyLikeKey(comment.id, reply.id), likeSnap.exists()] as const;
+                  return [getReplyLikeKey(comment.id, reply.id), likeSnap.exists() ? (likeSnap.data().reaction || DEFAULT_REACTION) : ''] as const;
                 })
               )
                 .then(entries => {
-                  setReplyLikes(previous => ({ ...previous, ...Object.fromEntries(entries) }));
+                  const nextReactions = Object.fromEntries(entries.filter(([, reaction]) => Boolean(reaction)));
+                  setReplyReactions(previous => ({ ...previous, ...nextReactions }));
                 })
                 .catch(error => {
                   console.warn('Reply like status fetch failed:', error.message);
@@ -3694,9 +4244,9 @@ function PostCard({
     }
   };
 
-  const handleCommentLike = async (comment: Comment) => {
+  const handleCommentReaction = async (comment: Comment, reaction: string) => {
     if (!user) {
-      alert('請登入後再幫留言按讚。');
+      alert('請登入後再幫留言加表情反應。');
       return;
     }
 
@@ -3705,13 +4255,20 @@ function PostCard({
       return;
     }
 
-    const wasLiked = Boolean(commentLikes[comment.id]);
-    const likeChange = wasLiked ? -1 : 1;
+    const previousReaction = commentReactions[comment.id] || null;
+    const isRemovingReaction = previousReaction === reaction;
+    const isNewReaction = !previousReaction;
+    const likeChange = isRemovingReaction ? -1 : isNewReaction ? 1 : 0;
     const likeRef = doc(db, 'posts', post.id, 'comments', comment.id, 'likes', user.uid);
     const commentRef = doc(db, 'posts', post.id, 'comments', comment.id);
     const senderName = profile?.displayName || user.displayName || '匿名島民';
 
-    setCommentLikes(previous => ({ ...previous, [comment.id]: !wasLiked }));
+    setCommentReactions(previous => {
+      const next = { ...previous };
+      if (isRemovingReaction) delete next[comment.id];
+      else next[comment.id] = reaction;
+      return next;
+    });
     setComments(previousComments => sortTopLevelComments(
       previousComments.map(existingComment => (
         existingComment.id === comment.id
@@ -3721,15 +4278,21 @@ function PostCard({
     ));
 
     try {
-      if (wasLiked) {
+      if (isRemovingReaction) {
         await deleteDoc(likeRef);
       } else {
-        await setDoc(likeRef, { createdAt: serverTimestamp() });
+        await setDoc(likeRef, {
+          reaction,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        }, { merge: true });
       }
 
-      await updateDoc(commentRef, { likesCount: increment(likeChange) });
+      if (likeChange !== 0) {
+        await updateDoc(commentRef, { likesCount: increment(likeChange) });
+      }
 
-      if (!wasLiked && user.uid !== comment.authorId) {
+      if (isNewReaction && user.uid !== comment.authorId) {
         await addDoc(collection(db, 'notifications'), {
           recipientId: comment.authorId,
           senderId: user.uid,
@@ -3739,13 +4302,18 @@ function PostCard({
           category: post.category,
           commentId: comment.id,
           title: '有人喜歡你的留言',
-          content: `${senderName} 幫你的留言按了讚。`,
+          content: `${senderName} 用 ${reaction} 回應了你的留言。`,
           read: false,
           createdAt: serverTimestamp(),
         });
       }
     } catch (err: any) {
-      setCommentLikes(previous => ({ ...previous, [comment.id]: wasLiked }));
+      setCommentReactions(previous => {
+        const next = { ...previous };
+        if (previousReaction) next[comment.id] = previousReaction;
+        else delete next[comment.id];
+        return next;
+      });
       setComments(previousComments => sortTopLevelComments(
         previousComments.map(existingComment => (
           existingComment.id === comment.id
@@ -3758,9 +4326,9 @@ function PostCard({
     }
   };
 
-  const handleReplyLike = async (comment: Comment, reply: CommentReply) => {
+  const handleReplyReaction = async (comment: Comment, reply: CommentReply, reaction: string) => {
     if (!user) {
-      alert('請登入後再幫回覆按讚。');
+      alert('請登入後再幫回覆加表情反應。');
       return;
     }
 
@@ -3770,13 +4338,20 @@ function PostCard({
     }
 
     const replyLikeKey = getReplyLikeKey(comment.id, reply.id);
-    const wasLiked = Boolean(replyLikes[replyLikeKey]);
-    const likeChange = wasLiked ? -1 : 1;
+    const previousReaction = replyReactions[replyLikeKey] || null;
+    const isRemovingReaction = previousReaction === reaction;
+    const isNewReaction = !previousReaction;
+    const likeChange = isRemovingReaction ? -1 : isNewReaction ? 1 : 0;
     const likeRef = doc(db, 'posts', post.id, 'comments', comment.id, 'replies', reply.id, 'likes', user.uid);
     const replyRef = doc(db, 'posts', post.id, 'comments', comment.id, 'replies', reply.id);
     const senderName = profile?.displayName || user.displayName || '匿名島民';
 
-    setReplyLikes(previous => ({ ...previous, [replyLikeKey]: !wasLiked }));
+    setReplyReactions(previous => {
+      const next = { ...previous };
+      if (isRemovingReaction) delete next[replyLikeKey];
+      else next[replyLikeKey] = reaction;
+      return next;
+    });
     setComments(previousComments => previousComments.map(existingComment => (
       existingComment.id === comment.id
         ? {
@@ -3791,15 +4366,21 @@ function PostCard({
     )));
 
     try {
-      if (wasLiked) {
+      if (isRemovingReaction) {
         await deleteDoc(likeRef);
       } else {
-        await setDoc(likeRef, { createdAt: serverTimestamp() });
+        await setDoc(likeRef, {
+          reaction,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        }, { merge: true });
       }
 
-      await updateDoc(replyRef, { likesCount: increment(likeChange) });
+      if (likeChange !== 0) {
+        await updateDoc(replyRef, { likesCount: increment(likeChange) });
+      }
 
-      if (!wasLiked && user.uid !== reply.authorId) {
+      if (isNewReaction && user.uid !== reply.authorId) {
         await addDoc(collection(db, 'notifications'), {
           recipientId: reply.authorId,
           senderId: user.uid,
@@ -3810,13 +4391,18 @@ function PostCard({
           commentId: comment.id,
           replyId: reply.id,
           title: '有人喜歡你的回覆',
-          content: `${senderName} 幫你的回覆按了讚。`,
+          content: `${senderName} 用 ${reaction} 回應了你的回覆。`,
           read: false,
           createdAt: serverTimestamp(),
         });
       }
     } catch (err: any) {
-      setReplyLikes(previous => ({ ...previous, [replyLikeKey]: wasLiked }));
+      setReplyReactions(previous => {
+        const next = { ...previous };
+        if (previousReaction) next[replyLikeKey] = previousReaction;
+        else delete next[replyLikeKey];
+        return next;
+      });
       setComments(previousComments => previousComments.map(existingComment => (
         existingComment.id === comment.id
           ? {
@@ -4173,13 +4759,11 @@ function PostCard({
         )}
 
         <div className="flex items-center gap-6 pt-5 border-t border-line">
-          <button 
-            onClick={handleLike}
-            className={`flex items-center gap-2 text-xs font-bold transition-all cursor-pointer active:scale-110 ${isLiked ? 'text-rose-500 glow-text' : 'text-text-muted hover:text-rose-500'}`}
-          >
-            <Heart className={`w-4 h-4 ${isLiked ? 'fill-current' : ''}`} />
-            {likes}
-          </button>
+          <ReactionButton
+            currentReaction={selectedReaction}
+            count={likes}
+            onSelect={handleReaction}
+          />
           <button 
             onClick={fetchComments}
             className="flex items-center gap-2 text-xs font-bold text-text-muted hover:text-bio-glow transition-all font-display cursor-pointer active:scale-110"
@@ -4312,16 +4896,12 @@ function PostCard({
                           {renderContentWithMentions(comment.content)}
                         </p>
                         <div className="flex items-center gap-4 pt-3">
-                          <button
-                            type="button"
-                            onClick={() => handleCommentLike(comment)}
-                            className={`flex items-center gap-1.5 text-[0.6875rem] font-bold transition-all cursor-pointer active:scale-110 ${
-                              commentLikes[comment.id] ? 'text-rose-500' : 'text-text-muted hover:text-rose-500'
-                            }`}
-                          >
-                            <Heart className={`w-3.5 h-3.5 ${commentLikes[comment.id] ? 'fill-current' : ''}`} />
-                            {comment.likesCount || 0}
-                          </button>
+                          <ReactionButton
+                            compact
+                            currentReaction={commentReactions[comment.id]}
+                            count={comment.likesCount || 0}
+                            onSelect={(reaction) => handleCommentReaction(comment, reaction)}
+                          />
                           {user && (
                             <button
                               type="button"
@@ -4407,16 +4987,12 @@ function PostCard({
                               {renderContentWithMentions(reply.content)}
                             </p>
                             <div className="flex items-center gap-3 pt-2">
-                              <button
-                                type="button"
-                                onClick={() => handleReplyLike(comment, reply)}
-                                className={`flex items-center gap-1.5 text-[0.6875rem] font-bold transition-all cursor-pointer active:scale-110 ${
-                                  replyLikes[getReplyLikeKey(comment.id, reply.id)] ? 'text-rose-500' : 'text-text-muted hover:text-rose-500'
-                                }`}
-                              >
-                                <Heart className={`w-3.5 h-3.5 ${replyLikes[getReplyLikeKey(comment.id, reply.id)] ? 'fill-current' : ''}`} />
-                                {reply.likesCount || 0}
-                              </button>
+                              <ReactionButton
+                                compact
+                                currentReaction={replyReactions[getReplyLikeKey(comment.id, reply.id)]}
+                                count={reply.likesCount || 0}
+                                onSelect={(reaction) => handleReplyReaction(comment, reply, reaction)}
+                              />
                             </div>
                           </div>
                         </div>

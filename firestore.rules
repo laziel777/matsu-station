@@ -62,6 +62,38 @@ service cloud.firestore {
       ]);
     }
 
+    function hasValidReactionFields() {
+      return request.resource.data.keys().hasOnly(['reaction', 'createdAt', 'updatedAt'])
+             && request.resource.data.reaction in ['❤️', '😂', '😭', '🔥', '👍', '👎', '😡', '😍', '🤔', '😮'];
+    }
+
+    function hasValidFriendFields(friendId) {
+      return request.resource.data.keys().hasOnly([
+               'friendId', 'islanderId', 'displayName', 'photoURL', 'createdAt'
+             ])
+             && request.resource.data.friendId == friendId
+             && request.resource.data.islanderId is string
+             && request.resource.data.displayName is string;
+    }
+
+    function hasValidFollowingFields(targetUserId) {
+      return request.resource.data.keys().hasOnly([
+               'targetUserId', 'islanderId', 'displayName', 'photoURL', 'createdAt'
+             ])
+             && request.resource.data.targetUserId == targetUserId
+             && request.resource.data.islanderId is string
+             && request.resource.data.displayName is string;
+    }
+
+    function hasValidFollowerFields(followerId) {
+      return request.resource.data.keys().hasOnly([
+               'followerId', 'islanderId', 'displayName', 'photoURL', 'createdAt'
+             ])
+             && request.resource.data.followerId == followerId
+             && request.resource.data.islanderId is string
+             && request.resource.data.displayName is string;
+    }
+
     match /users/{userId} {
       allow get: if isSignedIn();
       allow list: if isSignedIn();
@@ -69,6 +101,24 @@ service cloud.firestore {
       allow update: if isOwner(userId)
                     && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']);
       allow update: if isAdmin();
+
+      match /friends/{friendId} {
+        allow read: if isSignedIn();
+        allow create, update: if isOwner(userId) && hasValidFriendFields(friendId);
+        allow delete: if isOwner(userId);
+      }
+
+      match /following/{targetUserId} {
+        allow read: if isSignedIn();
+        allow create, update: if isOwner(userId) && hasValidFollowingFields(targetUserId);
+        allow delete: if isOwner(userId);
+      }
+
+      match /followers/{followerId} {
+        allow read: if isSignedIn();
+        allow create, update: if isOwner(followerId) && hasValidFollowerFields(followerId);
+        allow delete: if isOwner(followerId) || isOwner(userId);
+      }
     }
 
     match /posts/{postId} {
@@ -88,7 +138,8 @@ service cloud.firestore {
 
       match /likes/{userId} {
         allow read: if true;
-        allow create, delete: if isOwner(userId);
+        allow create, update: if isOwner(userId) && hasValidReactionFields();
+        allow delete: if isOwner(userId);
       }
 
       match /comments/{commentId} {
@@ -105,7 +156,8 @@ service cloud.firestore {
 
         match /likes/{userId} {
           allow read: if true;
-          allow create, delete: if isOwner(userId);
+          allow create, update: if isOwner(userId) && hasValidReactionFields();
+          allow delete: if isOwner(userId);
         }
 
         match /replies/{replyId} {
@@ -121,7 +173,8 @@ service cloud.firestore {
 
           match /likes/{userId} {
             allow read: if true;
-            allow create, delete: if isOwner(userId);
+            allow create, update: if isOwner(userId) && hasValidReactionFields();
+            allow delete: if isOwner(userId);
           }
         }
       }
