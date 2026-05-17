@@ -97,6 +97,21 @@ interface DiscussionTarget {
   nonce: number;
 }
 
+interface ReportItem {
+  id: string;
+  targetId: string;
+  targetType: 'post' | 'comment' | 'reply' | string;
+  postId?: string;
+  commentId?: string;
+  replyId?: string;
+  targetPreview?: string;
+  reporterId?: string;
+  reporterName?: string;
+  reason?: string;
+  status?: string;
+  createdAt?: any;
+}
+
 // --- Profanity Filter Utility ---
 const VULGAR_PHRASES = [
   '幹你娘', '操你媽', '去你的', '機掰', '白癡', '智障', '雜種', '三小', '欠扁', '靠北',
@@ -382,6 +397,8 @@ export default function App() {
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
+  const [showReportsPanel, setShowReportsPanel] = useState(false);
+  const [reports, setReports] = useState<ReportItem[]>([]);
   const [discussionTarget, setDiscussionTarget] = useState<DiscussionTarget | null>(null);
   const [weather, setWeather] = useState<{ temp: number; icon: string; text: string; wind: number; dir: string; aqi: number; vis: number; humidity: number } | null>(null);
   const [showWeatherModal, setShowWeatherModal] = useState(false);
@@ -393,6 +410,8 @@ export default function App() {
 });
 
 const [onlineCount, setOnlineCount] = useState(1);
+const canReviewReports = Boolean(user && (profile?.role === 'admin' || user.uid === STATION_MASTER_UID));
+const pendingReportsCount = reports.filter(report => (report.status || 'pending') === 'pending').length;
 
   useEffect(() => {
     localStorage.setItem('matsu-font-size', fontSize.toString());
@@ -507,6 +526,27 @@ useEffect(() => {
     });
     return () => unsubscribe();
   }, [user]);
+
+  // Reports listener for station master/admin
+  useEffect(() => {
+    if (!canReviewReports) {
+      setReports([]);
+      setShowReportsPanel(false);
+      return;
+    }
+
+    const reportsQuery = query(collection(db, 'reports'), orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(reportsQuery, (snapshot) => {
+      setReports(snapshot.docs.map(reportDoc => ({
+        id: reportDoc.id,
+        ...reportDoc.data(),
+      } as ReportItem)));
+    }, (error) => {
+      console.warn('Reports listener failed:', error.message);
+    });
+
+    return () => unsubscribe();
+  }, [canReviewReports]);
 
   const [isCopiedState, setIsCopiedState] = useState(false);
   const avatarInputRef = React.useRef<HTMLInputElement>(null);
@@ -910,6 +950,37 @@ const HOT_TOPICS = Object.entries(topicCounts)
     } else if (notification.category) {
       setActiveCategory(notification.category);
       setSearchQuery('');
+    }
+  };
+
+  const handleOpenReportTarget = (report: ReportItem) => {
+    const postId = report.postId || (report.targetType === 'post' ? report.targetId : undefined);
+    if (!postId) return;
+
+    setShowReportsPanel(false);
+    setActiveCategory('全部');
+    setSearchQuery('');
+    setDiscussionTarget({
+      postId,
+      commentId: report.commentId || (report.targetType === 'comment' ? report.targetId : undefined),
+      replyId: report.replyId || (report.targetType === 'reply' ? report.targetId : undefined),
+      openComments: report.targetType !== 'post',
+      nonce: Date.now(),
+    });
+  };
+
+  const handleUpdateReportStatus = async (report: ReportItem, status: 'reviewed' | 'dismissed') => {
+    if (!user || !canReviewReports) return;
+
+    try {
+      await updateDoc(doc(db, 'reports', report.id), {
+        status,
+        reviewedAt: serverTimestamp(),
+        reviewerId: user.uid,
+      });
+    } catch (err) {
+      console.error('Update report status failed:', err);
+      alert('更新檢舉狀態失敗，請稍後再試。');
     }
   };
 
@@ -1747,6 +1818,18 @@ const HOT_TOPICS = Object.entries(topicCounts)
                             <button onClick={() => { setShowSettings(true); setShowSettingsMenu(false); }} className="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium text-text-main hover:bg-mist-light rounded-lg transition-colors">
                               <Settings className="w-3.5 h-3.5 text-text-muted" /> 偏好設定
                             </button>
+                            {canReviewReports && (
+                              <button onClick={() => { setShowReportsPanel(true); setShowSettingsMenu(false); }} className="w-full flex items-center justify-between gap-3 px-3 py-2.5 text-sm font-medium text-text-main hover:bg-mist-light rounded-lg transition-colors">
+                                <span className="flex items-center gap-3">
+                                  <Flag className="w-3.5 h-3.5 text-text-muted" /> 檢舉處理
+                                </span>
+                                {pendingReportsCount > 0 && (
+                                  <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-[0.625rem] font-bold text-amber-400">
+                                    {pendingReportsCount}
+                                  </span>
+                                )}
+                              </button>
+                            )}
                             {user && (
                               <button onClick={handleLogout} className="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors">
                                 <LogOut className="w-3.5 h-3.5" /> 登出帳號
@@ -1973,6 +2056,22 @@ const HOT_TOPICS = Object.entries(topicCounts)
                           >
                             <User className="w-4 h-4 text-text-muted group-hover:text-bio-glow" />
                             我的檔案
+                          </button>
+                        )}
+                        {canReviewReports && (
+                          <button 
+                            onClick={() => { setShowReportsPanel(true); setShowSettingsMenu(false); }}
+                            className="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl text-text-main hover:bg-white/10 transition-all text-sm font-medium group"
+                          >
+                            <span className="flex items-center gap-3">
+                              <Flag className="w-4 h-4 text-text-muted group-hover:text-bio-glow" />
+                              檢舉處理
+                            </span>
+                            {pendingReportsCount > 0 && (
+                              <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-[0.625rem] font-bold text-amber-400">
+                                {pendingReportsCount}
+                              </span>
+                            )}
                           </button>
                         )}
                         
@@ -2419,6 +2518,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
           {/* Post Form */}
           {user && profile?.agreedToTerms && (
             <motion.form 
+              id="post-form"
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               onSubmit={handleCreatePost}
@@ -2712,6 +2812,178 @@ const HOT_TOPICS = Object.entries(topicCounts)
           </p>
         </div>
       </footer>
+
+      {/* Mobile Bottom Navigation */}
+      <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-line bg-deep-ocean/95 backdrop-blur-xl md:hidden">
+        <div className="grid grid-cols-4 px-2 py-2">
+          <button
+            type="button"
+            onClick={() => {
+              setActiveCategory('全部');
+              setSearchQuery('');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            className="flex flex-col items-center gap-1 rounded-xl px-2 py-1.5 text-[0.625rem] font-bold text-text-muted hover:text-bio-glow active:scale-95"
+          >
+            <Waves className="w-5 h-5" />
+            首頁
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (!user) {
+                handleLogin();
+                return;
+              }
+              document.getElementById('post-form')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }}
+            className="flex flex-col items-center gap-1 rounded-xl px-2 py-1.5 text-[0.625rem] font-bold text-text-muted hover:text-bio-glow active:scale-95"
+          >
+            <Send className="w-5 h-5" />
+            發文
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setShowNotifications(!showNotifications);
+              setShowSettingsMenu(false);
+            }}
+            className="relative flex flex-col items-center gap-1 rounded-xl px-2 py-1.5 text-[0.625rem] font-bold text-text-muted hover:text-bio-glow active:scale-95"
+          >
+            <Bell className="w-5 h-5" />
+            {notifications.some(n => !n.read) && (
+              <span className="absolute top-1 right-[calc(50%-12px)] h-2 w-2 rounded-full bg-rose-500" />
+            )}
+            通知
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setIsMobileMenuOpen(true);
+              setShowNotifications(false);
+            }}
+            className="flex flex-col items-center gap-1 rounded-xl px-2 py-1.5 text-[0.625rem] font-bold text-text-muted hover:text-bio-glow active:scale-95"
+          >
+            <Menu className="w-5 h-5" />
+            分類
+          </button>
+        </div>
+      </nav>
+
+      {/* Station Master Reports Panel */}
+      <AnimatePresence>
+        {showReportsPanel && canReviewReports && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[110] bg-black/80 backdrop-blur-md flex items-center justify-center p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="glass-card w-full max-w-3xl rounded-[2rem] overflow-hidden shadow-2xl border-line"
+            >
+              <div className="p-5 border-b border-line bg-mist flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="p-2 bg-amber-500/15 rounded-xl border border-amber-500/20">
+                    <Flag className="w-5 h-5 text-amber-400" />
+                  </div>
+                  <div className="min-w-0">
+                    <h2 className="text-text-main font-bold text-lg">檢舉處理</h2>
+                    <p className="text-text-muted text-[0.625rem] uppercase tracking-widest font-bold">
+                      {pendingReportsCount} pending / {reports.length} total
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowReportsPanel(false)}
+                  className="p-2 hover:bg-mist-light rounded-full text-text-muted hover:text-text-main transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="max-h-[70vh] overflow-y-auto custom-scrollbar p-4 space-y-3">
+                {reports.length === 0 ? (
+                  <div className="py-12 text-center text-text-muted text-sm">目前沒有檢舉紀錄</div>
+                ) : (
+                  reports.map(report => {
+                    const status = report.status || 'pending';
+                    const isPending = status === 'pending';
+                    const targetLabel = report.targetType === 'post' ? '貼文' : report.targetType === 'comment' ? '留言' : '留言回覆';
+
+                    return (
+                      <div
+                        key={report.id}
+                        className={`rounded-2xl border p-4 transition-colors ${
+                          isPending ? 'border-amber-500/30 bg-amber-500/5' : 'border-line bg-mist/60'
+                        }`}
+                      >
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="min-w-0 space-y-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className={`rounded-full px-2 py-0.5 text-[0.625rem] font-bold uppercase tracking-widest ${
+                                isPending ? 'bg-amber-500/20 text-amber-400' : 'bg-emerald-500/10 text-emerald-400'
+                              }`}>
+                                {isPending ? '待處理' : status === 'dismissed' ? '已忽略' : '已處理'}
+                              </span>
+                              <span className="text-xs text-text-muted font-bold">{targetLabel}</span>
+                              <span className="text-[0.625rem] text-text-muted/70">
+                                {report.createdAt?.toDate ? formatDistanceToNow(report.createdAt.toDate(), { addSuffix: true, locale: zhTW }) : '剛剛'}
+                              </span>
+                            </div>
+                            <p className="text-sm text-text-main leading-relaxed">
+                              {report.reason || '未填寫理由'}
+                            </p>
+                            {report.targetPreview && (
+                              <p className="rounded-xl border border-line bg-mist px-3 py-2 text-xs text-text-muted leading-relaxed line-clamp-2">
+                                {report.targetPreview}
+                              </p>
+                            )}
+                            <p className="text-[0.625rem] text-text-muted/80">
+                              檢舉人：{report.reporterName || report.reporterId || '未知使用者'}
+                            </p>
+                          </div>
+
+                          <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
+                            <button
+                              onClick={() => handleOpenReportTarget(report)}
+                              className="flex items-center gap-1.5 rounded-xl border border-line bg-mist px-3 py-2 text-xs font-bold text-text-main hover:border-bio-glow/40 hover:text-bio-glow transition-colors"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" />
+                              前往內容
+                            </button>
+                            {isPending && (
+                              <>
+                                <button
+                                  onClick={() => handleUpdateReportStatus(report, 'reviewed')}
+                                  className="flex items-center gap-1.5 rounded-xl bg-emerald-500/15 px-3 py-2 text-xs font-bold text-emerald-400 hover:bg-emerald-500/25 transition-colors"
+                                >
+                                  <Check className="w-3.5 h-3.5" />
+                                  已處理
+                                </button>
+                                <button
+                                  onClick={() => handleUpdateReportStatus(report, 'dismissed')}
+                                  className="rounded-xl bg-mist px-3 py-2 text-xs font-bold text-text-muted hover:text-text-main transition-colors"
+                                >
+                                  忽略
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Share Modal */}
       <AnimatePresence>
         {sharingPost && (

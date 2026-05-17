@@ -24,6 +24,44 @@ service cloud.firestore {
              && request.resource.data.content.size() <= maxLength;
     }
 
+    function hasOnlyPostCreateFields() {
+      return request.resource.data.keys().hasOnly([
+        'authorId', 'authorName', 'authorPhoto', 'content', 'category',
+        'aiSafe', 'aiRisk', 'aiTag', 'aiSummary', 'aiAction',
+        'likesCount', 'commentsCount', 'reportsCount', 'imageUrls', 'createdAt'
+      ]);
+    }
+
+    function hasOnlyCommentCreateFields() {
+      return request.resource.data.keys().hasOnly([
+        'authorId', 'authorName', 'authorPhoto', 'authorRole',
+        'content', 'likesCount', 'repliesCount', 'createdAt'
+      ]);
+    }
+
+    function hasOnlyReplyCreateFields() {
+      return request.resource.data.keys().hasOnly([
+        'authorId', 'authorName', 'authorPhoto', 'authorRole',
+        'content', 'likesCount', 'createdAt'
+      ]);
+    }
+
+    function hasOnlyReportCreateFields() {
+      return request.resource.data.keys().hasOnly([
+        'targetId', 'targetType', 'postId', 'commentId', 'replyId',
+        'targetPreview', 'reporterId', 'reporterName',
+        'reason', 'status', 'createdAt'
+      ]);
+    }
+
+    function hasOnlyNotificationCreateFields() {
+      return request.resource.data.keys().hasOnly([
+        'recipientId', 'senderId', 'senderName', 'type',
+        'postId', 'category', 'commentId', 'replyId',
+        'title', 'content', 'read', 'createdAt'
+      ]);
+    }
+
     match /users/{userId} {
       allow get: if isSignedIn();
       allow list: if isSignedIn();
@@ -35,7 +73,13 @@ service cloud.firestore {
 
     match /posts/{postId} {
       allow read: if true;
-      allow create: if isSignedIn() && hasValidContent(500);
+      allow create: if isSignedIn()
+                    && hasOnlyPostCreateFields()
+                    && request.resource.data.authorId == request.auth.uid
+                    && request.resource.data.likesCount == 0
+                    && request.resource.data.commentsCount == 0
+                    && request.resource.data.reportsCount == 0
+                    && hasValidContent(500);
       allow update: if (isSignedIn()
                         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount', 'commentsCount']))
                     || isOwner(resource.data.authorId)
@@ -49,7 +93,12 @@ service cloud.firestore {
 
       match /comments/{commentId} {
         allow read: if true;
-        allow create: if isSignedIn() && hasValidContent(250);
+        allow create: if isSignedIn()
+                      && hasOnlyCommentCreateFields()
+                      && request.resource.data.authorId == request.auth.uid
+                      && request.resource.data.likesCount == 0
+                      && request.resource.data.repliesCount == 0
+                      && hasValidContent(250);
         allow update: if isSignedIn()
                       && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount', 'repliesCount']);
         allow delete: if isOwner(resource.data.authorId) || isAdmin();
@@ -61,7 +110,11 @@ service cloud.firestore {
 
         match /replies/{replyId} {
           allow read: if true;
-          allow create: if isSignedIn() && hasValidContent(250);
+          allow create: if isSignedIn()
+                        && hasOnlyReplyCreateFields()
+                        && request.resource.data.authorId == request.auth.uid
+                        && request.resource.data.likesCount == 0
+                        && hasValidContent(250);
           allow update: if isSignedIn()
                         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount']);
           allow delete: if isOwner(resource.data.authorId) || isAdmin();
@@ -75,12 +128,20 @@ service cloud.firestore {
     }
 
     match /reports/{reportId} {
-      allow create: if isSignedIn();
+      allow create: if isSignedIn()
+                    && hasOnlyReportCreateFields()
+                    && request.resource.data.reporterId == request.auth.uid
+                    && request.resource.data.targetId is string
+                    && request.resource.data.targetType in ['post', 'comment', 'reply']
+                    && request.resource.data.reason is string
+                    && request.resource.data.reason.size() <= 500
+                    && request.resource.data.status == 'pending';
       allow read, update, delete: if isAdmin() || isStationMaster();
     }
 
     match /notifications/{notificationId} {
       allow create: if isSignedIn()
+                    && hasOnlyNotificationCreateFields()
                     && request.resource.data.senderId == request.auth.uid
                     && request.resource.data.recipientId is string
                     && request.resource.data.type in ['like', 'comment', 'mention', 'report']
