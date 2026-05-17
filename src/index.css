@@ -62,6 +62,18 @@
   color: #0f172a !important;
 }
 
+.mention-highlight {
+  color: var(--accent-text);
+  background: color-mix(in srgb, var(--primary-glow) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary-glow) 24%, transparent);
+}
+
+:root[data-theme-mode="light"] .mention-highlight {
+  color: var(--accent-text);
+  background: color-mix(in srgb, var(--accent-text) 10%, white 90%);
+  border-color: color-mix(in srgb, var(--accent-text) 28%, transparent);
+}
+
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Outfit", sans-serif;

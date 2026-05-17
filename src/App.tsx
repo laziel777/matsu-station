@@ -18,6 +18,7 @@ const POST_COOLDOWN_MS = 30 * 1000;
 const NEW_ACCOUNT_WINDOW_MS = 30 * 60 * 1000;
 const DAILY_POST_LIMIT = 20;
 const ANTI_ABUSE_NOTICE = '為了防止惡意攻擊、複製垃圾文、洗文與攻擊性內容，馬祖小站會限制發文頻率。';
+const LINE_OFFICIAL_URL = 'https://lin.ee/nn0RaOc';
 const REACTION_OPTIONS = ['❤️', '😂', '😭', '🔥', '👍', '👎', '😡', '😍', '🤔', '😮'];
 const DEFAULT_REACTION = '❤️';
 const PROFILE_TABS = [
@@ -32,6 +33,14 @@ interface ProfileStats {
   friendCount: number;
   followingCount: number;
   followerCount: number;
+}
+
+interface MentionSuggestion {
+  uid: string;
+  islanderId?: string;
+  displayName: string;
+  photoURL?: string;
+  role?: 'user' | 'admin';
 }
 
 const EMPTY_PROFILE_STATS: ProfileStats = {
@@ -209,13 +218,26 @@ const extractMentionNames = (text: string) => {
   return Array.from(new Set(matches.map(cleanMentionName).filter(Boolean)));
 };
 
+const getActiveMentionRange = (value: string, caretIndex: number | null) => {
+  if (caretIndex === null) return null;
+  const beforeCaret = value.slice(0, caretIndex);
+  const match = beforeCaret.match(/(^|\s)@([^\s@]*)$/);
+  if (!match) return null;
+
+  return {
+    start: caretIndex - match[2].length - 1,
+    end: caretIndex,
+    query: match[2],
+  };
+};
+
 const renderContentWithMentions = (text: string) => {
   const mentionPattern = /(@[^\s@]+)/g;
   return text.split(mentionPattern).map((part, index) => {
     if (!part.startsWith('@')) return part;
 
     return (
-      <span key={`${part}-${index}`} className="rounded bg-bio-glow/10 px-1 font-bold text-bio-glow">
+      <span key={`${part}-${index}`} className="mention-highlight rounded px-1 font-bold">
         {part}
       </span>
     );
@@ -459,6 +481,179 @@ const ReactionButton = ({
   );
 };
 
+const MentionComposerInput = ({
+  value,
+  onChange,
+  placeholder,
+  maxLength,
+  className,
+  multiline = false,
+  disabled = false,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  maxLength: number;
+  className: string;
+  multiline?: boolean;
+  disabled?: boolean;
+}) => {
+  const inputRef = React.useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
+  const [activeRange, setActiveRange] = useState<{ start: number; end: number; query: string } | null>(null);
+  const [suggestions, setSuggestions] = useState<MentionSuggestion[]>([]);
+  const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
+
+  const updateActiveMention = (target: HTMLInputElement | HTMLTextAreaElement) => {
+    setActiveRange(getActiveMentionRange(target.value, target.selectionStart));
+  };
+
+  React.useEffect(() => {
+    if (!activeRange) {
+      setSuggestions([]);
+      return;
+    }
+
+    let isCancelled = false;
+    setIsLoadingSuggestions(true);
+
+    getDocs(collection(db, 'users'))
+      .then(snapshot => {
+        if (isCancelled) return;
+
+        const queryText = activeRange.query.trim().toLowerCase();
+        const nextSuggestions = snapshot.docs
+          .map(userDoc => {
+            const data = userDoc.data() as UserProfile;
+            return {
+              uid: data.uid || userDoc.id,
+              islanderId: data.islanderId,
+              displayName: data.displayName || data.islanderId || '匿名島民',
+              photoURL: data.photoURL || DEFAULT_ISLANDER_PHOTO,
+              role: data.role,
+            } as MentionSuggestion;
+          })
+          .filter(suggestion => {
+            if (!queryText) return true;
+            return suggestion.displayName.toLowerCase().includes(queryText)
+              || String(suggestion.islanderId || '').toLowerCase().includes(queryText);
+          })
+          .slice(0, 6);
+
+        setSuggestions(nextSuggestions);
+      })
+      .catch(error => {
+        console.warn('Mention suggestions fetch failed:', error.message);
+        if (!isCancelled) setSuggestions([]);
+      })
+      .finally(() => {
+        if (!isCancelled) setIsLoadingSuggestions(false);
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [activeRange?.query]);
+
+  const handleChange = (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    onChange(event.currentTarget.value);
+    updateActiveMention(event.currentTarget);
+  };
+
+  const selectSuggestion = (suggestion: MentionSuggestion) => {
+    if (!activeRange) return;
+
+    const mentionText = `@${suggestion.displayName} `;
+    const nextValue = `${value.slice(0, activeRange.start)}${mentionText}${value.slice(activeRange.end)}`;
+    const nextCaret = activeRange.start + mentionText.length;
+
+    onChange(nextValue);
+    setActiveRange(null);
+    setSuggestions([]);
+
+    window.setTimeout(() => {
+      inputRef.current?.focus();
+      inputRef.current?.setSelectionRange(nextCaret, nextCaret);
+    }, 0);
+  };
+
+  const sharedProps = {
+    value,
+    placeholder,
+    maxLength,
+    disabled,
+    className,
+    onChange: handleChange,
+    onKeyUp: (event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => updateActiveMention(event.currentTarget),
+    onClick: (event: React.MouseEvent<HTMLInputElement | HTMLTextAreaElement>) => updateActiveMention(event.currentTarget),
+    onFocus: (event: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => updateActiveMention(event.currentTarget),
+    onBlur: () => {
+      window.setTimeout(() => setActiveRange(null), 180);
+    },
+  };
+
+  return (
+    <div className="relative">
+      {multiline ? (
+        <textarea
+          {...sharedProps}
+          ref={(element) => {
+            inputRef.current = element;
+          }}
+        />
+      ) : (
+        <input
+          type="text"
+          {...sharedProps}
+          ref={(element) => {
+            inputRef.current = element;
+          }}
+        />
+      )}
+
+      <AnimatePresence>
+        {activeRange && (
+          <motion.div
+            initial={{ opacity: 0, y: 8, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 8, scale: 0.98 }}
+            className="absolute left-0 right-0 top-full z-[90] mt-2 overflow-hidden rounded-2xl border border-line bg-mist-medium/95 shadow-2xl backdrop-blur-xl"
+          >
+            <div className="border-b border-line px-3 py-2">
+              <p className="text-[0.625rem] font-bold uppercase tracking-widest text-text-muted">
+                {isLoadingSuggestions ? '搜尋島民中...' : '選擇標註島民'}
+              </p>
+            </div>
+            <div className="max-h-64 overflow-y-auto custom-scrollbar p-1.5">
+              {suggestions.length > 0 ? (
+                suggestions.map(suggestion => (
+                  <button
+                    key={suggestion.uid}
+                    type="button"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => selectSuggestion(suggestion)}
+                    className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left hover:bg-mist-light transition-colors"
+                  >
+                    <UserAvatar
+                      p={suggestion}
+                      className="h-8 w-8 rounded-full border border-line"
+                    />
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-bold text-text-main">{suggestion.displayName}</p>
+                      <p className="text-[0.625rem] font-mono text-text-muted">島民ID: {suggestion.islanderId || suggestion.uid}</p>
+                    </div>
+                  </button>
+                ))
+              ) : (
+                <div className="px-3 py-6 text-center text-xs text-text-muted">找不到符合的島民</div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
 export default function App() {
   const { user, loading, error: authError, profile, agreeToTerms, updateProfileData } = useAuth();
   const [posts, setPosts] = useState<Post[]>([]);
@@ -589,6 +784,25 @@ useEffect(() => {
     return () => clearInterval(interval);
   }, []);
 
+  const getNotificationDeletedLabel = async (notification: any) => {
+    if (!notification.postId) return null;
+
+    const postSnap = await getDoc(doc(db, 'posts', notification.postId));
+    if (!postSnap.exists()) return '該文章已被刪除';
+
+    if (notification.commentId) {
+      const commentSnap = await getDoc(doc(db, 'posts', notification.postId, 'comments', notification.commentId));
+      if (!commentSnap.exists()) return '該留言已被刪除';
+
+      if (notification.replyId) {
+        const replySnap = await getDoc(doc(db, 'posts', notification.postId, 'comments', notification.commentId, 'replies', notification.replyId));
+        if (!replySnap.exists()) return '該留言已被刪除';
+      }
+    }
+
+    return null;
+  };
+
   // Notifications Listener
   useEffect(() => {
     if (!user) {
@@ -599,7 +813,7 @@ useEffect(() => {
       collection(db, 'notifications'), 
       where('recipientId', '==', user.uid)
     );
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const unsubscribe = onSnapshot(q, async (snapshot) => {
       const nextNotifications = snapshot.docs
         .map(doc => ({ id: doc.id, ...doc.data() }))
         .sort((a: any, b: any) => {
@@ -608,7 +822,14 @@ useEffect(() => {
           return bTime - aTime;
         });
 
-      setNotifications(nextNotifications);
+      const enrichedNotifications = await Promise.all(
+        nextNotifications.map(async notification => ({
+          ...notification,
+          deletedLabel: await getNotificationDeletedLabel(notification),
+        }))
+      );
+
+      setNotifications(enrichedNotifications);
     }, (error) => {
       console.warn('Notifications listener failed:', error.message);
     });
@@ -1242,6 +1463,14 @@ const HOT_TOPICS = Object.entries(topicCounts)
     setShowNotifications(false);
 
     if (notification.postId) {
+      const deletedLabel = notification.deletedLabel || await getNotificationDeletedLabel(notification);
+      if (deletedLabel) {
+        setNotifications(previous => previous.map(item => (
+          item.id === notification.id ? { ...item, read: true, deletedLabel } : item
+        )));
+        return;
+      }
+
       setActiveCategory('全部');
       setSearchQuery('');
       setDiscussionTarget({
@@ -1804,7 +2033,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
                         <p className="flex items-center gap-2 font-bold text-bio-glow">
                            <span className="text-text-muted font-mono">LINE:</span> 
                           <a
-  href="https://lin.ee/rtovKwL"
+  href={LINE_OFFICIAL_URL}
   target="_blank"
   rel="noopener noreferrer"
   className="text-text-main/80 hover:text-bio-glow underline"
@@ -2089,6 +2318,11 @@ const HOT_TOPICS = Object.entries(topicCounts)
                                   >
                                     <h4 className="text-sm font-bold text-text-main mb-1">{n.title}</h4>
                                     <p className="text-xs text-text-muted mb-1 leading-relaxed">{n.content}</p>
+                                    {n.deletedLabel && (
+                                      <p className="mb-2 inline-flex rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-[0.625rem] font-bold text-amber-400">
+                                        {n.deletedLabel}
+                                      </p>
+                                    )}
                                     <span className="text-xs text-text-muted/80 italic">
                                       {n.createdAt?.toDate ? formatDistanceToNow(n.createdAt.toDate(), { addSuffix: true, locale: zhTW }) : '剛剛'}
                                     </span>
@@ -2414,6 +2648,11 @@ const HOT_TOPICS = Object.entries(topicCounts)
                               {!n.read && <div className="absolute left-1 top-1/2 -translate-y-1/2 w-1 h-8 bg-bio-glow rounded-full" />}
                               <h4 className="text-sm font-bold text-text-main mb-1">{n.title}</h4>
                               <p className="text-sm text-text-muted mb-2 leading-relaxed">{n.content}</p>
+                              {n.deletedLabel && (
+                                <p className="mb-2 inline-flex rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-[0.625rem] font-bold text-amber-400">
+                                  {n.deletedLabel}
+                                </p>
+                              )}
                               <span className="text-xs text-text-muted/80 font-mono tracking-wider italic">
                                 {n.createdAt?.toDate ? formatDistanceToNow(n.createdAt.toDate(), { addSuffix: true, locale: zhTW }) : '剛剛'}
                               </span>
@@ -2568,7 +2807,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
 
       <div className="max-w-7xl mx-auto px-4 pt-3 flex justify-start">
         <a
-          href="https://lin.ee/nn0RaOc"
+          href={LINE_OFFICIAL_URL}
           target="_blank"
           rel="noopener noreferrer"
           aria-label="加入馬祖小站 LINE 官方帳號好友"
@@ -3097,13 +3336,14 @@ const HOT_TOPICS = Object.entries(topicCounts)
               <div className="flex gap-4">
                 <UserAvatar p={{ ...profile, islanderId: profile?.islanderId || user.uid, role: profile?.role }} className="w-10 h-10 rounded-full border border-line" />
                 <div className="flex-1 space-y-4">
-                  <textarea 
+                  <MentionComposerInput
+                    multiline
                     placeholder="在夜色中留下馬祖的消息... @暱稱"
                     disabled={isPosting}
                     maxLength={POST_CHAR_LIMIT}
                     className="w-full bg-transparent border-none focus:ring-0 text-text-main text-lg resize-none py-2 min-h-[100px] placeholder:text-text-muted/40 outline-none disabled:opacity-50"
                     value={newPostContent}
-                    onChange={(e) => setNewPostContent(limitChars(e.target.value, POST_CHAR_LIMIT))}
+                    onChange={(nextValue) => setNewPostContent(limitChars(nextValue, POST_CHAR_LIMIT))}
                   />
                   <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                     <p className="text-[0.625rem] text-text-muted/40 leading-relaxed">
@@ -4790,13 +5030,12 @@ function PostCard({
               {user && (
                 <form onSubmit={handleAddComment} className="flex gap-3">
                   <div className="flex-1 space-y-1">
-                    <input 
-                      type="text" 
+                    <MentionComposerInput
                       placeholder="隱密地回覆... @暱稱"
                       maxLength={COMMENT_CHAR_LIMIT}
                       className="w-full bg-mist border border-line rounded-xl px-4 py-2 text-sm text-text-main focus:ring-1 focus:ring-blue-500/50 focus:border-blue-500/50 outline-none placeholder:text-text-muted/40"
                       value={newComment}
-                      onChange={(e) => setNewComment(limitChars(e.target.value, COMMENT_CHAR_LIMIT))}
+                      onChange={(nextValue) => setNewComment(limitChars(nextValue, COMMENT_CHAR_LIMIT))}
                     />
                     <div className="flex items-center justify-between px-1">
                       <span className="text-[0.5625rem] text-text-muted/40">避免複製垃圾文、洗文與攻擊</span>
@@ -5011,13 +5250,12 @@ function PostCard({
                           className="flex gap-2"
                         >
                           <div className="flex-1 space-y-1">
-                            <input
-                              type="text"
+                            <MentionComposerInput
                               placeholder={`回覆 ${comment.authorName}... @暱稱`}
                               maxLength={COMMENT_CHAR_LIMIT}
                               className="w-full bg-mist border border-line rounded-xl px-3 py-2 text-[0.8125rem] text-text-main focus:ring-1 focus:ring-blue-500/50 focus:border-blue-500/50 outline-none placeholder:text-text-muted/40"
                               value={replyInputs[comment.id] || ''}
-                              onChange={(e) => setReplyInputs(previous => ({ ...previous, [comment.id]: limitChars(e.target.value, COMMENT_CHAR_LIMIT) }))}
+                              onChange={(nextValue) => setReplyInputs(previous => ({ ...previous, [comment.id]: limitChars(nextValue, COMMENT_CHAR_LIMIT) }))}
                             />
                             <div className="flex justify-end px-1">
                               <span className={`text-[0.625rem] font-mono font-bold ${
