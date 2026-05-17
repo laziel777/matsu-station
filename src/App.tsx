@@ -87,6 +87,7 @@ interface DiscussionTarget {
   postId: string;
   commentId?: string;
   replyId?: string;
+  openComments?: boolean;
   nonce: number;
 }
 
@@ -225,6 +226,30 @@ const sendMentionNotifications = async ({
       });
     }
   }
+};
+
+const normalizeCategoryName = (category?: string) => {
+  return (category || '').replace(/^#/, '').trim();
+};
+
+const CATEGORY_KEYWORDS: Record<string, string[]> = {
+  '政治論壇': ['政治', '論壇', '選舉', '議員', '鄉長', '縣長'],
+  '馬祖鬼故事': ['鬼故事', '鬼', '靈異', '撞鬼', '鬧鬼'],
+  '美景分享': ['美景', '風景', '景色', '夕陽', '日出', '照片'],
+  '野生動物': ['野生動物', '動物', '鳥', '鹿', '蛇', '貓'],
+  '馬祖UFO': ['馬祖UFO', 'UFO', '飛碟'],
+};
+
+const postMatchesCategory = (post: Post, activeCategory: string) => {
+  if (activeCategory === '全部') return true;
+
+  const postCategory = normalizeCategoryName(post.category);
+  const aiCategory = normalizeCategoryName(post.aiTag);
+  if (postCategory === activeCategory || aiCategory === activeCategory) return true;
+  if (post.content.includes(activeCategory)) return true;
+
+  const keywords = CATEGORY_KEYWORDS[activeCategory] || [];
+  return keywords.some(keyword => post.content.toLowerCase().includes(keyword.toLowerCase()));
 };
 
 const DefaultIslanderAvatar = ({ className = "w-10 h-10" }: { className?: string }) => {
@@ -481,7 +506,7 @@ useEffect(() => {
   const topicCounts: Record<string, number> = {};
 
 posts.forEach((post) => {
-  const category = (post.category || '未分類').replace('#', '');
+  const category = normalizeCategoryName(post.category) || '未分類';
 
   if (!topicCounts[category]) {
     topicCounts[category] = 0;
@@ -838,14 +863,17 @@ const HOT_TOPICS = Object.entries(topicCounts)
 
     if (notification.postId) {
       setActiveCategory('全部');
+      setSearchQuery('');
       setDiscussionTarget({
         postId: notification.postId,
         commentId: notification.commentId,
         replyId: notification.replyId,
+        openComments: Boolean(notification.commentId || notification.replyId || notification.type === 'comment'),
         nonce: Date.now(),
       });
     } else if (notification.category) {
       setActiveCategory(notification.category);
+      setSearchQuery('');
     }
   };
 
@@ -1085,10 +1113,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
         return matchesSearch && (post.likesCount >= 3);
       }
       
-      const matchesCategory = activeCategory === '全部'
-        || post.category === activeCategory
-        || post.aiTag === activeCategory
-        || post.content.includes(activeCategory);
+      const matchesCategory = postMatchesCategory(post, activeCategory);
       return matchesSearch && matchesCategory;
     })
     .sort((a, b) => {
@@ -3197,7 +3222,7 @@ function PostCard({
 
   React.useEffect(() => {
     if (!discussionTarget || discussionTarget.postId !== post.id) return;
-    if (!discussionTarget.commentId && !discussionTarget.replyId) return;
+    if (!discussionTarget.openComments && !discussionTarget.commentId && !discussionTarget.replyId) return;
     if (!showComments) openComments();
   }, [discussionTarget?.nonce]);
 
@@ -3830,7 +3855,7 @@ function PostCard({
                             <span className="text-[0.5625rem] text-text-muted font-display">
                               {comment.createdAt?.toDate ? formatDistanceToNow(comment.createdAt.toDate(), { locale: zhTW }) : ''}
                             </span>
-                            {(!user || (comment.authorId !== user.uid && profile?.role !== 'admin')) && (
+                            {(!user || comment.authorId !== user.uid) && (
                               <button
                                 type="button"
                                 onClick={(e) => {
@@ -3940,7 +3965,7 @@ function PostCard({
                                 <span className="text-[0.5625rem] text-text-muted font-display">
                                   {reply.createdAt?.toDate ? formatDistanceToNow(reply.createdAt.toDate(), { locale: zhTW }) : ''}
                                 </span>
-                                {(!user || (reply.authorId !== user.uid && profile?.role !== 'admin')) && (
+                                {(!user || reply.authorId !== user.uid) && (
                                   <button
                                     type="button"
                                     onClick={(e) => {
