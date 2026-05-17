@@ -21,7 +21,7 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow get: if isSignedIn();
-      allow list: if isAdmin();
+      allow list: if isSignedIn();
       allow create: if isOwner(userId);
       allow update: if isOwner(userId)
                     && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']);
@@ -45,7 +45,20 @@ service cloud.firestore {
       match /comments/{commentId} {
         allow read: if true;
         allow create: if isSignedIn();
+        allow update: if isSignedIn()
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount', 'repliesCount']);
         allow delete: if isOwner(resource.data.authorId) || isAdmin();
+
+        match /likes/{userId} {
+          allow read: if true;
+          allow create, delete: if isOwner(userId);
+        }
+
+        match /replies/{replyId} {
+          allow read: if true;
+          allow create: if isSignedIn();
+          allow delete: if isOwner(resource.data.authorId) || isAdmin();
+        }
       }
     }
 

@@ -66,6 +66,19 @@ interface Comment {
   authorPhoto: string;
   authorRole?: 'user' | 'admin';
   content: string;
+  likesCount?: number;
+  repliesCount?: number;
+  replies?: CommentReply[];
+  createdAt: any;
+}
+
+interface CommentReply {
+  id: string;
+  authorId: string;
+  authorName: string;
+  authorPhoto: string;
+  authorRole?: 'user' | 'admin';
+  content: string;
   createdAt: any;
 }
 
@@ -126,6 +139,78 @@ const filterContent = (text: string) => {
   });
 
   return filteredText;
+};
+
+const cleanMentionName = (mention: string) => {
+  return mention
+    .replace(/^@/, '')
+    .replace(/[，。！？,.!?:;；：、）)】\]]+$/g, '')
+    .trim();
+};
+
+const extractMentionNames = (text: string) => {
+  const matches = text.match(/@([^\s@]+)/g) || [];
+  return Array.from(new Set(matches.map(cleanMentionName).filter(Boolean)));
+};
+
+const renderContentWithMentions = (text: string) => {
+  const mentionPattern = /(@[^\s@]+)/g;
+  return text.split(mentionPattern).map((part, index) => {
+    if (!part.startsWith('@')) return part;
+
+    return (
+      <span key={`${part}-${index}`} className="rounded bg-bio-glow/10 px-1 font-bold text-bio-glow">
+        {part}
+      </span>
+    );
+  });
+};
+
+const sendMentionNotifications = async ({
+  text,
+  senderId,
+  senderName,
+  postId,
+  category,
+  sourceLabel,
+}: {
+  text: string;
+  senderId: string;
+  senderName: string;
+  postId: string;
+  category?: string;
+  sourceLabel: string;
+}) => {
+  const mentionNames = extractMentionNames(text);
+  if (mentionNames.length === 0) return;
+
+  const notifiedRecipients = new Set<string>();
+
+  for (const mentionedName of mentionNames) {
+    const usersQuery = query(collection(db, 'users'), where('displayName', '==', mentionedName));
+    const result = await getDocs(usersQuery);
+
+    for (const userDoc of result.docs) {
+      const mentionedUser = userDoc.data();
+      const recipientId = typeof mentionedUser.uid === 'string' ? mentionedUser.uid : userDoc.id;
+
+      if (!recipientId || recipientId === senderId || notifiedRecipients.has(recipientId)) continue;
+      notifiedRecipients.add(recipientId);
+
+      await addDoc(collection(db, 'notifications'), {
+        recipientId,
+        senderId,
+        senderName,
+        type: 'mention',
+        postId,
+        category,
+        title: '有人標註了你',
+        content: `${senderName} 在${sourceLabel}標註了你。`,
+        read: false,
+        createdAt: serverTimestamp(),
+      });
+    }
+  }
 };
 
 const DefaultIslanderAvatar = ({ className = "w-10 h-10" }: { className?: string }) => {
@@ -862,15 +947,17 @@ const HOT_TOPICS = Object.entries(topicCounts)
 
       // 3) 寫入 Firestore
       const cleanContent = filterContent(rawContent);
-      await addDoc(collection(db, 'posts'), {
+      const senderName = profile?.displayName || user.displayName || '匿名島民';
+      const postCategory = moderation.tag || newPostCategory;
+      const postRef = await addDoc(collection(db, 'posts'), {
         authorId: user.uid,
-        authorName: profile?.displayName || user.displayName || '匿名島民',
+        authorName: senderName,
         authorPhoto: profile?.photoURL || user.photoURL || DEFAULT_ISLANDER_PHOTO,
         content: cleanContent,
-        category: moderation.tag || newPostCategory,
+        category: postCategory,
         aiSafe: Boolean(moderation.safe),
         aiRisk: Number(moderation.risk ?? 0),
-        aiTag: moderation.tag || newPostCategory,
+        aiTag: postCategory,
         aiSummary: moderation.summary || '',
         aiAction: moderation.action || 'publish',
         likesCount: 0,
@@ -879,6 +966,19 @@ const HOT_TOPICS = Object.entries(topicCounts)
         imageUrls: uploadedUrls,
         createdAt: serverTimestamp(),
       });
+
+      try {
+        await sendMentionNotifications({
+          text: cleanContent,
+          senderId: user.uid,
+          senderName,
+          postId: postRef.id,
+          category: postCategory,
+          sourceLabel: '貼文中',
+        });
+      } catch (mentionErr) {
+        console.warn('Post mention notification failed:', mentionErr);
+      }
 
       setUploadProgress(100);
       setPostingMessage('發布成功！');
@@ -2226,7 +2326,7 @@ setTimeout(() => {
                 <UserAvatar p={{ ...profile, islanderId: profile?.islanderId || user.uid, role: profile?.role }} className="w-10 h-10 rounded-full border border-line" />
                 <div className="flex-1 space-y-4">
                   <textarea 
-                    placeholder="在夜色中留下馬祖的消息..."
+                    placeholder="在夜色中留下馬祖的消息... @暱稱"
                     disabled={isPosting}
                     className="w-full bg-transparent border-none focus:ring-0 text-text-main text-lg resize-none py-2 min-h-[100px] placeholder:text-text-muted/40 outline-none disabled:opacity-50"
                     value={newPostContent}
@@ -2830,11 +2930,15 @@ function PostCard({ post, onOpenProfile, onShare }: { post: Post; onOpenProfile:
   const [likes, setLikes] = useState(post.likesCount);
   const [showComments, setShowComments] = useState(false);
   const [comments, setComments] = useState<Comment[]>([]);
+  const [commentLikes, setCommentLikes] = useState<Record<string, boolean>>({});
+  const [replyingToCommentId, setReplyingToCommentId] = useState<string | null>(null);
+  const [replyInputs, setReplyInputs] = useState<Record<string, string>>({});
   const [newComment, setNewComment] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [authorProfile, setAuthorProfile] = useState<any>(null);
   const commentsUnsubscribeRef = React.useRef<(() => void) | null>(null);
+  const repliesUnsubscribeRef = React.useRef<Record<string, () => void>>({});
 
   React.useEffect(() => {
     if (user && !post.id.startsWith('sample-')) {
@@ -2865,6 +2969,8 @@ function PostCard({ post, onOpenProfile, onShare }: { post: Post; onOpenProfile:
   React.useEffect(() => {
     return () => {
       commentsUnsubscribeRef.current?.();
+      Object.values(repliesUnsubscribeRef.current).forEach(unsubscribe => unsubscribe());
+      repliesUnsubscribeRef.current = {};
     };
   }, []);
 
@@ -2932,10 +3038,35 @@ function PostCard({ post, onOpenProfile, onShare }: { post: Post; onOpenProfile:
     }
   };
 
+  const getCommentTime = (comment: Comment) => {
+    if (comment.createdAt?.toMillis) return comment.createdAt.toMillis();
+    if (comment.createdAt?.toDate) return comment.createdAt.toDate().getTime();
+    if (typeof comment.createdAt?.seconds === 'number') return comment.createdAt.seconds * 1000;
+    return 0;
+  };
+
+  const sortTopLevelComments = (items: Comment[]) => {
+    return [...items].sort((a, b) => {
+      const likeDiff = (b.likesCount || 0) - (a.likesCount || 0);
+      if (likeDiff !== 0) return likeDiff;
+      return getCommentTime(b) - getCommentTime(a);
+    });
+  };
+
+  const closeReplySubscriptions = () => {
+    Object.values(repliesUnsubscribeRef.current).forEach(unsubscribe => unsubscribe());
+    repliesUnsubscribeRef.current = {};
+  };
+
   const fetchComments = () => {
     if (showComments) {
       commentsUnsubscribeRef.current?.();
       commentsUnsubscribeRef.current = null;
+      closeReplySubscriptions();
+      setComments([]);
+      setCommentLikes({});
+      setReplyingToCommentId(null);
+      setReplyInputs({});
       setShowComments(false);
       return;
     }
@@ -2950,9 +3081,72 @@ function PostCard({ post, onOpenProfile, onShare }: { post: Post; onOpenProfile:
     const commentsPath = `posts/${post.id}/comments`;
     try {
       commentsUnsubscribeRef.current?.();
+      closeReplySubscriptions();
       const q = query(collection(db, 'posts', post.id, 'comments'), orderBy('createdAt', 'desc'));
       const unsubscribe = onSnapshot(q, (snapshot) => {
-        setComments(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Comment)));
+        const nextComments = sortTopLevelComments(
+          snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Comment))
+        );
+        const liveCommentIds = new Set(nextComments.map(comment => comment.id));
+
+        Object.entries(repliesUnsubscribeRef.current).forEach(([commentId, unsubscribeReplies]) => {
+          if (!liveCommentIds.has(commentId)) {
+            unsubscribeReplies();
+            delete repliesUnsubscribeRef.current[commentId];
+          }
+        });
+
+        setComments(previousComments => {
+          const repliesByCommentId = new Map(previousComments.map(comment => [comment.id, comment.replies || []]));
+          return nextComments.map(comment => ({
+            ...comment,
+            replies: repliesByCommentId.get(comment.id) || [],
+          }));
+        });
+
+        if (user) {
+          Promise.all(
+            nextComments.map(async comment => {
+              const likeSnap = await getDoc(doc(db, 'posts', post.id, 'comments', comment.id, 'likes', user.uid));
+              return [comment.id, likeSnap.exists()] as const;
+            })
+          )
+            .then(entries => {
+              const nextLikes = Object.fromEntries(entries);
+              setCommentLikes(nextLikes);
+            })
+            .catch(error => {
+              console.warn('Comment like status fetch failed:', error.message);
+            });
+        } else {
+          setCommentLikes({});
+        }
+
+        nextComments.forEach(comment => {
+          if (repliesUnsubscribeRef.current[comment.id]) return;
+
+          const repliesQuery = query(
+            collection(db, 'posts', post.id, 'comments', comment.id, 'replies'),
+            orderBy('createdAt', 'asc')
+          );
+
+          repliesUnsubscribeRef.current[comment.id] = onSnapshot(repliesQuery, (repliesSnapshot) => {
+            const replies = repliesSnapshot.docs.map(replyDoc => ({
+              id: replyDoc.id,
+              ...replyDoc.data(),
+            } as CommentReply));
+
+            setComments(previousComments => sortTopLevelComments(
+              previousComments.map(existingComment => (
+                existingComment.id === comment.id
+                  ? { ...existingComment, replies }
+                  : existingComment
+              ))
+            ));
+          }, (error) => {
+            console.warn('Replies fetch failed:', error.message);
+          });
+        });
       }, (error) => {
         console.warn('Comments fetch failed:', error.message);
       });
@@ -2969,12 +3163,15 @@ function PostCard({ post, onOpenProfile, onShare }: { post: Post; onOpenProfile:
 
     try {
       const cleanComment = filterContent(newComment);
+      const senderName = profile?.displayName || user.displayName || '匿名島民';
       await addDoc(collection(db, 'posts', post.id, 'comments'), {
         authorId: user.uid,
-        authorName: profile?.displayName || user.displayName,
-        authorPhoto: profile?.photoURL || user.photoURL,
+        authorName: senderName,
+        authorPhoto: profile?.photoURL || user.photoURL || DEFAULT_ISLANDER_PHOTO,
         authorRole: profile?.role || 'user',
         content: cleanComment,
+        likesCount: 0,
+        repliesCount: 0,
         createdAt: serverTimestamp(),
       });
       await updateDoc(doc(db, 'posts', post.id), { commentsCount: increment(1) });
@@ -2984,48 +3181,25 @@ function PostCard({ post, onOpenProfile, onShare }: { post: Post; onOpenProfile:
         await addDoc(collection(db, 'notifications'), {
           recipientId: post.authorId,
           senderId: user.uid,
-          senderName: profile?.displayName || user.displayName,
+          senderName,
           type: 'comment',
           postId: post.id,
           category: post.category,
           title: '收到新的神秘回覆',
-          content: `${profile?.displayName || user.displayName} 在你的動態下留言了。`,
+          content: `${senderName} 在你的動態下留言了。`,
           read: false,
           createdAt: serverTimestamp()
         });
       }
-      const mentionMatches = cleanComment.match(/@([^\s@]+)/g) || [];
-
       try {
-        for (const mention of mentionMatches) {
-          const mentionedName = mention.replace("@", "");
-
-          const q = query(
-            collection(db, "users"),
-            where("displayName", "==", mentionedName)
-          );
-
-          const result = await getDocs(q);
-
-          for (const userDoc of result.docs) {
-            const mentionedUser = userDoc.data();
-
-            if (mentionedUser.uid !== user.uid) {
-              await addDoc(collection(db, "notifications"), {
-                recipientId: mentionedUser.uid,
-                senderId: user.uid,
-                senderName: profile?.displayName || user.displayName,
-                type: "mention",
-                postId: post.id,
-                category: post.category,
-                title: "有人標註了你",
-                content: `${profile?.displayName || user.displayName} 標註了你`,
-                read: false,
-                createdAt: serverTimestamp(),
-              });
-            }
-          }
-        }
+        await sendMentionNotifications({
+          text: cleanComment,
+          senderId: user.uid,
+          senderName,
+          postId: post.id,
+          category: post.category,
+          sourceLabel: '留言中',
+        });
       } catch (mentionErr) {
         console.warn('Mention notification failed:', mentionErr);
       }
@@ -3034,6 +3208,141 @@ function PostCard({ post, onOpenProfile, onShare }: { post: Post; onOpenProfile:
     } catch (err) {
       console.error(err);
       handleFirestoreError(err, OperationType.CREATE, commentPath);
+    }
+  };
+
+  const handleCommentLike = async (comment: Comment) => {
+    if (!user) {
+      alert('請登入後再幫留言按讚。');
+      return;
+    }
+
+    if (post.id.startsWith('sample-')) {
+      alert('範例留言無法真實互動。');
+      return;
+    }
+
+    const wasLiked = Boolean(commentLikes[comment.id]);
+    const likeChange = wasLiked ? -1 : 1;
+    const likeRef = doc(db, 'posts', post.id, 'comments', comment.id, 'likes', user.uid);
+    const commentRef = doc(db, 'posts', post.id, 'comments', comment.id);
+    const senderName = profile?.displayName || user.displayName || '匿名島民';
+
+    setCommentLikes(previous => ({ ...previous, [comment.id]: !wasLiked }));
+    setComments(previousComments => sortTopLevelComments(
+      previousComments.map(existingComment => (
+        existingComment.id === comment.id
+          ? { ...existingComment, likesCount: Math.max(0, (existingComment.likesCount || 0) + likeChange) }
+          : existingComment
+      ))
+    ));
+
+    try {
+      if (wasLiked) {
+        await deleteDoc(likeRef);
+      } else {
+        await setDoc(likeRef, { createdAt: serverTimestamp() });
+      }
+
+      await updateDoc(commentRef, { likesCount: increment(likeChange) });
+
+      if (!wasLiked && user.uid !== comment.authorId) {
+        await addDoc(collection(db, 'notifications'), {
+          recipientId: comment.authorId,
+          senderId: user.uid,
+          senderName,
+          type: 'like',
+          postId: post.id,
+          category: post.category,
+          title: '有人喜歡你的留言',
+          content: `${senderName} 幫你的留言按了讚。`,
+          read: false,
+          createdAt: serverTimestamp(),
+        });
+      }
+    } catch (err: any) {
+      setCommentLikes(previous => ({ ...previous, [comment.id]: wasLiked }));
+      setComments(previousComments => sortTopLevelComments(
+        previousComments.map(existingComment => (
+          existingComment.id === comment.id
+            ? { ...existingComment, likesCount: Math.max(0, (existingComment.likesCount || 0) - likeChange) }
+            : existingComment
+        ))
+      ));
+      console.error('Comment like failed:', err);
+      handleFirestoreError(err, OperationType.WRITE, `posts/${post.id}/comments/${comment.id}`);
+    }
+  };
+
+  const handleAddReply = async (comment: Comment) => {
+    if (!user) return;
+    const replyText = (replyInputs[comment.id] || '').trim();
+    if (!replyText) return;
+
+    const replyPath = `posts/${post.id}/comments/${comment.id}/replies`;
+
+    try {
+      const cleanReply = filterContent(replyText);
+      const senderName = profile?.displayName || user.displayName || '匿名島民';
+
+      await addDoc(collection(db, 'posts', post.id, 'comments', comment.id, 'replies'), {
+        authorId: user.uid,
+        authorName: senderName,
+        authorPhoto: profile?.photoURL || user.photoURL || DEFAULT_ISLANDER_PHOTO,
+        authorRole: profile?.role || 'user',
+        content: cleanReply,
+        createdAt: serverTimestamp(),
+      });
+      await updateDoc(doc(db, 'posts', post.id, 'comments', comment.id), { repliesCount: increment(1) });
+      await updateDoc(doc(db, 'posts', post.id), { commentsCount: increment(1) });
+
+      if (user.uid !== comment.authorId) {
+        await addDoc(collection(db, 'notifications'), {
+          recipientId: comment.authorId,
+          senderId: user.uid,
+          senderName,
+          type: 'comment',
+          postId: post.id,
+          category: post.category,
+          title: '你的留言有新回覆',
+          content: `${senderName} 回覆了你的留言。`,
+          read: false,
+          createdAt: serverTimestamp(),
+        });
+      }
+
+      try {
+        await sendMentionNotifications({
+          text: cleanReply,
+          senderId: user.uid,
+          senderName,
+          postId: post.id,
+          category: post.category,
+          sourceLabel: '留言回覆中',
+        });
+      } catch (mentionErr) {
+        console.warn('Reply mention notification failed:', mentionErr);
+      }
+
+      setReplyInputs(previous => ({ ...previous, [comment.id]: '' }));
+      setReplyingToCommentId(null);
+    } catch (err) {
+      console.error(err);
+      handleFirestoreError(err, OperationType.CREATE, replyPath);
+    }
+  };
+
+  const handleDeleteReply = async (comment: Comment, reply: CommentReply) => {
+    if (!user || !(reply.authorId === user.uid || profile?.role === 'admin')) return;
+    if (!window.confirm('確定要刪除這則回覆嗎？')) return;
+
+    try {
+      await deleteDoc(doc(db, 'posts', post.id, 'comments', comment.id, 'replies', reply.id));
+      await updateDoc(doc(db, 'posts', post.id, 'comments', comment.id), { repliesCount: increment(-1) });
+      await updateDoc(doc(db, 'posts', post.id), { commentsCount: increment(-1) });
+    } catch (err: any) {
+      console.error('Delete reply error:', err);
+      alert('刪除回覆失敗：' + (err.message.includes('permission-denied') ? '權限不足。' : err.message));
     }
   };
 
@@ -3237,7 +3546,7 @@ function PostCard({ post, onOpenProfile, onShare }: { post: Post; onOpenProfile:
         </div>
 
         <div className="text-text-main/90 leading-relaxed whitespace-pre-wrap text-[0.9375rem] selection:bg-blue-500/30">
-          {post.content}
+          {renderContentWithMentions(post.content)}
         </div>
 
         {post.imageUrls && post.imageUrls.length > 0 && (
@@ -3297,7 +3606,7 @@ function PostCard({ post, onOpenProfile, onShare }: { post: Post; onOpenProfile:
                 <form onSubmit={handleAddComment} className="flex gap-3">
                   <input 
                     type="text" 
-                    placeholder="隱密地回覆..."
+                    placeholder="隱密地回覆... @暱稱"
                     className="flex-1 bg-mist border border-line rounded-xl px-4 py-2 text-sm text-text-main focus:ring-1 focus:ring-blue-500/50 focus:border-blue-500/50 outline-none placeholder:text-text-muted/40"
                     value={newComment}
                     onChange={(e) => setNewComment(e.target.value)}
@@ -3310,66 +3619,166 @@ function PostCard({ post, onOpenProfile, onShare }: { post: Post; onOpenProfile:
 
               <div className="space-y-4">
                 {comments.map(comment => (
-                  <div key={comment.id} className="flex gap-3">
-                    <button onClick={() => onOpenProfile(comment.authorId)} className="cursor-pointer active:scale-95 transition-transform">
-                      <UserAvatar 
-                         p={{ 
-                           islanderId: comment.authorRole === 'admin' ? 'L' : comment.authorId, 
-                           photoURL: comment.authorPhoto,
-                           displayName: comment.authorName
-                         }} 
-                         className="w-6 h-6 rounded-full mt-1 opacity-80 hover:opacity-100 transition-opacity" 
-                      />
-                    </button>
-                    <div className="flex-1 bg-mist p-4 rounded-2xl border border-line shadow-sm">
-                      <div className="flex items-center justify-between mb-1.5">
-                        <div className="flex items-center gap-1.5">
-                          <span 
-                            onClick={() => onOpenProfile(comment.authorId)} 
-                            className={`font-bold text-[0.625rem] uppercase tracking-wider cursor-pointer hover:opacity-80 transition-all ${comment.authorRole === 'admin' ? 'rgb-text' : 'text-text-muted hover:text-bio-glow'}`}
-                          >
-                            {comment.authorName}
-                          </span>
-                          {comment.authorRole === 'admin' && (
-                            <span className="text-[0.5rem] bg-gradient-to-r from-red-500 via-yellow-500 to-blue-500 text-white px-1 rounded-sm font-bold uppercase shadow-[0_0_5px_rgba(255,255,255,0.2)]">
-                              站長
+                  <div key={comment.id} className="space-y-3">
+                    <div className="flex gap-3">
+                      <button onClick={() => onOpenProfile(comment.authorId)} className="cursor-pointer active:scale-95 transition-transform">
+                        <UserAvatar 
+                           p={{ 
+                             islanderId: comment.authorRole === 'admin' ? 'L' : comment.authorId, 
+                             photoURL: comment.authorPhoto,
+                             displayName: comment.authorName,
+                             role: comment.authorRole
+                           }} 
+                           className="w-7 h-7 rounded-full mt-1 opacity-90 hover:opacity-100 transition-opacity" 
+                        />
+                      </button>
+                      <div className="flex-1 bg-mist p-4 rounded-2xl border border-line shadow-sm">
+                        <div className="flex items-center justify-between gap-3 mb-1.5">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span 
+                              onClick={() => onOpenProfile(comment.authorId)} 
+                              className={`font-bold text-[0.6875rem] uppercase tracking-wider cursor-pointer hover:opacity-80 transition-all truncate ${comment.authorRole === 'admin' ? 'rgb-text' : 'text-text-muted hover:text-bio-glow'}`}
+                            >
+                              {comment.authorName}
                             </span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <span className="text-[0.5625rem] text-text-muted font-display">
-                            {comment.createdAt?.toDate ? formatDistanceToNow(comment.createdAt.toDate(), { locale: zhTW }) : ''}
-                          </span>
-                          {(user && (comment.authorId === user.uid || profile?.role === 'admin')) && (
-                             <button 
-                               onClick={async (e) => {
-                                 e.preventDefault();
-                                 e.stopPropagation();
-                                 if (post.id.startsWith('sample-')) {
-                                   alert('範例回覆無法真實刪除。');
-                                   return;
-                                 }
-                                 if(window.confirm('確定要刪除這則回覆嗎？')){
-                                   try {
-                                     console.log('Deleting comment:', comment.id);
-                                     await deleteDoc(doc(db, 'posts', post.id, 'comments', comment.id));
-                                     await updateDoc(doc(db, 'posts', post.id), { commentsCount: increment(-1) });
-                                     console.log('Comment deleted');
-                                   } catch (err: any) {
-                                     console.error('Delete comment error:', err);
-                                     alert('刪除留言失敗：' + (err.message.includes('permission-denied') ? '權限不足。' : err.message));
+                            {comment.authorRole === 'admin' && (
+                              <span className="text-[0.5rem] bg-gradient-to-r from-red-500 via-yellow-500 to-blue-500 text-white px-1 rounded-sm font-bold uppercase shadow-[0_0_5px_rgba(255,255,255,0.2)]">
+                                站長
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-3 shrink-0">
+                            <span className="text-[0.5625rem] text-text-muted font-display">
+                              {comment.createdAt?.toDate ? formatDistanceToNow(comment.createdAt.toDate(), { locale: zhTW }) : ''}
+                            </span>
+                            {(user && (comment.authorId === user.uid || profile?.role === 'admin')) && (
+                               <button 
+                                 onClick={async (e) => {
+                                   e.preventDefault();
+                                   e.stopPropagation();
+                                   if (post.id.startsWith('sample-')) {
+                                     alert('範例回覆無法真實刪除。');
+                                     return;
                                    }
-                                 }
-                               }} 
-                               className="text-text-muted hover:text-rose-500 cursor-pointer active:scale-125 transition-transform p-2 rounded-full hover:bg-rose-500/10 -m-1"
-                               title="刪除留言"
-                             >
-                               <Trash2 className="w-3.5 h-3.5" />
-                             </button>
+                                   if(window.confirm('確定要刪除這則留言嗎？')){
+                                     try {
+                                       const removedCount = 1 + (comment.repliesCount || comment.replies?.length || 0);
+                                       await deleteDoc(doc(db, 'posts', post.id, 'comments', comment.id));
+                                       await updateDoc(doc(db, 'posts', post.id), { commentsCount: increment(-removedCount) });
+                                     } catch (err: any) {
+                                       console.error('Delete comment error:', err);
+                                       alert('刪除留言失敗：' + (err.message.includes('permission-denied') ? '權限不足。' : err.message));
+                                     }
+                                   }
+                                 }} 
+                                 className="text-text-muted hover:text-rose-500 cursor-pointer active:scale-125 transition-transform p-2 rounded-full hover:bg-rose-500/10 -m-1"
+                                 title="刪除留言"
+                               >
+                                 <Trash2 className="w-3.5 h-3.5" />
+                               </button>
+                            )}
+                          </div>
+                        </div>
+                        <p className="text-sm text-text-main/90 leading-relaxed whitespace-pre-wrap">
+                          {renderContentWithMentions(comment.content)}
+                        </p>
+                        <div className="flex items-center gap-4 pt-3">
+                          <button
+                            type="button"
+                            onClick={() => handleCommentLike(comment)}
+                            className={`flex items-center gap-1.5 text-[0.6875rem] font-bold transition-all cursor-pointer active:scale-110 ${
+                              commentLikes[comment.id] ? 'text-rose-500' : 'text-text-muted hover:text-rose-500'
+                            }`}
+                          >
+                            <Heart className={`w-3.5 h-3.5 ${commentLikes[comment.id] ? 'fill-current' : ''}`} />
+                            {comment.likesCount || 0}
+                          </button>
+                          {user && (
+                            <button
+                              type="button"
+                              onClick={() => setReplyingToCommentId(replyingToCommentId === comment.id ? null : comment.id)}
+                              className="flex items-center gap-1.5 text-[0.6875rem] font-bold text-text-muted hover:text-bio-glow transition-all cursor-pointer active:scale-110"
+                            >
+                              <MessageSquare className="w-3.5 h-3.5" />
+                              回覆{comment.repliesCount ? ` ${comment.repliesCount}` : ''}
+                            </button>
                           )}
                         </div>
                       </div>
-                      <p className="text-sm text-text-main/90 leading-relaxed">{comment.content}</p>
+                    </div>
+
+                    <div className="ml-10 space-y-3 border-l border-line/80 pl-4">
+                      {(comment.replies || []).map(reply => (
+                        <div key={reply.id} className="flex gap-2.5">
+                          <button onClick={() => onOpenProfile(reply.authorId)} className="cursor-pointer active:scale-95 transition-transform">
+                            <UserAvatar 
+                              p={{
+                                islanderId: reply.authorRole === 'admin' ? 'L' : reply.authorId,
+                                photoURL: reply.authorPhoto,
+                                displayName: reply.authorName,
+                                role: reply.authorRole
+                              }}
+                              className="w-6 h-6 rounded-full mt-1 opacity-80 hover:opacity-100 transition-opacity"
+                            />
+                          </button>
+                          <div className="flex-1 rounded-xl border border-line bg-mist/60 px-3 py-2.5">
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <span
+                                  onClick={() => onOpenProfile(reply.authorId)}
+                                  className={`font-bold text-[0.625rem] uppercase tracking-wider cursor-pointer hover:opacity-80 truncate ${reply.authorRole === 'admin' ? 'rgb-text' : 'text-text-muted hover:text-bio-glow'}`}
+                                >
+                                  {reply.authorName}
+                                </span>
+                                {reply.authorRole === 'admin' && (
+                                  <span className="text-[0.5rem] bg-gradient-to-r from-red-500 via-yellow-500 to-blue-500 text-white px-1 rounded-sm font-bold uppercase">
+                                    站長
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <span className="text-[0.5625rem] text-text-muted font-display">
+                                  {reply.createdAt?.toDate ? formatDistanceToNow(reply.createdAt.toDate(), { locale: zhTW }) : ''}
+                                </span>
+                                {(user && (reply.authorId === user.uid || profile?.role === 'admin')) && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteReply(comment, reply)}
+                                    className="text-text-muted hover:text-rose-500 cursor-pointer active:scale-125 transition-transform p-1.5 rounded-full hover:bg-rose-500/10 -m-1"
+                                    title="刪除回覆"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                            <p className="text-[0.8125rem] text-text-main/90 leading-relaxed whitespace-pre-wrap">
+                              {renderContentWithMentions(reply.content)}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+
+                      {user && replyingToCommentId === comment.id && (
+                        <form
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            handleAddReply(comment);
+                          }}
+                          className="flex gap-2"
+                        >
+                          <input
+                            type="text"
+                            placeholder={`回覆 ${comment.authorName}... @暱稱`}
+                            className="flex-1 bg-mist border border-line rounded-xl px-3 py-2 text-[0.8125rem] text-text-main focus:ring-1 focus:ring-blue-500/50 focus:border-blue-500/50 outline-none placeholder:text-text-muted/40"
+                            value={replyInputs[comment.id] || ''}
+                            onChange={(e) => setReplyInputs(previous => ({ ...previous, [comment.id]: e.target.value }))}
+                          />
+                          <button type="submit" className="bg-mist/50 text-text-main p-2.5 rounded-xl hover:bg-mist transition-all border border-line cursor-pointer active:scale-95">
+                            <Send className="w-3.5 h-3.5" />
+                          </button>
+                        </form>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -3381,4 +3790,3 @@ function PostCard({ post, onOpenProfile, onShare }: { post: Post; onOpenProfile:
     </motion.div>
   );
 }
-
