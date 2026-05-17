@@ -13,6 +13,12 @@ const STATION_MASTER_UID = 'gHHxF8p1DnbMkoeVmU5XpB18Elz2';
 const DEFAULT_BACKGROUND_MODE = 'dark';
 const DEFAULT_ACCENT_ID = 'bio-glow';
 const DEFAULT_FONT_SIZE = 100;
+const POST_CHAR_LIMIT = 500;
+const COMMENT_CHAR_LIMIT = 250;
+const POST_COOLDOWN_MS = 30 * 1000;
+const NEW_ACCOUNT_WINDOW_MS = 30 * 60 * 1000;
+const DAILY_POST_LIMIT = 20;
+const ANTI_ABUSE_NOTICE = '為了防止惡意攻擊、複製垃圾文、洗文與攻擊性內容，馬祖小站會限制發文頻率。';
 
 const BACKGROUND_MODES = [
   { id: 'dark', name: '深色背景', description: '夜間閱讀', previewBackground: '#0A0C10', previewText: '#FAFAF9' },
@@ -250,6 +256,36 @@ const postMatchesCategory = (post: Post, activeCategory: string) => {
 
   const keywords = CATEGORY_KEYWORDS[activeCategory] || [];
   return keywords.some(keyword => post.content.toLowerCase().includes(keyword.toLowerCase()));
+};
+
+const countChars = (text: string) => Array.from(text).length;
+
+const limitChars = (text: string, limit: number) => {
+  const chars = Array.from(text);
+  return chars.length > limit ? chars.slice(0, limit).join('') : text;
+};
+
+const getTimestampMillis = (value: any) => {
+  if (value?.toMillis) return value.toMillis();
+  if (value?.toDate) return value.toDate().getTime();
+  if (typeof value?.seconds === 'number') return value.seconds * 1000;
+  return 0;
+};
+
+const getAccountAgeMs = (user: any) => {
+  const createdAt = user?.metadata?.creationTime ? Date.parse(user.metadata.creationTime) : 0;
+  return createdAt ? Date.now() - createdAt : Number.POSITIVE_INFINITY;
+};
+
+const isTrustedPostImageUrl = (url: string) => {
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname === 'firebasestorage.googleapis.com'
+      || parsed.hostname.endsWith('.firebasestorage.app')
+      || parsed.hostname.endsWith('.appspot.com');
+  } catch {
+    return false;
+  }
 };
 
 const DefaultIslanderAvatar = ({ className = "w-10 h-10" }: { className?: string }) => {
@@ -954,6 +990,35 @@ const HOT_TOPICS = Object.entries(topicCounts)
     setImagePreviews(newPreviews);
   };
 
+  const getPostRateLimitMessage = () => {
+    if (!user) return null;
+
+    const now = Date.now();
+    const userPosts = posts.filter(post => post.authorId === user.uid);
+    const latestPostTime = Math.max(0, ...userPosts.map(post => getTimestampMillis(post.createdAt)));
+
+    if (latestPostTime && now - latestPostTime < POST_COOLDOWN_MS) {
+      const secondsLeft = Math.ceil((POST_COOLDOWN_MS - (now - latestPostTime)) / 1000);
+      return `${ANTI_ABUSE_NOTICE} 請再等 ${secondsLeft} 秒後再發文。`;
+    }
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayPostCount = userPosts.filter(post => getTimestampMillis(post.createdAt) >= todayStart.getTime()).length;
+
+    if (todayPostCount >= DAILY_POST_LIMIT) {
+      return `${ANTI_ABUSE_NOTICE} 每個帳號一天最多 ${DAILY_POST_LIMIT} 篇，請明天再發。`;
+    }
+
+    const accountAgeMs = getAccountAgeMs(user);
+    if (accountAgeMs < NEW_ACCOUNT_WINDOW_MS && userPosts.length > 0) {
+      const minutesLeft = Math.ceil((NEW_ACCOUNT_WINDOW_MS - accountAgeMs) / 60000);
+      return `${ANTI_ABUSE_NOTICE} 新帳號前 30 分鐘只能先發一篇，請再等約 ${minutesLeft} 分鐘。`;
+    }
+
+    return null;
+  };
+
   const handleCreatePost = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || (!newPostContent.trim() && selectedImages.length === 0) || isPosting) return;
@@ -967,6 +1032,24 @@ const HOT_TOPICS = Object.entries(topicCounts)
 
     try {
       const rawContent = newPostContent.trim();
+      const contentLength = countChars(rawContent);
+
+      if (contentLength > POST_CHAR_LIMIT) {
+        setPostError(`發文最多 ${POST_CHAR_LIMIT} 字，請縮短內容後再發。${ANTI_ABUSE_NOTICE}`);
+        setIsPosting(false);
+        setUploadProgress(0);
+        setPostingMessage('');
+        return;
+      }
+
+      const rateLimitMessage = getPostRateLimitMessage();
+      if (rateLimitMessage) {
+        setPostError(rateLimitMessage);
+        setIsPosting(false);
+        setUploadProgress(0);
+        setPostingMessage('');
+        return;
+      }
 
       // 1) 先呼叫後端 AI 審核。注意：Gemini API Key 只能放在後端 /api/moderate-post，不能放前端。
       const moderationRes = await fetch('/api/moderate-post', {
@@ -2347,10 +2430,21 @@ const HOT_TOPICS = Object.entries(topicCounts)
                   <textarea 
                     placeholder="在夜色中留下馬祖的消息... @暱稱"
                     disabled={isPosting}
+                    maxLength={POST_CHAR_LIMIT}
                     className="w-full bg-transparent border-none focus:ring-0 text-text-main text-lg resize-none py-2 min-h-[100px] placeholder:text-text-muted/40 outline-none disabled:opacity-50"
                     value={newPostContent}
-                    onChange={(e) => setNewPostContent(e.target.value)}
+                    onChange={(e) => setNewPostContent(limitChars(e.target.value, POST_CHAR_LIMIT))}
                   />
+                  <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-[0.6875rem] text-text-muted leading-relaxed">
+                      {ANTI_ABUSE_NOTICE}
+                    </p>
+                    <span className={`text-[0.6875rem] font-mono font-bold shrink-0 ${
+                      countChars(newPostContent) >= POST_CHAR_LIMIT ? 'text-amber-400' : 'text-text-muted'
+                    }`}>
+                      字數 {countChars(newPostContent)}/{POST_CHAR_LIMIT}
+                    </span>
+                  </div>
                   
                   {postError && (
                     <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
@@ -2438,7 +2532,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
                   </button>
                 </div>
                 <button 
-                  disabled={(!newPostContent.trim() && selectedImages.length === 0) || isPosting}
+                  disabled={(!newPostContent.trim() && selectedImages.length === 0) || isPosting || countChars(newPostContent) > POST_CHAR_LIMIT}
                   className="bg-stone-100 text-deep-ocean px-8 py-2 rounded-xl font-bold hover:bg-white transition-all disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-2 shadow-xl shadow-black/20 cursor-pointer active:scale-95"
                 >
                   {isPosting ? (
@@ -3254,6 +3348,11 @@ function PostCard({
     const commentPath = `posts/${post.id}/comments`;
 
     try {
+      if (countChars(newComment.trim()) > COMMENT_CHAR_LIMIT) {
+        alert(`留言最多 ${COMMENT_CHAR_LIMIT} 字。${ANTI_ABUSE_NOTICE}`);
+        return;
+      }
+
       const cleanComment = filterContent(newComment);
       const senderName = profile?.displayName || user.displayName || '匿名島民';
       const commentRef = await addDoc(collection(db, 'posts', post.id, 'comments'), {
@@ -3453,6 +3552,11 @@ function PostCard({
     const replyPath = `posts/${post.id}/comments/${comment.id}/replies`;
 
     try {
+      if (countChars(replyText) > COMMENT_CHAR_LIMIT) {
+        alert(`回覆最多 ${COMMENT_CHAR_LIMIT} 字。${ANTI_ABUSE_NOTICE}`);
+        return;
+      }
+
       const cleanReply = filterContent(replyText);
       const senderName = profile?.displayName || user.displayName || '匿名島民';
 
@@ -3619,6 +3723,7 @@ function PostCard({
   };
 
   const canModerate = user && (post.authorId === user.uid || profile?.role === 'admin');
+  const trustedImageUrls = (post.imageUrls || []).filter(isTrustedPostImageUrl);
 
   return (
     <motion.div 
@@ -3751,18 +3856,18 @@ function PostCard({
           {renderContentWithMentions(post.content)}
         </div>
 
-        {post.imageUrls && post.imageUrls.length > 0 && (
+        {trustedImageUrls.length > 0 && (
           <div className={`grid gap-2 ${
-            post.imageUrls.length === 1 ? 'grid-cols-1' : 
-            post.imageUrls.length === 2 ? 'grid-cols-2' : 
+            trustedImageUrls.length === 1 ? 'grid-cols-1' : 
+            trustedImageUrls.length === 2 ? 'grid-cols-2' : 
             'grid-cols-2 sm:grid-cols-3'
           }`}>
-            {post.imageUrls.map((url, idx) => (
+            {trustedImageUrls.map((url, idx) => (
               <motion.div 
                 key={idx}
                 whileHover={{ scale: 1.02 }}
                 className={`overflow-hidden rounded-2xl border border-line shadow-lg ${
-                  post.imageUrls?.length === 3 && idx === 0 ? 'sm:col-span-2' : ''
+                  trustedImageUrls.length === 3 && idx === 0 ? 'sm:col-span-2' : ''
                 }`}
               >
                 <img 
@@ -3806,14 +3911,25 @@ function PostCard({
             <div className="p-6 space-y-6">
               {user && (
                 <form onSubmit={handleAddComment} className="flex gap-3">
-                  <input 
-                    type="text" 
-                    placeholder="隱密地回覆... @暱稱"
-                    className="flex-1 bg-mist border border-line rounded-xl px-4 py-2 text-sm text-text-main focus:ring-1 focus:ring-blue-500/50 focus:border-blue-500/50 outline-none placeholder:text-text-muted/40"
-                    value={newComment}
-                    onChange={(e) => setNewComment(e.target.value)}
-                  />
-                  <button className="bg-mist/50 text-text-main p-2.5 rounded-xl hover:bg-mist transition-all border border-line cursor-pointer active:scale-95">
+                  <div className="flex-1 space-y-1">
+                    <input 
+                      type="text" 
+                      placeholder="隱密地回覆... @暱稱"
+                      maxLength={COMMENT_CHAR_LIMIT}
+                      className="w-full bg-mist border border-line rounded-xl px-4 py-2 text-sm text-text-main focus:ring-1 focus:ring-blue-500/50 focus:border-blue-500/50 outline-none placeholder:text-text-muted/40"
+                      value={newComment}
+                      onChange={(e) => setNewComment(limitChars(e.target.value, COMMENT_CHAR_LIMIT))}
+                    />
+                    <div className="flex items-center justify-between px-1">
+                      <span className="text-[0.625rem] text-text-muted">避免複製垃圾文、洗文與攻擊</span>
+                      <span className={`text-[0.625rem] font-mono font-bold ${
+                        countChars(newComment) >= COMMENT_CHAR_LIMIT ? 'text-amber-400' : 'text-text-muted'
+                      }`}>
+                        字數 {countChars(newComment)}/{COMMENT_CHAR_LIMIT}
+                      </span>
+                    </div>
+                  </div>
+                  <button className="self-start bg-mist/50 text-text-main p-2.5 rounded-xl hover:bg-mist transition-all border border-line cursor-pointer active:scale-95">
                     <Send className="w-4 h-4" />
                   </button>
                 </form>
@@ -4024,14 +4140,24 @@ function PostCard({
                           }}
                           className="flex gap-2"
                         >
-                          <input
-                            type="text"
-                            placeholder={`回覆 ${comment.authorName}... @暱稱`}
-                            className="flex-1 bg-mist border border-line rounded-xl px-3 py-2 text-[0.8125rem] text-text-main focus:ring-1 focus:ring-blue-500/50 focus:border-blue-500/50 outline-none placeholder:text-text-muted/40"
-                            value={replyInputs[comment.id] || ''}
-                            onChange={(e) => setReplyInputs(previous => ({ ...previous, [comment.id]: e.target.value }))}
-                          />
-                          <button type="submit" className="bg-mist/50 text-text-main p-2.5 rounded-xl hover:bg-mist transition-all border border-line cursor-pointer active:scale-95">
+                          <div className="flex-1 space-y-1">
+                            <input
+                              type="text"
+                              placeholder={`回覆 ${comment.authorName}... @暱稱`}
+                              maxLength={COMMENT_CHAR_LIMIT}
+                              className="w-full bg-mist border border-line rounded-xl px-3 py-2 text-[0.8125rem] text-text-main focus:ring-1 focus:ring-blue-500/50 focus:border-blue-500/50 outline-none placeholder:text-text-muted/40"
+                              value={replyInputs[comment.id] || ''}
+                              onChange={(e) => setReplyInputs(previous => ({ ...previous, [comment.id]: limitChars(e.target.value, COMMENT_CHAR_LIMIT) }))}
+                            />
+                            <div className="flex justify-end px-1">
+                              <span className={`text-[0.625rem] font-mono font-bold ${
+                                countChars(replyInputs[comment.id] || '') >= COMMENT_CHAR_LIMIT ? 'text-amber-400' : 'text-text-muted'
+                              }`}>
+                                字數 {countChars(replyInputs[comment.id] || '')}/{COMMENT_CHAR_LIMIT}
+                              </span>
+                            </div>
+                          </div>
+                          <button type="submit" className="self-start bg-mist/50 text-text-main p-2.5 rounded-xl hover:bg-mist transition-all border border-line cursor-pointer active:scale-95">
                             <Send className="w-3.5 h-3.5" />
                           </button>
                         </form>

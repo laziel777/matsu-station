@@ -19,6 +19,11 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == 'gHHxF8p1DnbMkoeVmU5XpB18Elz2';
     }
 
+    function hasValidContent(maxLength) {
+      return request.resource.data.content is string
+             && request.resource.data.content.size() <= maxLength;
+    }
+
     match /users/{userId} {
       allow get: if isSignedIn();
       allow list: if isSignedIn();
@@ -30,7 +35,7 @@ service cloud.firestore {
 
     match /posts/{postId} {
       allow read: if true;
-      allow create: if isSignedIn();
+      allow create: if isSignedIn() && hasValidContent(500);
       allow update: if (isSignedIn()
                         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount', 'commentsCount']))
                     || isOwner(resource.data.authorId)
@@ -44,7 +49,7 @@ service cloud.firestore {
 
       match /comments/{commentId} {
         allow read: if true;
-        allow create: if isSignedIn();
+        allow create: if isSignedIn() && hasValidContent(250);
         allow update: if isSignedIn()
                       && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount', 'repliesCount']);
         allow delete: if isOwner(resource.data.authorId) || isAdmin();
@@ -56,7 +61,7 @@ service cloud.firestore {
 
         match /replies/{replyId} {
           allow read: if true;
-          allow create: if isSignedIn();
+          allow create: if isSignedIn() && hasValidContent(250);
           allow update: if isSignedIn()
                         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount']);
           allow delete: if isOwner(resource.data.authorId) || isAdmin();
