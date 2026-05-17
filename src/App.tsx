@@ -79,7 +79,15 @@ interface CommentReply {
   authorPhoto: string;
   authorRole?: 'user' | 'admin';
   content: string;
+  likesCount?: number;
   createdAt: any;
+}
+
+interface DiscussionTarget {
+  postId: string;
+  commentId?: string;
+  replyId?: string;
+  nonce: number;
 }
 
 // --- Profanity Filter Utility ---
@@ -172,6 +180,8 @@ const sendMentionNotifications = async ({
   senderName,
   postId,
   category,
+  commentId,
+  replyId,
   sourceLabel,
 }: {
   text: string;
@@ -179,6 +189,8 @@ const sendMentionNotifications = async ({
   senderName: string;
   postId: string;
   category?: string;
+  commentId?: string;
+  replyId?: string;
   sourceLabel: string;
 }) => {
   const mentionNames = extractMentionNames(text);
@@ -204,6 +216,8 @@ const sendMentionNotifications = async ({
         type: 'mention',
         postId,
         category,
+        ...(commentId ? { commentId } : {}),
+        ...(replyId ? { replyId } : {}),
         title: '有人標註了你',
         content: `${senderName} 在${sourceLabel}標註了你。`,
         read: false,
@@ -307,6 +321,7 @@ export default function App() {
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
+  const [discussionTarget, setDiscussionTarget] = useState<DiscussionTarget | null>(null);
   const [weather, setWeather] = useState<{ temp: number; icon: string; text: string; wind: number; dir: string; aqi: number; vis: number; humidity: number } | null>(null);
   const [showWeatherModal, setShowWeatherModal] = useState(false);
   const [showTransportModal, setShowTransportModal] = useState<'flight' | 'ferry' | null>(null);
@@ -812,6 +827,28 @@ const HOT_TOPICS = Object.entries(topicCounts)
     }
   };
 
+  const handleNotificationClick = async (notification: any) => {
+    try {
+      await updateDoc(doc(db, 'notifications', notification.id), { read: true });
+    } catch (err) {
+      console.warn('Mark notification read failed:', err);
+    }
+
+    setShowNotifications(false);
+
+    if (notification.postId) {
+      setActiveCategory('全部');
+      setDiscussionTarget({
+        postId: notification.postId,
+        commentId: notification.commentId,
+        replyId: notification.replyId,
+        nonce: Date.now(),
+      });
+    } else if (notification.category) {
+      setActiveCategory(notification.category);
+    }
+  };
+
   const handleUpdateAvatarSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !user) return;
@@ -948,7 +985,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
       // 3) 寫入 Firestore
       const cleanContent = filterContent(rawContent);
       const senderName = profile?.displayName || user.displayName || '匿名島民';
-      const postCategory = moderation.tag || newPostCategory;
+      const postCategory = newPostCategory;
       const postRef = await addDoc(collection(db, 'posts'), {
         authorId: user.uid,
         authorName: senderName,
@@ -957,7 +994,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
         category: postCategory,
         aiSafe: Boolean(moderation.safe),
         aiRisk: Number(moderation.risk ?? 0),
-        aiTag: postCategory,
+        aiTag: moderation.tag || postCategory,
         aiSummary: moderation.summary || '',
         aiAction: moderation.action || 'publish',
         likesCount: 0,
@@ -1048,7 +1085,10 @@ const HOT_TOPICS = Object.entries(topicCounts)
         return matchesSearch && (post.likesCount >= 3);
       }
       
-      const matchesCategory = activeCategory === '全部' || post.category === activeCategory || post.content.includes(activeCategory);
+      const matchesCategory = activeCategory === '全部'
+        || post.category === activeCategory
+        || post.aiTag === activeCategory
+        || post.content.includes(activeCategory);
       return matchesSearch && matchesCategory;
     })
     .sort((a, b) => {
@@ -1554,30 +1594,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
                                 notifications.map(n => (
                                   <div 
                                     key={n.id} 
-                                    onClick={async () => {
-  await updateDoc(doc(db, 'notifications', n.id), {
-    read: true
-  });
-
-  setShowNotifications(false);
-
-  if (n.category) {
-  setActiveCategory(n.category);
-} else {
-  setActiveCategory("全部");
-}
-
-setTimeout(() => {
-  const element = document.getElementById(`post-${n.postId}`);
-
-  if (element) {
-    element.scrollIntoView({
-      behavior: "smooth",
-      block: "center"
-    });
-  }
- }, 500);
-}}
+                                    onClick={() => handleNotificationClick(n)}
                                     className={`p-4 border-b border-white/5 cursor-pointer hover:bg-white/5 transition-colors ${!n.read ? 'bg-bio-glow/5' : ''}`}
                                   >
                                     <h4 className="text-sm font-bold text-text-main mb-1">{n.title}</h4>
@@ -1779,30 +1796,7 @@ setTimeout(() => {
                           notifications.map(n => (
                             <div 
                               key={n.id} 
-                              onClick={async () => {
-  await updateDoc(doc(db, 'notifications', n.id), {
-    read: true
-  });
-
-  setShowNotifications(false);
-
-  if (n.category) {
-  setActiveCategory(n.category);
-} else {
-  setActiveCategory("全部");
-}
-
-setTimeout(() => {
-  const element = document.getElementById(`post-${n.postId}`);
-
-  if (element) {
-    element.scrollIntoView({
-      behavior: "smooth",
-      block: "center"
-    });
-  }
- }, 500);
-}}
+                              onClick={() => handleNotificationClick(n)}
                               className={`p-4 border-b border-line hover:bg-white/5 transition-colors cursor-pointer relative ${!n.read ? 'bg-bio-glow/5' : ''}`}
                             >
                               {!n.read && <div className="absolute left-1 top-1/2 -translate-y-1/2 w-1 h-8 bg-bio-glow rounded-full" />}
@@ -2478,7 +2472,13 @@ setTimeout(() => {
           <div className="space-y-8">
             <AnimatePresence>
               {filteredPosts.map(post => (
-                <PostCard key={post.id} post={post} onOpenProfile={handleOpenProfile} onShare={handleShare} />
+                <PostCard
+                  key={post.id}
+                  post={post}
+                  discussionTarget={discussionTarget?.postId === post.id ? discussionTarget : null}
+                  onOpenProfile={handleOpenProfile}
+                  onShare={handleShare}
+                />
               ))}
             </AnimatePresence>
             
@@ -2924,15 +2924,27 @@ setTimeout(() => {
   );
 }
 
-function PostCard({ post, onOpenProfile, onShare }: { post: Post; onOpenProfile: (uid: string) => void; onShare: (post: Post) => void }) {
+function PostCard({
+  post,
+  discussionTarget,
+  onOpenProfile,
+  onShare,
+}: {
+  post: Post;
+  discussionTarget?: DiscussionTarget | null;
+  onOpenProfile: (uid: string) => void;
+  onShare: (post: Post) => void;
+}) {
   const { user, profile } = useAuth();
   const [isLiked, setIsLiked] = useState(false);
   const [likes, setLikes] = useState(post.likesCount);
   const [showComments, setShowComments] = useState(false);
   const [comments, setComments] = useState<Comment[]>([]);
   const [commentLikes, setCommentLikes] = useState<Record<string, boolean>>({});
+  const [replyLikes, setReplyLikes] = useState<Record<string, boolean>>({});
   const [replyingToCommentId, setReplyingToCommentId] = useState<string | null>(null);
   const [replyInputs, setReplyInputs] = useState<Record<string, string>>({});
+  const [highlightedDiscussionId, setHighlightedDiscussionId] = useState<string | null>(null);
   const [newComment, setNewComment] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -3058,19 +3070,21 @@ function PostCard({ post, onOpenProfile, onShare }: { post: Post; onOpenProfile:
     repliesUnsubscribeRef.current = {};
   };
 
-  const fetchComments = () => {
-    if (showComments) {
-      commentsUnsubscribeRef.current?.();
-      commentsUnsubscribeRef.current = null;
-      closeReplySubscriptions();
-      setComments([]);
-      setCommentLikes({});
-      setReplyingToCommentId(null);
-      setReplyInputs({});
-      setShowComments(false);
-      return;
-    }
+  const getReplyLikeKey = (commentId: string, replyId: string) => `${commentId}:${replyId}`;
 
+  const closeComments = () => {
+    commentsUnsubscribeRef.current?.();
+    commentsUnsubscribeRef.current = null;
+    closeReplySubscriptions();
+    setComments([]);
+    setCommentLikes({});
+    setReplyLikes({});
+    setReplyingToCommentId(null);
+    setReplyInputs({});
+    setShowComments(false);
+  };
+
+  const openComments = () => {
     if (post.id.startsWith('sample-')) {
       setShowComments(true);
       setComments([]);
@@ -3120,6 +3134,7 @@ function PostCard({ post, onOpenProfile, onShare }: { post: Post; onOpenProfile:
             });
         } else {
           setCommentLikes({});
+          setReplyLikes({});
         }
 
         nextComments.forEach(comment => {
@@ -3135,6 +3150,21 @@ function PostCard({ post, onOpenProfile, onShare }: { post: Post; onOpenProfile:
               id: replyDoc.id,
               ...replyDoc.data(),
             } as CommentReply));
+
+            if (user) {
+              Promise.all(
+                replies.map(async reply => {
+                  const likeSnap = await getDoc(doc(db, 'posts', post.id, 'comments', comment.id, 'replies', reply.id, 'likes', user.uid));
+                  return [getReplyLikeKey(comment.id, reply.id), likeSnap.exists()] as const;
+                })
+              )
+                .then(entries => {
+                  setReplyLikes(previous => ({ ...previous, ...Object.fromEntries(entries) }));
+                })
+                .catch(error => {
+                  console.warn('Reply like status fetch failed:', error.message);
+                });
+            }
 
             setComments(previousComments => sortTopLevelComments(
               previousComments.map(existingComment => (
@@ -3156,6 +3186,43 @@ function PostCard({ post, onOpenProfile, onShare }: { post: Post; onOpenProfile:
     }
   };
 
+  const fetchComments = () => {
+    if (showComments) {
+      closeComments();
+      return;
+    }
+
+    openComments();
+  };
+
+  React.useEffect(() => {
+    if (!discussionTarget || discussionTarget.postId !== post.id) return;
+    if (!discussionTarget.commentId && !discussionTarget.replyId) return;
+    if (!showComments) openComments();
+  }, [discussionTarget?.nonce]);
+
+  React.useEffect(() => {
+    if (!discussionTarget || discussionTarget.postId !== post.id) return;
+
+    const targetElementId = discussionTarget.replyId
+      ? `reply-${discussionTarget.replyId}`
+      : discussionTarget.commentId
+        ? `comment-${discussionTarget.commentId}`
+        : `post-${discussionTarget.postId}`;
+    const element = document.getElementById(targetElementId);
+
+    if (!element) return;
+
+    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setHighlightedDiscussionId(targetElementId);
+
+    const clearHighlight = window.setTimeout(() => {
+      setHighlightedDiscussionId(previous => previous === targetElementId ? null : previous);
+    }, 2400);
+
+    return () => window.clearTimeout(clearHighlight);
+  }, [discussionTarget?.nonce, showComments, comments, post.id]);
+
   const handleAddComment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !newComment.trim()) return;
@@ -3164,7 +3231,7 @@ function PostCard({ post, onOpenProfile, onShare }: { post: Post; onOpenProfile:
     try {
       const cleanComment = filterContent(newComment);
       const senderName = profile?.displayName || user.displayName || '匿名島民';
-      await addDoc(collection(db, 'posts', post.id, 'comments'), {
+      const commentRef = await addDoc(collection(db, 'posts', post.id, 'comments'), {
         authorId: user.uid,
         authorName: senderName,
         authorPhoto: profile?.photoURL || user.photoURL || DEFAULT_ISLANDER_PHOTO,
@@ -3185,6 +3252,7 @@ function PostCard({ post, onOpenProfile, onShare }: { post: Post; onOpenProfile:
           type: 'comment',
           postId: post.id,
           category: post.category,
+          commentId: commentRef.id,
           title: '收到新的神秘回覆',
           content: `${senderName} 在你的動態下留言了。`,
           read: false,
@@ -3198,6 +3266,7 @@ function PostCard({ post, onOpenProfile, onShare }: { post: Post; onOpenProfile:
           senderName,
           postId: post.id,
           category: post.category,
+          commentId: commentRef.id,
           sourceLabel: '留言中',
         });
       } catch (mentionErr) {
@@ -3254,6 +3323,7 @@ function PostCard({ post, onOpenProfile, onShare }: { post: Post; onOpenProfile:
           type: 'like',
           postId: post.id,
           category: post.category,
+          commentId: comment.id,
           title: '有人喜歡你的留言',
           content: `${senderName} 幫你的留言按了讚。`,
           read: false,
@@ -3274,6 +3344,82 @@ function PostCard({ post, onOpenProfile, onShare }: { post: Post; onOpenProfile:
     }
   };
 
+  const handleReplyLike = async (comment: Comment, reply: CommentReply) => {
+    if (!user) {
+      alert('請登入後再幫回覆按讚。');
+      return;
+    }
+
+    if (post.id.startsWith('sample-')) {
+      alert('範例回覆無法真實互動。');
+      return;
+    }
+
+    const replyLikeKey = getReplyLikeKey(comment.id, reply.id);
+    const wasLiked = Boolean(replyLikes[replyLikeKey]);
+    const likeChange = wasLiked ? -1 : 1;
+    const likeRef = doc(db, 'posts', post.id, 'comments', comment.id, 'replies', reply.id, 'likes', user.uid);
+    const replyRef = doc(db, 'posts', post.id, 'comments', comment.id, 'replies', reply.id);
+    const senderName = profile?.displayName || user.displayName || '匿名島民';
+
+    setReplyLikes(previous => ({ ...previous, [replyLikeKey]: !wasLiked }));
+    setComments(previousComments => previousComments.map(existingComment => (
+      existingComment.id === comment.id
+        ? {
+          ...existingComment,
+          replies: (existingComment.replies || []).map(existingReply => (
+            existingReply.id === reply.id
+              ? { ...existingReply, likesCount: Math.max(0, (existingReply.likesCount || 0) + likeChange) }
+              : existingReply
+          )),
+        }
+        : existingComment
+    )));
+
+    try {
+      if (wasLiked) {
+        await deleteDoc(likeRef);
+      } else {
+        await setDoc(likeRef, { createdAt: serverTimestamp() });
+      }
+
+      await updateDoc(replyRef, { likesCount: increment(likeChange) });
+
+      if (!wasLiked && user.uid !== reply.authorId) {
+        await addDoc(collection(db, 'notifications'), {
+          recipientId: reply.authorId,
+          senderId: user.uid,
+          senderName,
+          type: 'like',
+          postId: post.id,
+          category: post.category,
+          commentId: comment.id,
+          replyId: reply.id,
+          title: '有人喜歡你的回覆',
+          content: `${senderName} 幫你的回覆按了讚。`,
+          read: false,
+          createdAt: serverTimestamp(),
+        });
+      }
+    } catch (err: any) {
+      setReplyLikes(previous => ({ ...previous, [replyLikeKey]: wasLiked }));
+      setComments(previousComments => previousComments.map(existingComment => (
+        existingComment.id === comment.id
+          ? {
+            ...existingComment,
+            replies: (existingComment.replies || []).map(existingReply => (
+              existingReply.id === reply.id
+                ? { ...existingReply, likesCount: Math.max(0, (existingReply.likesCount || 0) - likeChange) }
+                : existingReply
+            )),
+          }
+          : existingComment
+      )));
+      console.error('Reply like failed:', err);
+      handleFirestoreError(err, OperationType.WRITE, `posts/${post.id}/comments/${comment.id}/replies/${reply.id}`);
+    }
+  };
+
   const handleAddReply = async (comment: Comment) => {
     if (!user) return;
     const replyText = (replyInputs[comment.id] || '').trim();
@@ -3285,12 +3431,13 @@ function PostCard({ post, onOpenProfile, onShare }: { post: Post; onOpenProfile:
       const cleanReply = filterContent(replyText);
       const senderName = profile?.displayName || user.displayName || '匿名島民';
 
-      await addDoc(collection(db, 'posts', post.id, 'comments', comment.id, 'replies'), {
+      const replyRef = await addDoc(collection(db, 'posts', post.id, 'comments', comment.id, 'replies'), {
         authorId: user.uid,
         authorName: senderName,
         authorPhoto: profile?.photoURL || user.photoURL || DEFAULT_ISLANDER_PHOTO,
         authorRole: profile?.role || 'user',
         content: cleanReply,
+        likesCount: 0,
         createdAt: serverTimestamp(),
       });
       await updateDoc(doc(db, 'posts', post.id, 'comments', comment.id), { repliesCount: increment(1) });
@@ -3304,6 +3451,8 @@ function PostCard({ post, onOpenProfile, onShare }: { post: Post; onOpenProfile:
           type: 'comment',
           postId: post.id,
           category: post.category,
+          commentId: comment.id,
+          replyId: replyRef.id,
           title: '你的留言有新回覆',
           content: `${senderName} 回覆了你的留言。`,
           read: false,
@@ -3318,6 +3467,8 @@ function PostCard({ post, onOpenProfile, onShare }: { post: Post; onOpenProfile:
           senderName,
           postId: post.id,
           category: post.category,
+          commentId: comment.id,
+          replyId: replyRef.id,
           sourceLabel: '留言回覆中',
         });
       } catch (mentionErr) {
@@ -3363,7 +3514,19 @@ function PostCard({ post, onOpenProfile, onShare }: { post: Post; onOpenProfile:
     }
   };
 
-  const handleReport = async () => {
+  const handleReportContent = async ({
+    targetId,
+    targetType,
+    commentId,
+    replyId,
+    preview,
+  }: {
+    targetId: string;
+    targetType: 'post' | 'comment' | 'reply';
+    commentId?: string;
+    replyId?: string;
+    preview: string;
+  }) => {
     if (!user) {
       alert('請先登入後再進行檢舉。');
       return;
@@ -3374,8 +3537,12 @@ function PostCard({ post, onOpenProfile, onShare }: { post: Post; onOpenProfile:
 
     try {
       await addDoc(collection(db, 'reports'), {
-        targetId: post.id,
-        targetType: 'post',
+        targetId,
+        targetType,
+        postId: post.id,
+        ...(commentId ? { commentId } : {}),
+        ...(replyId ? { replyId } : {}),
+        targetPreview: preview.slice(0, 160),
         reporterId: user.uid,
         reporterName: profile?.displayName || user.displayName || '匿名島民',
         reason: reason.trim(),
@@ -3391,8 +3558,10 @@ function PostCard({ post, onOpenProfile, onShare }: { post: Post; onOpenProfile:
           type: 'report',
           postId: post.id,
           category: post.category || '未分類',
+          ...(commentId ? { commentId } : {}),
+          ...(replyId ? { replyId } : {}),
           title: '⚠ 收到新的檢舉',
-          content: `有人檢舉了一篇貼文：${reason.trim()}`,
+          content: `有人檢舉了一則${targetType === 'post' ? '貼文' : targetType === 'comment' ? '留言' : '留言回覆'}：${reason.trim()}`,
           read: false,
           createdAt: serverTimestamp()
         });
@@ -3414,6 +3583,14 @@ function PostCard({ post, onOpenProfile, onShare }: { post: Post; onOpenProfile:
 
       handleFirestoreError(err, OperationType.CREATE, 'reports');
     }
+  };
+
+  const handleReport = async () => {
+    await handleReportContent({
+      targetId: post.id,
+      targetType: 'post',
+      preview: post.content,
+    });
   };
 
   const canModerate = user && (post.authorId === user.uid || profile?.role === 'admin');
@@ -3619,7 +3796,7 @@ function PostCard({ post, onOpenProfile, onShare }: { post: Post; onOpenProfile:
 
               <div className="space-y-4">
                 {comments.map(comment => (
-                  <div key={comment.id} className="space-y-3">
+                  <div key={comment.id} id={`comment-${comment.id}`} className="space-y-3 scroll-mt-24">
                     <div className="flex gap-3">
                       <button onClick={() => onOpenProfile(comment.authorId)} className="cursor-pointer active:scale-95 transition-transform">
                         <UserAvatar 
@@ -3632,7 +3809,9 @@ function PostCard({ post, onOpenProfile, onShare }: { post: Post; onOpenProfile:
                            className="w-7 h-7 rounded-full mt-1 opacity-90 hover:opacity-100 transition-opacity" 
                         />
                       </button>
-                      <div className="flex-1 bg-mist p-4 rounded-2xl border border-line shadow-sm">
+                      <div className={`flex-1 bg-mist p-4 rounded-2xl border border-line shadow-sm transition-all ${
+                        highlightedDiscussionId === `comment-${comment.id}` ? 'ring-2 ring-bio-glow bg-bio-glow/10' : ''
+                      }`}>
                         <div className="flex items-center justify-between gap-3 mb-1.5">
                           <div className="flex items-center gap-1.5 min-w-0">
                             <span 
@@ -3651,6 +3830,25 @@ function PostCard({ post, onOpenProfile, onShare }: { post: Post; onOpenProfile:
                             <span className="text-[0.5625rem] text-text-muted font-display">
                               {comment.createdAt?.toDate ? formatDistanceToNow(comment.createdAt.toDate(), { locale: zhTW }) : ''}
                             </span>
+                            {(!user || (comment.authorId !== user.uid && profile?.role !== 'admin')) && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  handleReportContent({
+                                    targetId: comment.id,
+                                    targetType: 'comment',
+                                    commentId: comment.id,
+                                    preview: comment.content,
+                                  });
+                                }}
+                                className="text-text-muted hover:text-amber-500 cursor-pointer active:scale-125 transition-transform p-2 rounded-full hover:bg-amber-500/10 -m-1"
+                                title="檢舉留言"
+                              >
+                                <Flag className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                             {(user && (comment.authorId === user.uid || profile?.role === 'admin')) && (
                                <button 
                                  onClick={async (e) => {
@@ -3709,7 +3907,7 @@ function PostCard({ post, onOpenProfile, onShare }: { post: Post; onOpenProfile:
 
                     <div className="ml-10 space-y-3 border-l border-line/80 pl-4">
                       {(comment.replies || []).map(reply => (
-                        <div key={reply.id} className="flex gap-2.5">
+                        <div key={reply.id} id={`reply-${reply.id}`} className="flex gap-2.5 scroll-mt-24">
                           <button onClick={() => onOpenProfile(reply.authorId)} className="cursor-pointer active:scale-95 transition-transform">
                             <UserAvatar 
                               p={{
@@ -3721,7 +3919,9 @@ function PostCard({ post, onOpenProfile, onShare }: { post: Post; onOpenProfile:
                               className="w-6 h-6 rounded-full mt-1 opacity-80 hover:opacity-100 transition-opacity"
                             />
                           </button>
-                          <div className="flex-1 rounded-xl border border-line bg-mist/60 px-3 py-2.5">
+                          <div className={`flex-1 rounded-xl border border-line bg-mist/60 px-3 py-2.5 transition-all ${
+                            highlightedDiscussionId === `reply-${reply.id}` ? 'ring-2 ring-bio-glow bg-bio-glow/10' : ''
+                          }`}>
                             <div className="flex items-center justify-between gap-2 mb-1">
                               <div className="flex items-center gap-1.5 min-w-0">
                                 <span
@@ -3740,6 +3940,26 @@ function PostCard({ post, onOpenProfile, onShare }: { post: Post; onOpenProfile:
                                 <span className="text-[0.5625rem] text-text-muted font-display">
                                   {reply.createdAt?.toDate ? formatDistanceToNow(reply.createdAt.toDate(), { locale: zhTW }) : ''}
                                 </span>
+                                {(!user || (reply.authorId !== user.uid && profile?.role !== 'admin')) && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      handleReportContent({
+                                        targetId: reply.id,
+                                        targetType: 'reply',
+                                        commentId: comment.id,
+                                        replyId: reply.id,
+                                        preview: reply.content,
+                                      });
+                                    }}
+                                    className="text-text-muted hover:text-amber-500 cursor-pointer active:scale-125 transition-transform p-1.5 rounded-full hover:bg-amber-500/10 -m-1"
+                                    title="檢舉回覆"
+                                  >
+                                    <Flag className="w-3 h-3" />
+                                  </button>
+                                )}
                                 {(user && (reply.authorId === user.uid || profile?.role === 'admin')) && (
                                   <button
                                     type="button"
@@ -3755,6 +3975,18 @@ function PostCard({ post, onOpenProfile, onShare }: { post: Post; onOpenProfile:
                             <p className="text-[0.8125rem] text-text-main/90 leading-relaxed whitespace-pre-wrap">
                               {renderContentWithMentions(reply.content)}
                             </p>
+                            <div className="flex items-center gap-3 pt-2">
+                              <button
+                                type="button"
+                                onClick={() => handleReplyLike(comment, reply)}
+                                className={`flex items-center gap-1.5 text-[0.6875rem] font-bold transition-all cursor-pointer active:scale-110 ${
+                                  replyLikes[getReplyLikeKey(comment.id, reply.id)] ? 'text-rose-500' : 'text-text-muted hover:text-rose-500'
+                                }`}
+                              >
+                                <Heart className={`w-3.5 h-3.5 ${replyLikes[getReplyLikeKey(comment.id, reply.id)] ? 'fill-current' : ''}`} />
+                                {reply.likesCount || 0}
+                              </button>
+                            </div>
                           </div>
                         </div>
                       ))}

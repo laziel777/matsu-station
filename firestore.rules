@@ -57,7 +57,14 @@ service cloud.firestore {
         match /replies/{replyId} {
           allow read: if true;
           allow create: if isSignedIn();
+          allow update: if isSignedIn()
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount']);
           allow delete: if isOwner(resource.data.authorId) || isAdmin();
+
+          match /likes/{userId} {
+            allow read: if true;
+            allow create, delete: if isOwner(userId);
+          }
         }
       }
     }
