@@ -2436,10 +2436,10 @@ const HOT_TOPICS = Object.entries(topicCounts)
                     onChange={(e) => setNewPostContent(limitChars(e.target.value, POST_CHAR_LIMIT))}
                   />
                   <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                    <p className="text-[0.6875rem] text-text-muted leading-relaxed">
+                    <p className="text-[0.625rem] text-text-muted/40 leading-relaxed">
                       {ANTI_ABUSE_NOTICE}
                     </p>
-                    <span className={`text-[0.6875rem] font-mono font-bold shrink-0 ${
+                    <span className={`text-[0.625rem] font-mono font-bold shrink-0 ${
                       countChars(newPostContent) >= POST_CHAR_LIMIT ? 'text-amber-400' : 'text-text-muted'
                     }`}>
                       字數 {countChars(newPostContent)}/{POST_CHAR_LIMIT}
@@ -3921,7 +3921,7 @@ function PostCard({
                       onChange={(e) => setNewComment(limitChars(e.target.value, COMMENT_CHAR_LIMIT))}
                     />
                     <div className="flex items-center justify-between px-1">
-                      <span className="text-[0.625rem] text-text-muted">避免複製垃圾文、洗文與攻擊</span>
+                      <span className="text-[0.5625rem] text-text-muted/40">避免複製垃圾文、洗文與攻擊</span>
                       <span className={`text-[0.625rem] font-mono font-bold ${
                         countChars(newComment) >= COMMENT_CHAR_LIMIT ? 'text-amber-400' : 'text-text-muted'
                       }`}>
