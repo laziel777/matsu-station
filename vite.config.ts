@@ -1,18 +1,28 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import {defineConfig, loadEnv} from 'vite';
+import {defineConfig} from 'vite';
 
-export default defineConfig(({mode}) => {
-  const env = loadEnv(mode, '.', '');
+export default defineConfig(() => {
   return {
     plugins: [react(), tailwindcss()],
-    define: {
-      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
+      },
+    },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            const normalizedId = id.replaceAll('\\', '/');
+            if (normalizedId.includes('/@firebase/') || normalizedId.includes('/firebase/')) return 'firebase';
+            if (normalizedId.includes('/browser-image-compression/')) return 'image-tools';
+            if (normalizedId.includes('/motion/')) return 'motion';
+            if (normalizedId.includes('/lucide-react/') || normalizedId.includes('/date-fns/')) return 'ui-vendor';
+            return undefined;
+          },
+        },
       },
     },
     server: {

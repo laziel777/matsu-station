@@ -7,7 +7,6 @@ import { formatDistanceToNow, addMonths, isAfter } from 'date-fns';
 import { zhTW } from 'date-fns/locale';
 import { db, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, updateDoc, doc, increment, setDoc, deleteDoc, getDoc, getDocs, where, handleFirestoreError, OperationType, storage } from './lib/firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import imageCompression from 'browser-image-compression';
 
 const STATION_MASTER_UID = 'gHHxF8p1DnbMkoeVmU5XpB18Elz2';
 const DEFAULT_BACKGROUND_MODE = 'dark';
@@ -40,6 +39,11 @@ const EMPTY_PROFILE_STATS: ProfileStats = {
   friendCount: 0,
   followingCount: 0,
   followerCount: 0,
+};
+
+const compressImageFile = async (file: File, options: Record<string, unknown>) => {
+  const { default: imageCompression } = await import('browser-image-compression');
+  return imageCompression(file, options);
 };
 
 const BACKGROUND_MODES = [
@@ -801,7 +805,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
         maxWidthOrHeight: 400,
         useWebWorker: true,
       };
-      const compressedFile = await imageCompression(file, options);
+      const compressedFile = await compressImageFile(file, options);
       const fileRef = ref(storage, `avatars/${user.uid}/${Date.now()}_avatar.jpg`);
       const snapshot = await uploadBytes(fileRef, compressedFile);
       const url = await getDownloadURL(snapshot.ref);
@@ -1295,7 +1299,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
         maxWidthOrHeight: 400,
         useWebWorker: true,
       };
-      const compressedFile = await imageCompression(file, options);
+      const compressedFile = await compressImageFile(file, options);
       const fileRef = ref(storage, `avatars/${user.uid}/${Date.now()}_avatar.jpg`);
       const snapshot = await uploadBytes(fileRef, compressedFile);
       const url = await getDownloadURL(snapshot.ref);
@@ -1328,7 +1332,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
 
       for (const file of files) {
         // Compress the image
-        const compressedFile = await imageCompression(file, options);
+        const compressedFile = await compressImageFile(file, options);
         
         newFiles.push(compressedFile);
         
