@@ -699,10 +699,11 @@ function stripJsonFence(text) {
 
 function fallbackPatrolAnalysis(content) {
   const text = String(content || "");
-  const hasPersonalData = /(身分證|電話|地址|住址|個資|肉搜|家裡|車牌|手機)/.test(text);
-  const hasThreat = /(殺|打死|弄死|威脅|恐嚇|堵你|找你算帳)/.test(text);
-  const hasCriminalClaim = /(貪污|收錢|詐騙|偷|強姦|販毒|犯罪|黑道|洗錢)/.test(text);
-  const score = hasThreat || hasPersonalData ? 92 : hasCriminalClaim ? 76 : 18;
+  const hasPersonalData = /(身分證|護照|電話|地址|住址|個資|肉搜|家裡|車牌|手機|LINE|病歷|薪資|銀行帳戶)/i.test(text);
+  const hasThreat = /(殺|打死|弄死|放火|威脅|恐嚇|堵你|找你算帳|讓你出事|去你家)/.test(text);
+  const hasCriminalClaim = /(貪污|收賄|收錢辦事|詐騙|偷竊|強姦|性侵|販毒|吸毒|洗錢|黑道|外遇|性病)/.test(text);
+  const hasIdentifiableTarget = /(@\S+|[一-龥]{2,}(先生|小姐|議員|鄉長|主任|老闆|店|公司)|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+)/.test(text);
+  const score = hasThreat || hasPersonalData ? 92 : hasCriminalClaim && hasIdentifiableTarget ? 76 : 18;
   const riskLevel = normalizeRiskLevel("", score);
 
   return {
@@ -711,15 +712,15 @@ function fallbackPatrolAnalysis(content) {
     categories: [
       ...(hasPersonalData ? ["personal_data"] : []),
       ...(hasThreat ? ["threat"] : []),
-      ...(hasCriminalClaim ? ["unverified_accusation"] : []),
+      ...(hasCriminalClaim && hasIdentifiableTarget ? ["unverified_accusation"] : []),
     ],
-    summary: "AI analysis fallback was used because Gemini did not return valid JSON.",
-    legalRisk: hasPersonalData || hasThreat || hasCriminalClaim
-      ? "Potential legal or safety risk requires manual review."
-      : "No obvious legal risk detected by fallback rules.",
+    summary: "Gemini 未回傳有效 JSON，已使用保守關鍵字巡邏。",
+    legalRisk: hasPersonalData || hasThreat || (hasCriminalClaim && hasIdentifiableTarget)
+      ? "可能涉及個資、恐嚇或未證實重大指控，需人工檢查。"
+      : "保守規則未偵測到明顯法律風險。",
     publicInterest: "unknown",
     recommendedAction: getRecommendedAction(riskLevel),
-    rationale: "Fallback keyword-based analysis.",
+    rationale: "Fallback keyword-based analysis with Taiwan local forum safety thresholds.",
   };
 }
 
@@ -743,22 +744,36 @@ function normalizePatrolAnalysis(rawAnalysis, content) {
 function buildPatrolPrompt({ sourceType, content, category }) {
   return `
 You are AI Rangers for Matsu Station, a Taiwan local community forum.
-Your job is not censorship. Your job is risk triage for a human station master.
+Your job is not censorship. Your job is legal/safety risk triage for a human station master.
+Protect lawful speech under Taiwan's democratic free-expression norms while reducing risks to users and the platform.
 
 Analyze this ${sourceType} in Traditional Chinese context.
 Return JSON only. No markdown.
 
+Taiwan legal reference points:
+- Personal Data Protection Act Art. 2: personal data includes name, date of birth, national ID, contact details, medical/health, financial, social activity, criminal record and other data that can identify a natural person.
+- PDPA Arts. 19-20: non-government actors need a specific purpose and lawful basis to collect/process/use personal data.
+- Criminal Code Art. 305: threats to life, body, freedom, reputation or property may create safety risk.
+- Criminal Code Arts. 309-310: public insult and spreading specific reputation-damaging facts can create defamation/insult risk.
+- Criminal Code Art. 311: good-faith self-defense, protection of lawful interest, proper criticism of public matters, and fair reports should preserve room for public discussion.
+
 Risk levels:
-- low: normal criticism, jokes, emotional but lawful discussion
-- medium: strong accusation, heated conflict, possible dispute
-- high: unverified criminal accusation, serious defamation risk, doxxing hints
-- critical: personal data, direct threat, targeted harassment, malicious doxxing
+- low: normal criticism, jokes, public policy/political discussion, emotional but lawful local discussion
+- medium: heated conflict, sharp criticism, rumor-like wording, possible dispute but no clear private data or direct threat
+- high: identifiable target plus unverified serious factual accusation, serious defamation risk, doxxing hints, coordinated harassment
+- critical: personal data exposure, direct threat, targeted harassment, malicious doxxing, sexual/private images, child sexual content, scam or violence instruction
+
+Freedom-preserving rules:
+- Do not raise risk merely because the content discusses politics, elections, public officials, government agencies, local policy, public works, transport, business service quality, or criticism of public matters.
+- Strong opinions, sarcasm, profanity, and local complaints are allowed unless they identify a target and include threats, doxxing, harassment, or concrete unverified illegal/private-life allegations.
+- Public-interest criticism and questions should be allow or monitor, especially when phrased as opinion, question, request for clarification, personal experience, or call for official investigation.
+- Quarantine should be reserved for clear, concrete risk. If uncertain between medium and high, choose medium and monitor for station-master review.
 
 JSON schema:
 {
   "riskLevel": "low|medium|high|critical",
   "riskScore": 0,
-  "categories": ["public_issue", "politics", "personal_data", "threat", "harassment", "unverified_accusation", "spam"],
+  "categories": ["public_issue", "politics", "personal_data", "threat", "harassment", "unverified_accusation", "insult", "defamation", "privacy", "spam", "sexual_image", "scam"],
   "summary": "short Traditional Chinese summary",
   "legalRisk": "short Traditional Chinese legal risk note",
   "publicInterest": "low|medium|high",

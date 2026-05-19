@@ -11,9 +11,10 @@
 
 body {
   margin: 0;
-  min-width: 1120px;
+  min-width: 0;
   min-height: 100vh;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   background:
     radial-gradient(circle at 20% 18%, rgba(0, 217, 232, 0.13), transparent 28%),
     radial-gradient(circle at 80% 80%, rgba(249, 115, 22, 0.1), transparent 30%),
@@ -65,12 +66,13 @@ button:disabled {
 }
 
 .topbar {
-  height: 74px;
+  min-height: 74px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 20px;
   padding: 0 18px 14px;
+  flex-wrap: wrap;
 }
 
 .brand {
@@ -115,6 +117,26 @@ button:disabled {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.auth-message {
+  position: absolute;
+  top: 74px;
+  right: 36px;
+  z-index: 20;
+  max-width: min(560px, calc(100vw - 72px));
+  border: 1px solid rgba(250, 204, 21, 0.35);
+  background: rgba(20, 16, 5, 0.88);
+  color: rgba(255, 247, 214, 0.92);
+  border-radius: 14px;
+  padding: 0.72rem 0.86rem;
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1.55;
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.34);
+  backdrop-filter: blur(16px);
 }
 
 .primary {
@@ -138,10 +160,10 @@ button:disabled {
 }
 
 .lab-layout {
-  height: calc(100vh - 326px);
-  min-height: 390px;
+  height: clamp(420px, calc(100vh - 326px), 680px);
+  min-height: 0;
   display: grid;
-  grid-template-columns: 300px minmax(520px, 1fr) 340px;
+  grid-template-columns: minmax(260px, 300px) minmax(420px, 1fr) minmax(300px, 340px);
   gap: 16px;
 }
 
@@ -161,7 +183,7 @@ button:disabled {
 .panel {
   border-radius: 22px;
   padding: 16px;
-  overflow: hidden;
+  overflow: auto;
 }
 
 .panel-title {
@@ -516,7 +538,7 @@ button:disabled {
 .feed-list {
   display: grid;
   gap: 9px;
-  max-height: calc(100vh - 460px);
+  max-height: min(360px, calc(100vh - 460px));
   overflow-y: auto;
   padding-right: 4px;
 }
@@ -586,7 +608,9 @@ button:disabled {
 }
 
 .case-inspector {
-  min-height: 136px;
+  min-height: 0;
+  max-height: min(260px, calc(100vh - 118px));
+  overflow: auto;
   margin-top: 12px;
   border: 1px solid rgba(0, 217, 232, 0.18);
   background:
@@ -648,7 +672,7 @@ button:disabled {
 
 .case-detail-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(140px, 1fr));
   gap: 10px;
 }
 
@@ -731,7 +755,9 @@ button:disabled {
 }
 
 .console-panel {
-  height: 74px;
+  min-height: 74px;
+  max-height: 112px;
+  overflow: auto;
   margin-top: 12px;
   border-radius: 20px;
   padding: 12px 16px;
@@ -756,6 +782,84 @@ button:disabled {
   color: rgba(48, 242, 162, 0.74);
   font: 0.72rem/1.4 "Cascadia Code", "SFMono-Regular", Consolas, monospace;
   white-space: pre-wrap;
+}
+
+@media (max-width: 1220px) {
+  .lab-root {
+    padding: 14px;
+  }
+
+  .lab-layout {
+    grid-template-columns: 250px minmax(360px, 1fr) 280px;
+    gap: 12px;
+  }
+
+  .case-detail-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 980px) {
+  .brand h1 {
+    font-size: 1.18rem;
+  }
+
+  .auth-message {
+    position: static;
+    max-width: none;
+    margin: -4px 0 12px;
+  }
+
+  .lab-layout {
+    height: auto;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .graph-panel {
+    min-height: 430px;
+  }
+
+  .feed-list {
+    max-height: 360px;
+  }
+
+  .case-inspector {
+    max-height: none;
+  }
+
+  .console-panel {
+    max-height: 180px;
+  }
+}
+
+@media (max-width: 640px) {
+  .topbar {
+    padding: 0 4px 12px;
+  }
+
+  .brand {
+    min-width: 0;
+  }
+
+  .brand-orb {
+    width: 42px;
+    height: 42px;
+  }
+
+  .top-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .graph-status {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .case-detail-grid,
+  .metric-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .spin {

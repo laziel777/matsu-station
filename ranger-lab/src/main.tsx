@@ -1,7 +1,7 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut, type User } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, getRedirectResult, onAuthStateChanged, signInWithPopup, signInWithRedirect, signOut, type User } from 'firebase/auth';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import {
   collection,
@@ -111,6 +111,7 @@ const auth = getAuth(app);
 const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 const functions = getFunctions(app, 'asia-east1');
 const provider = new GoogleAuthProvider();
+provider.setCustomParameters({ prompt: 'select_account' });
 
 const EMPTY_DATA: LabData = {
   socialNodes: [],
@@ -123,7 +124,7 @@ const EMPTY_DATA: LabData = {
   topicCount: 0,
   riskCounts: {},
   patrolFeed: [],
-  consoleLines: ['AI Rangers Visual Lab ready. Firebase public scan can run before sign-in.'],
+  consoleLines: ['AI 游騎兵本地後台已就緒。未登入時會先掃描公開資料。'],
 };
 
 const KNOWN_TOPICS = [
@@ -187,6 +188,40 @@ function getSourceLabel(sourceType?: string) {
   if (sourceType === 'comment') return '留言';
   if (sourceType === 'reply') return '留言回覆';
   return '內容';
+}
+
+function getActionLabel(action: RangerAction) {
+  return {
+    mark_reviewed: '標記已審',
+    dismiss: '忽略案件',
+    release: '放行內容',
+    quarantine: '隔離內容',
+    remove: '移除內容',
+  }[action];
+}
+
+function getAuthErrorCode(error: unknown) {
+  if (typeof error === 'object' && error && 'code' in error) {
+    return String((error as { code?: unknown }).code || '');
+  }
+  return '';
+}
+
+function formatAuthError(error: unknown) {
+  const code = getAuthErrorCode(error);
+  if (code === 'auth/unauthorized-domain') {
+    return 'Firebase Auth 尚未授權目前網域。請用 http://localhost:4321 開啟本地後台，或到 Firebase Auth 的「授權網域」加入目前網域。';
+  }
+  if (code === 'auth/popup-blocked') {
+    return '瀏覽器阻擋 Google 登入視窗，已改用重新導向登入。';
+  }
+  if (code === 'auth/popup-closed-by-user') {
+    return '登入視窗已關閉，尚未完成登入。';
+  }
+  const message = typeof error === 'object' && error && 'message' in error
+    ? String((error as { message?: unknown }).message || '')
+    : '';
+  return `Google 登入失敗：${message || code || '請稍後再試。'}`;
 }
 
 function isActiveCase(item: PatrolCase) {
@@ -319,7 +354,7 @@ async function collectLabData(scanLimit: number): Promise<LabData> {
   const topicRisk = new Map<string, number>();
   const topicEdgeMap = new Map<string, GraphLink>();
   const consoleLines: string[] = [
-    `Firebase project ${firebaseConfig.projectId} / database ${firebaseConfig.firestoreDatabaseId || '(default)'}.`,
+    `Firebase 專案 ${firebaseConfig.projectId} / 資料庫 ${firebaseConfig.firestoreDatabaseId || '(default)'}。`,
   ];
   let interactions = 0;
 
@@ -473,11 +508,11 @@ async function collectLabData(scanLimit: number): Promise<LabData> {
     return counts;
   }, {} as Record<string, number>);
 
-  consoleLines.push(`Scanned ${postsSnapshot.size} posts in ${Date.now() - startedAt}ms.`);
-  consoleLines.push(`Mapped ${socialNodes.length} UID nodes and ${socialLinks.length} interaction edges.`);
-  consoleLines.push(`Mapped ${topicNodes.length} topic nodes and ${topicLinks.length} semantic edges.`);
+  consoleLines.push(`已掃描 ${postsSnapshot.size} 篇貼文，耗時 ${Date.now() - startedAt}ms。`);
+  consoleLines.push(`已建立 ${socialNodes.length} 個島民節點與 ${socialLinks.length} 條互動連線。`);
+  consoleLines.push(`已建立 ${topicNodes.length} 個話題節點與 ${topicLinks.length} 條語意連線。`);
   if (!patrolFeed.length) {
-    consoleLines.push('No moderationCases visible. Sign in as station master to unlock AI cases.');
+    consoleLines.push('目前看不到 AI 案件。請用站長帳號登入以解鎖 moderationCases。');
   }
 
   return {
@@ -671,9 +706,9 @@ function ForceGraph({ nodes, links, mode }: { nodes: GraphNode[]; links: GraphLi
       <div className="scan-ring scan-ring-two" />
       {hovered && (
         <div className="node-tooltip">
-          <span>{hovered.type === 'user' ? 'UID' : 'TOPIC'}</span>
+          <span>{hovered.type === 'user' ? '島民 UID' : '話題'}</span>
           <strong>{hovered.label}</strong>
-          <em>weight {Math.round(hovered.weight)} | risk {Math.round(hovered.risk)}</em>
+          <em>權重 {Math.round(hovered.weight)} | 風險 {Math.round(hovered.risk)}</em>
         </div>
       )}
     </div>
@@ -689,10 +724,21 @@ function App() {
   const [scanLimit, setScanLimit] = React.useState(60);
   const [data, setData] = React.useState<LabData>(EMPTY_DATA);
   const [isLoading, setIsLoading] = React.useState(false);
+  const [isSigningIn, setIsSigningIn] = React.useState(false);
+  const [authMessage, setAuthMessage] = React.useState('');
   const [lastLoadedAt, setLastLoadedAt] = React.useState<Date | null>(null);
 
   React.useEffect(() => {
-    return onAuthStateChanged(auth, setUser);
+    return onAuthStateChanged(auth, nextUser => {
+      setUser(nextUser);
+      if (nextUser) setAuthMessage('');
+    });
+  }, []);
+
+  React.useEffect(() => {
+    void getRedirectResult(auth).catch(error => {
+      setAuthMessage(formatAuthError(error));
+    });
   }, []);
 
   const loadData = React.useCallback(async () => {
@@ -705,7 +751,7 @@ function App() {
       console.error(error);
       setData(previous => ({
         ...previous,
-        consoleLines: ['Scan failed. Check Firebase permission and network.', String(error)],
+        consoleLines: ['掃描失敗，請檢查 Firebase 權限與網路。', String(error)],
       }));
     } finally {
       setIsLoading(false);
@@ -732,16 +778,35 @@ function App() {
     }
   }, [data.patrolFeed, filteredCases, selectedCaseId]);
 
+  const handleLogin = React.useCallback(async () => {
+    setAuthMessage('');
+    if (window.location.hostname === '127.0.0.1') {
+      const port = window.location.port || '4321';
+      const nextUrl = `http://localhost:${port}${window.location.pathname}${window.location.search}${window.location.hash}`;
+      setAuthMessage('Google 登入需要使用 localhost，正在切換網址。');
+      window.location.assign(nextUrl);
+      return;
+    }
+
+    setIsSigningIn(true);
+    try {
+      await signInWithPopup(auth, provider);
+    } catch (error) {
+      if (getAuthErrorCode(error) === 'auth/popup-blocked') {
+        setAuthMessage(formatAuthError(error));
+        await signInWithRedirect(auth, provider);
+        return;
+      }
+      setAuthMessage(formatAuthError(error));
+    } finally {
+      setIsSigningIn(false);
+    }
+  }, []);
+
   const runCaseAction = React.useCallback(async (caseItem: PatrolCase, action: RangerAction) => {
     if (!user) return;
 
-    const actionLabel = {
-      mark_reviewed: '標記已審',
-      dismiss: '忽略案件',
-      release: '放行內容',
-      quarantine: '隔離內容',
-      remove: '移除內容',
-    }[action];
+    const actionLabel = getActionLabel(action);
 
     if ((action === 'remove' || action === 'release') && !window.confirm(`確定要「${actionLabel}」案件 ${caseItem.publicCaseId || caseItem.id} 嗎？`)) {
       return;
@@ -754,7 +819,7 @@ function App() {
       setData(previous => ({
         ...previous,
         consoleLines: [
-          `Action ${action} completed for ${caseItem.publicCaseId || caseItem.id}.`,
+          `已完成「${actionLabel}」：${caseItem.publicCaseId || caseItem.id}。`,
           ...previous.consoleLines,
         ].slice(0, 8),
       }));
@@ -764,7 +829,7 @@ function App() {
       setData(previous => ({
         ...previous,
         consoleLines: [
-          `Action ${action} failed for ${caseItem.publicCaseId || caseItem.id}.`,
+          `執行「${actionLabel}」失敗：${caseItem.publicCaseId || caseItem.id}。`,
           String(error),
           ...previous.consoleLines,
         ].slice(0, 8),
@@ -782,44 +847,47 @@ function App() {
           <div className="brand-orb"><Cpu size={22} /></div>
           <div>
             <p>MATSU STATION</p>
-            <h1>AI Rangers Visual Lab</h1>
+            <h1>AI 游騎兵本地後台</h1>
           </div>
         </div>
         <div className="top-actions">
-          <span className="local-badge">LOCAL ONLY</span>
+          <span className="local-badge">本機限定</span>
           {user ? (
             <>
               <span className="user-chip"><UserCircle2 size={15} />{user.displayName || user.email}</span>
               <button onClick={() => void signOut(auth)}>登出</button>
             </>
           ) : (
-            <button className="primary" onClick={() => void signInWithPopup(auth, provider)}>Google 登入</button>
+            <button className="primary" disabled={isSigningIn} onClick={() => void handleLogin()}>
+              {isSigningIn ? '登入中...' : 'Google 登入'}
+            </button>
           )}
         </div>
       </header>
+      {authMessage && <div className="auth-message">{authMessage}</div>}
 
       <section className="lab-layout">
         <aside className="panel left-panel">
           <div className="panel-title">
             <Radar size={18} />
-            <span>Ranger Telemetry</span>
+            <span>游騎兵遙測</span>
           </div>
           <div className="metric-grid">
-            <div><strong>{data.postsScanned}</strong><span>posts scanned</span></div>
-            <div><strong>{data.interactions}</strong><span>interactions</span></div>
-            <div><strong>{data.usersSeen}</strong><span>UID nodes</span></div>
-            <div><strong>{data.topicCount}</strong><span>topic nodes</span></div>
+            <div><strong>{data.postsScanned}</strong><span>掃描貼文</span></div>
+            <div><strong>{data.interactions}</strong><span>互動連線</span></div>
+            <div><strong>{data.usersSeen}</strong><span>島民節點</span></div>
+            <div><strong>{data.topicCount}</strong><span>話題節點</span></div>
           </div>
 
           <div className="connection-card">
-            <span>FIREBASE</span>
+            <span>Firebase 連線</span>
             <strong>{firebaseConfig.projectId}</strong>
             <em>{firebaseConfig.firestoreDatabaseId || '(default)'}</em>
             <p>{user ? '站長登入後可讀 AI 案件與執行處置。' : '目前使用公開讀取掃描；請登入站長帳號解鎖 AI 案件。'}</p>
           </div>
 
           <div className="control-block">
-            <label>Graph Mode</label>
+            <label>圖譜模式</label>
             <div className="segmented">
               <button className={mode === 'social' ? 'active' : ''} onClick={() => setMode('social')}>
                 <Network size={15} /> 島民網絡
@@ -831,7 +899,7 @@ function App() {
           </div>
 
           <div className="control-block">
-            <label>Scan Depth: {scanLimit} posts</label>
+            <label>掃描深度：{scanLimit} 篇貼文</label>
             <input
               type="range"
               min="20"
@@ -864,8 +932,8 @@ function App() {
 
         <section className="graph-panel">
           <div className="graph-status">
-            <span><Eye size={15} /> {mode === 'social' ? 'Force-Directed UID Interaction Map' : 'Semantic Topic Neural Map'}</span>
-            <span>{nodes.length} nodes / {links.length} edges</span>
+            <span><Eye size={15} /> {mode === 'social' ? '力導向島民互動圖' : '話題語意脈絡圖'}</span>
+            <span>{nodes.length} 節點 / {links.length} 連線</span>
           </div>
           <ForceGraph nodes={nodes} links={links} mode={mode} />
         </section>
@@ -873,10 +941,10 @@ function App() {
         <aside className="panel right-panel">
           <div className="panel-title">
             <Shield size={18} />
-            <span>AI Patrol Feed</span>
+            <span>AI 巡邏案件</span>
           </div>
           <div className="threat-card">
-            <span>highest risk</span>
+            <span>最高風險</span>
             <strong>{highestRisk}</strong>
             <em>/100</em>
           </div>
@@ -896,11 +964,11 @@ function App() {
 
           <div className="case-summary-strip">
             <div>
-              <span>active</span>
+              <span>處理中</span>
               <strong>{activeCaseCount}</strong>
             </div>
             <div>
-              <span>visible</span>
+              <span>目前顯示</span>
               <strong>{filteredCases.length}</strong>
             </div>
           </div>
@@ -917,7 +985,7 @@ function App() {
                   <em>{item.publicCaseId || item.id.slice(0, 12)}</em>
                 </div>
                 <small>{getSourceLabel(item.sourceType)} / {getStatusLabel(item.status)}</small>
-                <p>{item.summary || item.contentPreview || 'AI case pending summary'}</p>
+                <p>{item.summary || item.contentPreview || 'AI 案件尚無摘要'}</p>
               </button>
             )) : (
               <div className="empty-feed">
@@ -934,7 +1002,7 @@ function App() {
           <>
             <div className="case-inspector-head">
               <div>
-                <span className="eyebrow">CASE INSPECTOR</span>
+                <span className="eyebrow">案件檢視</span>
                 <h2>{selectedCase.publicCaseId || selectedCase.id}</h2>
               </div>
               <div className="case-badges">
@@ -993,7 +1061,7 @@ function App() {
               {actionState && (
                 <span className="action-state">
                   <RefreshCw size={14} className="spin" />
-                  {actionState.action} / {actionState.caseId.slice(0, 10)}
+                  {getActionLabel(actionState.action)} / {actionState.caseId.slice(0, 10)}
                 </span>
               )}
             </div>
@@ -1008,8 +1076,8 @@ function App() {
 
       <footer className="console-panel">
         <div>
-          <span>RANGER CONSOLE</span>
-          <em>{lastLoadedAt ? lastLoadedAt.toLocaleTimeString() : 'standby'}</em>
+          <span>游騎兵主控台</span>
+          <em>{lastLoadedAt ? lastLoadedAt.toLocaleTimeString() : '待命'}</em>
         </div>
         <pre>{data.consoleLines.join('\n')}</pre>
       </footer>
