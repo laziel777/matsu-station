@@ -123,7 +123,7 @@ const EMPTY_DATA: LabData = {
   topicCount: 0,
   riskCounts: {},
   patrolFeed: [],
-  consoleLines: ['AI Rangers Visual Lab ready. Sign in as station master to load data.'],
+  consoleLines: ['AI Rangers Visual Lab ready. Firebase public scan can run before sign-in.'],
 };
 
 const KNOWN_TOPICS = [
@@ -318,7 +318,9 @@ async function collectLabData(scanLimit: number): Promise<LabData> {
   const topicWeights = new Map<string, number>();
   const topicRisk = new Map<string, number>();
   const topicEdgeMap = new Map<string, GraphLink>();
-  const consoleLines: string[] = [];
+  const consoleLines: string[] = [
+    `Firebase project ${firebaseConfig.projectId} / database ${firebaseConfig.firestoreDatabaseId || '(default)'}.`,
+  ];
   let interactions = 0;
 
   for (const postDoc of postsSnapshot.docs) {
@@ -475,7 +477,7 @@ async function collectLabData(scanLimit: number): Promise<LabData> {
   consoleLines.push(`Mapped ${socialNodes.length} UID nodes and ${socialLinks.length} interaction edges.`);
   consoleLines.push(`Mapped ${topicNodes.length} topic nodes and ${topicLinks.length} semantic edges.`);
   if (!patrolFeed.length) {
-    consoleLines.push('No moderationCases visible. Sign in as station master if AI feed is locked.');
+    consoleLines.push('No moderationCases visible. Sign in as station master to unlock AI cases.');
   }
 
   return {
@@ -694,7 +696,6 @@ function App() {
   }, []);
 
   const loadData = React.useCallback(async () => {
-    if (!user) return;
     setIsLoading(true);
     try {
       const nextData = await collectLabData(scanLimit);
@@ -709,11 +710,11 @@ function App() {
     } finally {
       setIsLoading(false);
     }
-  }, [scanLimit, user]);
+  }, [scanLimit]);
 
   React.useEffect(() => {
-    if (user) void loadData();
-  }, [user, loadData]);
+    void loadData();
+  }, [loadData]);
 
   const nodes = mode === 'social' ? data.socialNodes : data.topicNodes;
   const links = mode === 'social' ? data.socialLinks : data.topicLinks;
@@ -810,6 +811,13 @@ function App() {
             <div><strong>{data.topicCount}</strong><span>topic nodes</span></div>
           </div>
 
+          <div className="connection-card">
+            <span>FIREBASE</span>
+            <strong>{firebaseConfig.projectId}</strong>
+            <em>{firebaseConfig.firestoreDatabaseId || '(default)'}</em>
+            <p>{user ? '站長登入後可讀 AI 案件與執行處置。' : '目前使用公開讀取掃描；請登入站長帳號解鎖 AI 案件。'}</p>
+          </div>
+
           <div className="control-block">
             <label>Graph Mode</label>
             <div className="segmented">
@@ -834,7 +842,7 @@ function App() {
             />
           </div>
 
-          <button className="wide-action" disabled={!user || isLoading} onClick={() => void loadData()}>
+          <button className="wide-action" disabled={isLoading} onClick={() => void loadData()}>
             <RefreshCw size={16} className={isLoading ? 'spin' : ''} />
             {isLoading ? '掃描中' : '重新掃描'}
           </button>

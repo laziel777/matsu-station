@@ -200,6 +200,7 @@ button:disabled {
 }
 
 .metric-grid span,
+.connection-card span,
 .threat-card span,
 .risk-stack span,
 .console-panel span {
@@ -208,6 +209,42 @@ button:disabled {
   font-weight: 900;
   letter-spacing: 0.12em;
   text-transform: uppercase;
+}
+
+.connection-card {
+  border: 1px solid rgba(0, 217, 232, 0.16);
+  background: rgba(0, 217, 232, 0.055);
+  border-radius: 16px;
+  padding: 12px;
+  margin-bottom: 16px;
+}
+
+.connection-card strong,
+.connection-card em {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connection-card strong {
+  margin-top: 4px;
+  color: #e8fcff;
+  font-size: 0.86rem;
+}
+
+.connection-card em {
+  color: rgba(0, 217, 232, 0.7);
+  font-size: 0.72rem;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.connection-card p {
+  margin: 8px 0 0;
+  color: rgba(232, 252, 255, 0.58);
+  font-size: 0.7rem;
+  line-height: 1.45;
 }
 
 .control-block {
