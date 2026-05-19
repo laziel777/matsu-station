@@ -17,7 +17,7 @@ const fallbackResult = {
   safe: false,
   risk: 9,
   tag: '#系統設定',
-  summary: 'AI 審核服務尚未設定，請確認 Vercel 的 GEMINI_API_KEY 環境變數。',
+  summary: '內容安全服務尚未完成設定，請聯繫站長處理。',
   action: 'block',
 };
 
@@ -68,7 +68,7 @@ export default async function handler(req: any, res: any) {
 Fight 模式說明：
 - Fight 代表使用者主動標記「我要挑戰觀點／進入高爭議討論」，不是檢舉，也不是自動違規。
 - Fight 模式應提高對公共議題、政治討論、尖銳批評、反方觀點與情緒性反駁的容忍度。
-- Fight 模式也會提高後台巡邏與站長覆核密度；請不要放寬個資、恐嚇、肉搜、持續騷擾、私密影像、詐騙、兒少性內容、仇恨煽動，或對特定自然人的未證實重大指控。
+- Fight 模式也會提高系統巡邏與站長覆核密度；請不要放寬個資、恐嚇、肉搜、持續騷擾、私密影像、詐騙、兒少性內容、仇恨煽動，或對特定自然人的未證實重大指控。
 - 若 Fight 內容只是尖銳公共議題或立場反駁，優先 publish 或 review，不要只因語氣強烈就 block。
 - 若未啟用 Fight，仍應保障一般政治討論與地方抱怨，但對高爭議、傳聞、影射與可能引戰內容可較保守地 review。
 - Fight 不是違法內容通行證；不能暗示平台允許違法、個資、恐嚇、肉搜或未證實重大指控。
@@ -141,7 +141,7 @@ ${text}
       safe: action === 'block' ? false : true,
       risk: Number(result.risk ?? 0),
       tag: String(result.tag || '#內容審查'),
-      summary: String(result.summary || 'AI 已完成內容安全檢查。'),
+      summary: String(result.summary || '已完成內容安全檢查。'),
       action,
     });
   } catch (error: any) {
@@ -150,7 +150,7 @@ ${text}
       safe: false,
       risk: 9,
       tag: '#系統錯誤',
-      summary: error?.message || 'AI 審核暫時失敗，請稍後再試。',
+      summary: '內容安全檢查暫時失敗，請稍後再試。',
       action: 'block',
     });
   }

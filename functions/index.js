@@ -25,35 +25,35 @@ const TAIPEI_UTC_OFFSET_MS = 8 * 60 * 60 * 1000;
 const DAILY_COMMENT_LIMIT = 120;
 const DAILY_FIGHT_COMMENT_LIMIT = 30;
 const POLICY_VERSION = "2026-05-19";
-const ASSISTANT_IDENTITY = "馬祖小站智能客服（AI 輔助，非真人客服）";
-const AI_NOTICE = "注意事項：小站智能客服僅提供輔助回覆，不提供互動功能，AI 可能會出錯。";
+const ASSISTANT_IDENTITY = "馬祖小站智能客服（系統輔助，非真人客服）";
+const AI_NOTICE = "注意事項：小站智能客服僅提供輔助回覆，不提供互動功能，回覆可能會出錯。";
 const SUPPORT_FOOTER = "如果需要站長處理，請按下方對應按鈕。";
 
 const HANDOFF_OPTIONS = {
   issue: {
     label: "問題回報",
     receipt:
-      "AI 模式已關閉，您的問題回報已留在聊天室。\n\n請直接在這裡補充截圖、手機型號或瀏覽器、操作步驟與大約發生時間。請耐心等待站長回覆，通常會在假日或空檔時段集中查看。",
+      "智能客服輔助已關閉，您的問題回報已留在聊天室。\n\n請直接在這裡補充截圖、手機型號或瀏覽器、操作步驟與大約發生時間。請耐心等待站長回覆，通常會在假日或空檔時段集中查看。",
   },
   contact: {
     label: "聯絡站長",
     receipt:
-      "AI 模式已關閉，您的訊息已留在聊天室等待站長查看。\n\n請直接在這裡補充要聯絡站長的內容。請耐心等待站長回覆，通常會在假日或空檔時段集中查看。",
+      "智能客服輔助已關閉，您的訊息已留在聊天室等待站長查看。\n\n請直接在這裡補充要聯絡站長的內容。請耐心等待站長回覆，通常會在假日或空檔時段集中查看。",
   },
   business: {
     label: "商業合作",
     receipt:
-      "AI 模式已關閉，您的商業合作訊息已留在聊天室。\n\n請直接在這裡補充合作內容、希望合作時間、需求與方便回覆的方式。請耐心等待站長回覆，通常會在假日或空檔時段集中查看。",
+      "智能客服輔助已關閉，您的商業合作訊息已留在聊天室。\n\n請直接在這裡補充合作內容、希望合作時間、需求與方便回覆的方式。請耐心等待站長回覆，通常會在假日或空檔時段集中查看。",
   },
   report: {
     label: "檢舉內容",
     receipt:
-      "AI 模式已關閉，您的檢舉訊息已留在聊天室。\n\n請直接在這裡補充截圖、文章或留言位置、發生時間與簡短原因。站長看到後會檢查處理。",
+      "智能客服輔助已關閉，您的檢舉訊息已留在聊天室。\n\n請直接在這裡補充截圖、文章或留言位置、發生時間與簡短原因。站長看到後會檢查處理。",
   },
   suggestion: {
     label: "提供建議",
     receipt:
-      "AI 模式已關閉，您的建議已留在聊天室。\n\n感謝您協助馬祖小站變得更好。您可以直接在這裡補充更多細節，站長會集中整理大家的回饋。",
+      "智能客服輔助已關閉，您的建議已留在聊天室。\n\n感謝您協助馬祖小站變得更好。您可以直接在這裡補充更多細節，站長會集中整理大家的回饋。",
   },
 };
 
@@ -253,7 +253,7 @@ function getButtonGuidance(intentType = "") {
     ? `請按下方「${selected}」按鈕。`
     : "請按下方「問題回報」、「聯絡站長」、「商業合作」、「檢舉內容」或「提供建議」按鈕。";
 
-  return `${buttonText}\n\n按下按鈕後，AI 模式會關閉，訊息會留在聊天室等待站長查看。站長通常會在假日或空檔時段集中回覆。`;
+  return `${buttonText}\n\n按下按鈕後，智能客服輔助會關閉，訊息會留在聊天室等待站長查看。站長通常會在假日或空檔時段集中回覆。`;
 }
 
 function formatConversationHistory(messages) {
@@ -383,13 +383,13 @@ async function pauseAiUntilNextMonday(sessionId, reason) {
 
 function buildPrompt(userMessage, history) {
   return `
-你是「馬祖小站 Matsu Station」LINE 官方帳號的小站智能客服輔助 AI，不是自由聊天角色，也不提供互動功能。
+你是「馬祖小站 Matsu Station」LINE 官方帳號的小站智能客服輔助系統，不是自由聊天角色，也不提供互動功能。
 
 重要事實：
 - 官方聯絡與回報管道就是這個 LINE 官方帳號。
 - 不要說網站頁面最下方有「聯絡站長」連結。
 - 不要說網站有聯絡表單，除非站長未來明確新增。
-- 小站智能客服僅提供輔助回覆，不提供互動功能，AI 可能會出錯；重要資訊以站長回覆、網站內容或官方公告為準。
+- 小站智能客服僅提供輔助回覆，不提供互動功能，回覆可能會出錯；重要資訊以站長回覆、網站內容或官方公告為準。
 - 需要真人站長處理時，請使用者按 LINE 下方按鈕，不要自行說已轉交。
 
 客服方式：
@@ -453,7 +453,7 @@ async function handleHandoff(event, client, handoffType, userMessage = "") {
   const conversationState = await loadConversationState(sessionId);
   const history = conversationState.messages;
   const option = HANDOFF_OPTIONS[handoffType] || HANDOFF_OPTIONS.contact;
-  const replyText = `${option.receipt}\n\nAI 狀態會在下週一自動刷新。`;
+  const replyText = `${option.receipt}\n\n智能客服輔助狀態會在下週一自動刷新。`;
 
   await replyAndRemember(
     client,
@@ -595,7 +595,7 @@ async function handleNonTextMessage(event, client) {
     messages: [
       createTextMessage(
         withSupportFooter(
-          "我收到你的訊息了。\n\n如果這是問題回報或要給站長查看，請先按下方「問題回報」或「聯絡站長」按鈕，AI 模式關閉後再補充圖片或文字。"
+          "我收到你的訊息了。\n\n如果這是問題回報或要給站長查看，請先按下方「問題回報」或「聯絡站長」按鈕，智能客服輔助關閉後再補充圖片或文字。"
         ),
         true
       ),
@@ -772,7 +772,7 @@ function fallbackPatrolAnalysis(content) {
       ...(hasThreat ? ["threat"] : []),
       ...(hasCriminalClaim && hasIdentifiableTarget ? ["unverified_accusation"] : []),
     ],
-    summary: "Gemini 未回傳有效 JSON，已使用保守關鍵字巡邏。",
+    summary: "內容安全分析暫時無法完整判讀，已使用保守規則巡邏。",
     legalRisk: hasPersonalData || hasThreat || (hasCriminalClaim && hasIdentifiableTarget)
       ? "可能涉及個資、恐嚇或未證實重大指控，需人工檢查。"
       : "保守規則未偵測到明顯法律風險。",
@@ -1009,9 +1009,9 @@ async function writePatrolArtifacts(payload, analysis) {
     await db.collection("notifications").add({
       recipientId: STATION_MASTER_UID,
       senderId: "ai-rangers",
-      senderName: "AI 游騎兵",
+      senderName: "小站巡邏系統",
       type: "report",
-      title: "AI 游騎兵隔離了高風險內容",
+      title: "小站巡邏系統隔離了高風險內容",
       content: `案件 ${publicCaseId} 已進入人工審核。`,
       read: false,
       createdAt: now,

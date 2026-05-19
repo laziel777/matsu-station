@@ -31,7 +31,7 @@ const DAILY_FIGHT_POST_LIMIT = 5;
 const DAILY_COMMENT_LIMIT = 120;
 const DAILY_FIGHT_COMMENT_LIMIT = 30;
 const ANTI_ABUSE_NOTICE = '為了防止惡意攻擊、複製垃圾文、洗文與攻擊性內容，馬祖小站會限制發文頻率。';
-const FIGHT_NOTICE = 'Fight 模式會提高討論容忍度，但也會提高 AI 巡邏與站長覆核密度。請避免個資、威脅、肉搜與未證實重大指控。';
+const FIGHT_NOTICE = 'Fight 模式會提高討論容忍度，但也會提高系統巡邏與站長覆核密度。請避免個資、威脅、肉搜與未證實重大指控。';
 const LINE_OFFICIAL_URL = 'https://lin.ee/nn0RaOc';
 const REACTION_OPTIONS = ['❤️', '😂', '😭', '🔥', '👍', '👎', '😡', '😍', '🤔', '😮'];
 const DEFAULT_REACTION = '❤️';
@@ -443,8 +443,8 @@ const getFightModeLabel = (fightMode?: boolean) => {
 
 const getGovernanceModeLabel = (mode?: string) => {
   if (mode === 'fight') return 'Fight 監管';
-  if (mode === 'downgraded') return 'AI 降級';
-  if (mode === 'escalated') return 'AI 升級';
+  if (mode === 'downgraded') return '巡邏降級';
+  if (mode === 'escalated') return '巡邏升級';
   return '一般巡邏';
 };
 
@@ -454,7 +454,7 @@ const getGovernanceStatusLabel = (status?: string) => {
   if (status === 'released') return '已放行';
   if (status === 'dismissed') return '已駁回';
   if (status === 'reviewed') return '已審核';
-  if (status === 'downgraded') return 'AI 已降級';
+  if (status === 'downgraded') return '已降級';
   return '待處理';
 };
 
@@ -1168,9 +1168,9 @@ const HOT_TOPICS = Object.entries(topicCounts)
     } catch (error: any) {
       console.error('Login failed', error);
       if (error.message === "FIREBASE_NOT_CONFIGURED") {
-        alert("網站後台（Firebase）尚未完成設定。請聯繫管理員協助。");
+        alert("網站資料服務尚未完成設定。請聯繫站長協助。");
       } else {
-        alert("登錄失敗，請確認您已在 Firebase Console 啟用 Google 登錄方式。");
+        alert("登錄失敗，請稍後再試，或透過官方 LINE 回報給站長。");
       }
     }
   };
@@ -1376,7 +1376,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
     } catch (err: any) {
       console.error(err);
       if (err.message.includes('offline')) {
-        alert("連線失敗：請確認 Firestore 資料庫已在 Firebase Console 中建立。");
+        alert("連線失敗：目前無法讀取資料服務，請稍後再試。");
       } else {
         alert("無法讀取個人檔案，請稍後再試。");
       }
@@ -1571,7 +1571,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
       }
     } catch (err: any) {
       console.error('Follow failed:', err);
-      setFriendActionMessage(err.message?.includes('permission-denied') ? '追蹤申請失敗，請確認 Firebase Rules 已更新。' : '追蹤申請失敗，請稍後再試。');
+      setFriendActionMessage(err.message?.includes('permission-denied') ? '追蹤申請失敗，系統權限尚未開放。' : '追蹤申請失敗，請稍後再試。');
     } finally {
       setIsSavingRelationship(false);
     }
@@ -1614,7 +1614,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
       setFollowRequests(previous => previous.filter(item => item.requesterId !== request.requesterId));
     } catch (err: any) {
       console.error('Follow request action failed:', err);
-      setFriendActionMessage(err.message?.includes('permission-denied') ? '處理追蹤申請失敗，請確認 Firebase Rules 已更新。' : '處理追蹤申請失敗，請稍後再試。');
+      setFriendActionMessage(err.message?.includes('permission-denied') ? '處理追蹤申請失敗，系統權限尚未開放。' : '處理追蹤申請失敗，請稍後再試。');
     } finally {
       setIsSavingRelationship(false);
     }
@@ -1848,7 +1848,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
 
     setIsPosting(true);
     setPostError(null);
-    setPostingMessage('AI 正在幫你檢查內容安全...');
+    setPostingMessage('正在幫你檢查內容安全...');
     setUploadProgress(8);
 
     const postsPath = 'posts';
@@ -1888,7 +1888,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
       const moderation = await moderationRes.json().catch(() => null);
 
       if (!moderationRes.ok || !moderation) {
-        throw new Error(moderation?.summary || moderation?.error || 'AI 審核暫時失敗，請稍後再試。');
+        throw new Error(moderation?.summary || moderation?.error || '內容安全檢查暫時失敗，請稍後再試。');
       }
 
       if (moderation.action === 'block' || moderation.safe === false) {
@@ -1899,7 +1899,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
         return;
       }
 
-      setPostingMessage('AI 檢查通過，正在上傳圖片...');
+      setPostingMessage('內容安全檢查通過，正在上傳圖片...');
       setUploadProgress(25);
 
       // 2) 上傳圖片
@@ -2075,10 +2075,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
                 <div className="space-y-2 mt-4 p-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl">
                   <p className="text-[0.625rem] text-amber-400 font-bold uppercase">連線疑難排解</p>
                   <p className="text-[0.625rem] text-amber-200/70 leading-relaxed text-left">
-                    「Offline」通常表示資料庫尚未啟用。請確認您已在 Firebase Console 中：
-                    <br/>1. 進入 Firestore Database
-                    <br/>2. 點擊「建立資料庫」
-                    <br/>3. 選擇「預設」模式並完成設定
+                    目前資料服務暫時無法連線。請稍後再試，或透過官方 LINE 回報站長。
                   </p>
                 </div>
               )}
@@ -2092,7 +2089,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
           ) : (
             <div className="space-y-2">
               <p className="text-text-muted text-xs font-bold uppercase tracking-widest animate-pulse">正在與群島同步...</p>
-              <p className="text-[0.5625rem] text-text-muted opacity-60 leading-relaxed">如果這花費太長時間，可能是您的網路不穩定或資料庫設定有誤。</p>
+              <p className="text-[0.5625rem] text-text-muted opacity-60 leading-relaxed">如果這花費太長時間，可能是網路不穩定或資料服務暫時忙碌。</p>
               <button 
                 onClick={() => window.location.reload()}
                 className="text-[0.625rem] text-bio-glow/50 hover:text-bio-glow underline underline-offset-4"
@@ -2262,16 +2259,16 @@ const HOT_TOPICS = Object.entries(topicCounts)
                     <section className="space-y-3 bg-white/5 p-4 rounded-2xl border border-white/5">
                       <h3 className="font-bold text-text-main text-base flex items-center gap-2 uppercase tracking-wider text-[0.6875rem] opacity-70">2. 內容責任與平台治理</h3>
                       <p>使用者上傳的貼文、留言、圖片與反應，原則上代表發表者個人立場。本平台提供資訊儲存與社群互動服務，不保證使用者內容完整、正確或即時。</p>
-                      <p>為降低法律風險與保護大家的安全，平台會使用 AI 游騎兵與站長人工覆核進行風險分級。AI 只負責巡邏、標記、分類與建議；最終裁量仍由站長保留。</p>
-                      <p>平台不鼓勵違法內容，也不承諾「完全免責」。若平台透過檢舉、AI 巡邏或站長確認得知明顯違法或高風險內容，會依規範採取合理處理。</p>
+                      <p>為降低法律風險與保護大家的安全，平台會使用輔助巡邏系統與站長人工覆核進行風險分級。系統只負責巡邏、標記、分類與建議；最終裁量仍由站長保留。</p>
+                      <p>平台不鼓勵違法內容，也不承諾「完全免責」。若平台透過檢舉、系統巡邏或站長確認得知明顯違法或高風險內容，會依規範採取合理處理。</p>
                       <p className="text-[0.6875rem] opacity-70">若您的內容被處置，通知或治理紀錄會盡可能標示「疑似違反哪一條規範」與目前狀態。</p>
                     </section>
 
                     <section className="space-y-3 text-emerald-300 bg-emerald-500/10 p-4 rounded-2xl border border-emerald-500/10">
                       <h3 className="font-bold text-emerald-200 text-base flex items-center gap-2">3. 隱私權政策</h3>
                       <p>平台會處理登入識別、島內 ID、暱稱、頭像、發文留言、互動紀錄、檢舉紀錄、通知與治理紀錄，以維持服務、防止洗版攻擊、保護使用者安全與處理爭議。</p>
-                      <p>平台使用 Google Firebase、Vercel、Google Gemini 與 LINE 官方帳號等第三方基礎服務來提供登入、資料庫、部署、AI 輔助巡邏與客服回報。平台不販售使用者個資，也不會把個資用於與服務無關的商業轉售。</p>
-                      <p>平台不公開 Firebase UID、私人電子郵件或非公開識別資訊。若因法律程序、平台安全、濫用調查、檢舉處理或必要的申訴處理需要，站長可能在合理範圍內查閱相關紀錄。</p>
+                      <p>平台使用可信賴的第三方基礎服務來提供登入、資料保存、網站託管、內容安全輔助分析與客服回報。平台不販售使用者個資，也不會把個資用於與服務無關的商業轉售。</p>
+                      <p>平台不公開內部識別碼、私人電子郵件或非公開識別資訊。若因法律程序、平台安全、濫用調查、檢舉處理或必要的申訴處理需要，站長可能在合理範圍內查閱相關紀錄。</p>
                       <p>使用者可透過官方 LINE 請求查詢、更正、停止利用或刪除可刪除的個人資料；但依法、資安、爭議處理或防止濫用所需的紀錄，可能在合理期間內保留。</p>
                       <p>請勿在公開貼文或留言中發布他人電話、住址、車牌、私人 LINE、身分證、病歷、財務、家庭或其他可識別個資。</p>
                     </section>
@@ -2280,13 +2277,13 @@ const HOT_TOPICS = Object.entries(topicCounts)
                       <h3 className="font-bold text-text-main text-base flex items-center gap-2">4. 社群守則</h3>
                       <p>允許：在地生活、交通船班航班、天氣、公共政策、政治討論、公共人物與公共事務評論、消費經驗、合理抱怨、反方觀點與 Fight 模式中的尖銳反駁。</p>
                       <p>禁止：個資曝光、肉搜、威脅恐嚇、持續騷擾、煽動圍剿、詐騙、惡意洗版、仇恨煽動、私密影像、兒少性內容、侵權內容，以及對可識別自然人的未證實重大犯罪或私生活指控。</p>
-                      <p>Fight 模式代表您主動標記高爭議討論，平台會提高言論容忍度，也會提高 AI 巡邏與人工覆核密度；Fight 不代表可以違反安全底線。</p>
+                      <p>Fight 模式代表您主動標記高爭議討論，平台會提高言論容忍度，也會提高系統巡邏與人工覆核密度；Fight 不代表可以違反安全底線。</p>
                     </section>
 
                     <section className="space-y-3 pt-6 border-t border-white/5">
                       <h3 className="font-bold text-text-main text-base flex items-center gap-2">5. 治理紀錄與查詢</h3>
-                      <p>若您的貼文、留言或回覆被 AI 游騎兵或站長處理，系統會建立案件紀錄。您可以到「功能選單 → 治理紀錄」查詢自己的問題發言、案件編號、處置狀態、風險摘要與依據條款。</p>
-                      <p>其他使用者無法查看您的個人治理紀錄。公開案例若日後開放，只會顯示遮罩內容、處理原因與案例編號，不公開真實身份或 Firebase UID。</p>
+                      <p>若您的貼文、留言或回覆被輔助巡邏系統或站長處理，系統會建立案件紀錄。您可以到「功能選單 → 治理紀錄」查詢自己的問題發言、案件編號、處置狀態、風險摘要與依據條款。</p>
+                      <p>其他使用者無法查看您的個人治理紀錄。公開案例若日後開放，只會顯示遮罩內容、處理原因與案例編號，不公開真實身份或內部識別碼。</p>
                     </section>
 
  <section className="space-y-4 bg-bio-glow/5 p-4 rounded-2xl border border-bio-glow/10">
@@ -2879,7 +2876,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
                        )}
                      </div>
                      <p className="text-[0.6875rem] text-text-muted leading-relaxed mt-2">
-                       會比對貼文內容、作者名稱、分類與 AI 標籤。
+                       會比對貼文內容、作者名稱、分類與系統標籤。
                      </p>
                    </div>
 
@@ -3617,10 +3614,10 @@ const HOT_TOPICS = Object.entries(topicCounts)
             </div>
 
             <div className="pt-4 border-t border-line space-y-2">
-              <p className="text-[0.5625rem] text-text-muted font-bold uppercase tracking-widest px-2">系統狀態 (Debug)</p>
+              <p className="text-[0.5625rem] text-text-muted font-bold uppercase tracking-widest px-2">系統狀態</p>
               <div className="flex items-center gap-2 px-2">
                 <div className={`w-1.5 h-1.5 rounded-full ${db ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-red-500'}`} />
-                <span className="text-[0.625rem] text-text-muted">Firebase {db ? '已連線' : '中斷'}</span>
+                <span className="text-[0.625rem] text-text-muted">資料服務 {db ? '已連線' : '中斷'}</span>
               </div>
               <div className="flex items-center gap-2 px-2">
                 <div className={`w-1.5 h-1.5 rounded-full ${user ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-stone-700'}`} />
@@ -3677,10 +3674,10 @@ const HOT_TOPICS = Object.entries(topicCounts)
                 </div>
 
                 <div className="pt-4 border-t border-white/5 space-y-2">
-                  <p className="text-[0.5625rem] text-text-muted/70 font-bold uppercase tracking-widest px-2">系統狀態 (Debug)</p>
+                  <p className="text-[0.5625rem] text-text-muted/70 font-bold uppercase tracking-widest px-2">系統狀態</p>
                   <div className="flex items-center gap-2 px-2">
                     <div className={`w-1.5 h-1.5 rounded-full ${db ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-red-500'}`} />
-                    <span className="text-[0.625rem] text-text-muted">Firebase {db ? '已連線' : '中斷'}</span>
+                    <span className="text-[0.625rem] text-text-muted">資料服務 {db ? '已連線' : '中斷'}</span>
                   </div>
                   <div className="flex items-center gap-2 px-2">
                     <div className={`w-1.5 h-1.5 rounded-full ${user ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-stone-700'}`} />
@@ -4307,7 +4304,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
 
               <div className="mt-8 text-center">
                 <p className="text-[0.625rem] text-text-muted opacity-60 font-mono italic">
-                  資料來源：中央氣象署 & Open-Meteo RT-API • 每 10 分鐘自動更新
+                  資料來源：中央氣象署與天氣資料服務 • 每 10 分鐘自動更新
                 </p>
               </div>
             </motion.div>
@@ -4571,9 +4568,9 @@ function PostCard({
       }
       
       if (err.message.includes('permission-denied') || err.message.includes('insufficient permissions')) {
-        alert("操作失敗：您的 Firebase 資料庫「規則 (Rules)」尚未設定。這通常是因為您還沒在 Firebase 控制台啟用 Firestore 或貼上我提供的 Rules。");
+        alert("操作失敗：目前系統權限尚未開放，請稍後再試或回報站長。");
       } else {
-        alert("操作失敗，可能是因為網路連線問題，或您的資料庫尚未初始化。");
+        alert("操作失敗，可能是網路連線問題或資料服務暫時不可用。");
       }
       handleFirestoreError(err, OperationType.WRITE, likePath);
     }
@@ -5190,7 +5187,7 @@ function PostCard({
         });
       } catch (notificationErr) {
         console.warn('Report was created, but notification failed:', notificationErr);
-        alert('檢舉已送出，但站長通知建立失敗。請檢查 Firebase Console 的 notifications 規則或收件 UID。');
+        alert('檢舉已送出，但站長通知建立失敗。請透過官方 LINE 補充截圖回報。');
         return;
       }
 
@@ -5199,7 +5196,7 @@ function PostCard({
       console.error(err);
 
       if (err.message.includes('permission-denied') || err.message.includes('insufficient permissions')) {
-        alert("檢舉失敗：資料庫規則限制寫入。請確認已設定 Firebase Security Rules。");
+        alert("檢舉失敗：目前系統權限暫時限制寫入，請稍後再試或透過官方 LINE 回報。");
       } else {
         alert('檢舉失敗，請稍後再試。');
       }
