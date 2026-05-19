@@ -22,6 +22,8 @@ const MAX_USER_MESSAGE_LENGTH = 500;
 const MAX_REPLY_LENGTH = 1800;
 const MAX_CONTEXT_MESSAGES = 6;
 const TAIPEI_UTC_OFFSET_MS = 8 * 60 * 60 * 1000;
+const DAILY_COMMENT_LIMIT = 120;
+const DAILY_FIGHT_COMMENT_LIMIT = 30;
 const ASSISTANT_IDENTITY = "馬祖小站智能客服（AI 輔助，非真人客服）";
 const AI_NOTICE = "注意事項：小站智能客服僅提供輔助回覆，不提供互動功能，AI 可能會出錯。";
 const SUPPORT_FOOTER = "如果需要站長處理，請按下方對應按鈕。";
@@ -1103,6 +1105,67 @@ async function incrementField(path, field, delta) {
   }
 }
 
+function getTaipeiDayKey(date = new Date()) {
+  return new Date(date.getTime() + TAIPEI_UTC_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+async function recordDailyCommentUsage(authorId, fightMode) {
+  const uid = String(authorId || "").trim();
+  if (!uid || uid === STATION_MASTER_UID) {
+    return { overLimit: false, count: 0, limit: Number.POSITIVE_INFINITY };
+  }
+
+  const dayKey = getTaipeiDayKey();
+  const field = fightMode ? "fightCommentCount" : "commentCount";
+  const limit = fightMode ? DAILY_FIGHT_COMMENT_LIMIT : DAILY_COMMENT_LIMIT;
+  const usageRef = db.doc(`userUsage/${uid}/days/${dayKey}`);
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  let nextCount = 1;
+
+  await db.runTransaction(async (transaction) => {
+    const usageSnap = await transaction.get(usageRef);
+    const currentCount = usageSnap.exists ? Math.max(0, Number(usageSnap.get(field) || 0)) : 0;
+    nextCount = currentCount + 1;
+    const patch = {
+      uid,
+      dayKey,
+      updatedAt: now,
+      [field]: admin.firestore.FieldValue.increment(1),
+    };
+
+    if (!usageSnap.exists) {
+      patch.createdAt = now;
+    }
+
+    transaction.set(usageRef, patch, { merge: true });
+  });
+
+  return {
+    overLimit: nextCount > limit,
+    count: nextCount,
+    limit,
+    field,
+    dayKey,
+  };
+}
+
+async function hideContentForDailyLimit(sourcePath, sourceData, usage) {
+  await db.doc(sourcePath).set({
+    content: "",
+    moderationStatus: "removed",
+    moderationPublicCaseId: getPublicCaseId(sourcePath),
+    moderationRiskLevel: "medium",
+    moderationRiskScore: 45,
+    moderationUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    moderationRemovalReason: "daily_comment_limit_exceeded",
+    moderationRemovalNote: `每日留言/回覆上限 ${usage.limit}，目前第 ${usage.count} 則。`,
+    fightMode: Boolean(sourceData.fightMode),
+    userRiskLabel: sourceData.userRiskLabel || (sourceData.fightMode ? "fight" : "normal"),
+    aiGovernanceMode: sourceData.fightMode ? "fight" : "escalated",
+    quarantinedContentPreview: compactPreview(sourceData.content),
+  }, { merge: true });
+}
+
 exports.postLikeCreated = onDocumentCreated(
   {
     region: REGION,
@@ -1129,7 +1192,17 @@ exports.commentCreatedCounter = onDocumentCreated(
     document: "posts/{postId}/comments/{commentId}",
   },
   async (event) => {
+    const data = event.data?.data() || {};
+    const usage = await recordDailyCommentUsage(data.authorId, Boolean(data.fightMode));
     await incrementField(`posts/${event.params.postId}`, "commentsCount", 1);
+
+    if (usage.overLimit) {
+      await hideContentForDailyLimit(
+        `posts/${event.params.postId}/comments/${event.params.commentId}`,
+        data,
+        usage
+      );
+    }
   }
 );
 
@@ -1171,10 +1244,20 @@ exports.replyCreatedCounter = onDocumentCreated(
     document: "posts/{postId}/comments/{commentId}/replies/{replyId}",
   },
   async (event) => {
+    const data = event.data?.data() || {};
+    const usage = await recordDailyCommentUsage(data.authorId, Boolean(data.fightMode));
     await Promise.all([
       incrementField(`posts/${event.params.postId}/comments/${event.params.commentId}`, "repliesCount", 1),
       incrementField(`posts/${event.params.postId}`, "commentsCount", 1),
     ]);
+
+    if (usage.overLimit) {
+      await hideContentForDailyLimit(
+        `posts/${event.params.postId}/comments/${event.params.commentId}/replies/${event.params.replyId}`,
+        data,
+        usage
+      );
+    }
   }
 );
 
