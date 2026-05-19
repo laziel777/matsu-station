@@ -2122,10 +2122,15 @@ const HOT_TOPICS = Object.entries(topicCounts)
               animate={{ scale: 1, opacity: 1 }}
               className="glass-card rounded-[2rem] w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[92dvh] sm:max-h-[80vh] border-white/10"
             >
-              <div className="p-6 border-b border-white/5 flex items-center justify-between">
-                <h2 className="text-xl font-bold font-display text-text-main">
-                  使用者條款、隱私權政策與社群守則
-                </h2>
+              <div className="p-6 border-b border-white/5 flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-xl font-bold font-display text-text-main">
+                    使用者條款、隱私權政策與社群守則
+                  </h2>
+                  <p className="mt-1 text-[0.625rem] leading-relaxed text-text-muted/60">
+                    這份說明是為了告知資料使用方式、平台治理規則與安全處理流程，不會要求你放棄法律上的基本權利。
+                  </p>
+                </div>
                 <div className="bg-blue-500/10 p-1.5 rounded-lg border border-blue-500/20">
                   <Waves className="text-bio-glow w-5 h-5" />
                 </div>
@@ -2561,7 +2566,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
                 <div className="mb-4 rounded-2xl border border-bio-glow/10 bg-bio-glow/5 p-4">
                   <p className="text-sm font-bold text-text-main">這裡用來保障你的安全與查詢權。</p>
                   <p className="mt-2 text-xs leading-relaxed text-text-muted">
-                    若內容被審核、隔離、移除或放行，系統會盡量列出案件狀態與依據條款。這不是公開黑名單，其他島民看不到你的治理紀錄。
+                    若內容被審核、隔離、移除或放行，系統會盡量列出案件狀態與依據條款。這不是公開黑名單，也不是懲罰頁；它是讓處置有紀錄可查，其他島民看不到你的治理紀錄。
                   </p>
                 </div>
 
@@ -3746,9 +3751,14 @@ const HOT_TOPICS = Object.entries(topicCounts)
                     onChange={(nextValue) => setNewPostContent(limitChars(nextValue, POST_CHAR_LIMIT))}
                   />
                   <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                    <p className="text-[0.625rem] text-text-muted/40 leading-relaxed">
-                      {ANTI_ABUSE_NOTICE}
-                    </p>
+                    <div className="space-y-0.5">
+                      <p className="text-[0.625rem] text-text-muted/40 leading-relaxed">
+                        {ANTI_ABUSE_NOTICE}
+                      </p>
+                      <p className="text-[0.5625rem] text-text-muted/35 leading-relaxed">
+                        若內容被處理，會優先以治理紀錄說明狀態與依據，不做黑箱消失。
+                      </p>
+                    </div>
                     <span className={`text-[0.625rem] font-mono font-bold shrink-0 ${
                       countChars(newPostContent) >= POST_CHAR_LIMIT ? 'text-amber-400' : 'text-text-muted'
                     }`}>
@@ -3780,6 +3790,9 @@ const HOT_TOPICS = Object.entries(topicCounts)
                       {isPostFightMode
                         ? FIGHT_NOTICE
                         : '一般模式維持較鬆的日常交流限制；要發表尖銳公共議題或反駁時，可切換 Fight 模式。'}
+                    </p>
+                    <p className="mt-1 text-[0.5625rem] leading-relaxed text-text-muted/35">
+                      Fight 只代表提高爭議討論容忍度，不代表允許個資、威脅、肉搜或未證實重大指控。
                     </p>
                   </div>
                    
