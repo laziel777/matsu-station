@@ -5,7 +5,7 @@ import { LogIn, LogOut, MessageSquare, Share2, Send, Plus, User, Waves, Search, 
 import { motion, AnimatePresence } from 'motion/react';
 import { formatDistanceToNow, addMonths, isAfter } from 'date-fns';
 import { zhTW } from 'date-fns/locale';
-import { db, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, updateDoc, doc, increment, setDoc, deleteDoc, getDoc, getDocs, where, handleFirestoreError, OperationType, storage } from './lib/firebase';
+import { db, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, updateDoc, doc, setDoc, deleteDoc, getDoc, getDocs, where, handleFirestoreError, OperationType, storage, functions, httpsCallable } from './lib/firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 const STATION_MASTER_UID = 'gHHxF8p1DnbMkoeVmU5XpB18Elz2';
@@ -285,32 +285,30 @@ const sendMentionNotifications = async ({
 
   const notifiedRecipients = new Set<string>();
 
-  for (const mentionedName of mentionNames) {
-    const usersQuery = query(collection(db, 'users'), where('displayName', '==', mentionedName));
-    const result = await getDocs(usersQuery);
+  const resolveMentions = httpsCallable(functions, 'resolveMentionRecipients');
+  const result = await resolveMentions({ names: mentionNames });
+  const recipients = Array.isArray((result.data as any)?.users) ? (result.data as any).users : [];
 
-    for (const userDoc of result.docs) {
-      const mentionedUser = userDoc.data();
-      const recipientId = typeof mentionedUser.uid === 'string' ? mentionedUser.uid : userDoc.id;
+  for (const mentionedUser of recipients) {
+    const recipientId = typeof mentionedUser.uid === 'string' ? mentionedUser.uid : '';
 
-      if (!recipientId || recipientId === senderId || notifiedRecipients.has(recipientId)) continue;
-      notifiedRecipients.add(recipientId);
+    if (!recipientId || recipientId === senderId || notifiedRecipients.has(recipientId)) continue;
+    notifiedRecipients.add(recipientId);
 
-      await addDoc(collection(db, 'notifications'), {
-        recipientId,
-        senderId,
-        senderName,
-        type: 'mention',
-        postId,
-        category,
-        ...(commentId ? { commentId } : {}),
-        ...(replyId ? { replyId } : {}),
-        title: '有人標註了你',
-        content: `${senderName} 在${sourceLabel}標註了你。`,
-        read: false,
-        createdAt: serverTimestamp(),
-      });
-    }
+    await addDoc(collection(db, 'notifications'), {
+      recipientId,
+      senderId,
+      senderName,
+      type: 'mention',
+      postId,
+      category,
+      ...(commentId ? { commentId } : {}),
+      ...(replyId ? { replyId } : {}),
+      title: '有人標註了你',
+      content: `${senderName} 在${sourceLabel}標註了你。`,
+      read: false,
+      createdAt: serverTimestamp(),
+    });
   }
 };
 
@@ -595,30 +593,19 @@ const MentionComposerInput = ({
     let isCancelled = false;
     setIsLoadingSuggestions(true);
 
-    getDocs(collection(db, 'users'))
-      .then(snapshot => {
+    const searchUsers = httpsCallable(functions, 'searchMentionUsers');
+    searchUsers({ query: activeRange.query })
+      .then(result => {
         if (isCancelled) return;
 
-        const queryText = activeRange.query.trim().toLowerCase();
-        const nextSuggestions = snapshot.docs
-          .map(userDoc => {
-            const data = userDoc.data() as UserProfile;
-            return {
-              uid: data.uid || userDoc.id,
-              islanderId: data.islanderId,
-              displayName: data.displayName || data.islanderId || '匿名島民',
-              photoURL: data.photoURL || DEFAULT_ISLANDER_PHOTO,
-              role: userDoc.id === STATION_MASTER_UID ? 'admin' : 'user',
-            } as MentionSuggestion;
-          })
-          .filter(suggestion => {
-            if (!queryText) return true;
-            return suggestion.displayName.toLowerCase().includes(queryText)
-              || String(suggestion.islanderId || '').toLowerCase().includes(queryText);
-          })
-          .slice(0, 6);
-
-        setSuggestions(nextSuggestions);
+        const users = Array.isArray((result.data as any)?.users) ? (result.data as any).users : [];
+        setSuggestions(users.map(item => ({
+          uid: String(item.uid || ''),
+          islanderId: item.islanderId,
+          displayName: item.displayName || item.islanderId || '匿名島民',
+          photoURL: item.photoURL || DEFAULT_ISLANDER_PHOTO,
+          role: item.role === 'admin' ? 'admin' : 'user',
+        })).filter(item => item.uid));
       })
       .catch(error => {
         console.warn('Mention suggestions fetch failed:', error.message);
@@ -1128,11 +1115,10 @@ const HOT_TOPICS = Object.entries(topicCounts)
     }
 
     try {
-      const q = query(collection(db, 'users'), where('displayName', '==', name.trim()));
-      const result = await getDocs(q);
-      
-      const isTaken = result.docs.some(doc => doc.id !== currentUid);
-      if (isTaken) {
+      const checkDisplayName = httpsCallable(functions, 'checkDisplayNameAvailability');
+      const result = await checkDisplayName({ displayName: name.trim(), currentUid });
+      const isAvailable = Boolean((result.data as any)?.available);
+      if (!isAvailable) {
         return '此暱稱已被其他島民使用了';
       }
       return null;
@@ -4164,9 +4150,7 @@ function PostCard({
     }
 
     const likePath = `posts/${post.id}/likes/${user.uid}`;
-    const postPath = `posts/${post.id}`;
     const likeRef = doc(db, 'posts', post.id, 'likes', user.uid);
-    const postRef = doc(db, 'posts', post.id);
     const previousReaction = selectedReaction;
     const isRemovingReaction = previousReaction === reaction;
     const isNewReaction = !previousReaction;
@@ -4176,7 +4160,6 @@ function PostCard({
         setSelectedReaction(null);
         setLikes(prev => Math.max(0, prev - 1));
         await deleteDoc(likeRef);
-        await updateDoc(postRef, { likesCount: increment(-1) });
       } else {
         setSelectedReaction(reaction);
         if (isNewReaction) setLikes(prev => prev + 1);
@@ -4185,9 +4168,6 @@ function PostCard({
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         }, { merge: true });
-        if (isNewReaction) {
-          await updateDoc(postRef, { likesCount: increment(1) });
-        }
         
         // Send notification to author
         if (isNewReaction && user.uid !== post.authorId) {
@@ -4220,7 +4200,7 @@ function PostCard({
       } else {
         alert("操作失敗，可能是因為網路連線問題，或您的資料庫尚未初始化。");
       }
-      handleFirestoreError(err, OperationType.WRITE, isRemovingReaction ? likePath : postPath);
+      handleFirestoreError(err, OperationType.WRITE, likePath);
     }
   };
 
@@ -4421,7 +4401,6 @@ function PostCard({
         repliesCount: 0,
         createdAt: serverTimestamp(),
       });
-      await updateDoc(doc(db, 'posts', post.id), { commentsCount: increment(1) });
 
       // Send notification to author
       if (user.uid !== post.authorId) {
@@ -4476,7 +4455,6 @@ function PostCard({
     const isNewReaction = !previousReaction;
     const likeChange = isRemovingReaction ? -1 : isNewReaction ? 1 : 0;
     const likeRef = doc(db, 'posts', post.id, 'comments', comment.id, 'likes', user.uid);
-    const commentRef = doc(db, 'posts', post.id, 'comments', comment.id);
     const senderName = profile?.displayName || user.displayName || '匿名島民';
 
     setCommentReactions(previous => {
@@ -4502,10 +4480,6 @@ function PostCard({
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         }, { merge: true });
-      }
-
-      if (likeChange !== 0) {
-        await updateDoc(commentRef, { likesCount: increment(likeChange) });
       }
 
       if (isNewReaction && user.uid !== comment.authorId) {
@@ -4559,7 +4533,6 @@ function PostCard({
     const isNewReaction = !previousReaction;
     const likeChange = isRemovingReaction ? -1 : isNewReaction ? 1 : 0;
     const likeRef = doc(db, 'posts', post.id, 'comments', comment.id, 'replies', reply.id, 'likes', user.uid);
-    const replyRef = doc(db, 'posts', post.id, 'comments', comment.id, 'replies', reply.id);
     const senderName = profile?.displayName || user.displayName || '匿名島民';
 
     setReplyReactions(previous => {
@@ -4590,10 +4563,6 @@ function PostCard({
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         }, { merge: true });
-      }
-
-      if (likeChange !== 0) {
-        await updateDoc(replyRef, { likesCount: increment(likeChange) });
       }
 
       if (isNewReaction && user.uid !== reply.authorId) {
@@ -4661,8 +4630,6 @@ function PostCard({
         likesCount: 0,
         createdAt: serverTimestamp(),
       });
-      await updateDoc(doc(db, 'posts', post.id, 'comments', comment.id), { repliesCount: increment(1) });
-      await updateDoc(doc(db, 'posts', post.id), { commentsCount: increment(1) });
 
       if (user.uid !== comment.authorId) {
         await addDoc(collection(db, 'notifications'), {
@@ -4710,8 +4677,6 @@ function PostCard({
 
     try {
       await deleteDoc(doc(db, 'posts', post.id, 'comments', comment.id, 'replies', reply.id));
-      await updateDoc(doc(db, 'posts', post.id, 'comments', comment.id), { repliesCount: increment(-1) });
-      await updateDoc(doc(db, 'posts', post.id), { commentsCount: increment(-1) });
     } catch (err: any) {
       console.error('Delete reply error:', err);
       alert('刪除回覆失敗：' + (err.message.includes('permission-denied') ? '權限不足。' : err.message));
@@ -5103,9 +5068,7 @@ function PostCard({
                                    }
                                    if(window.confirm('確定要刪除這則留言嗎？')){
                                      try {
-                                       const removedCount = 1 + (comment.repliesCount || comment.replies?.length || 0);
                                        await deleteDoc(doc(db, 'posts', post.id, 'comments', comment.id));
-                                       await updateDoc(doc(db, 'posts', post.id), { commentsCount: increment(-removedCount) });
                                      } catch (err: any) {
                                        console.error('Delete comment error:', err);
                                        alert('刪除留言失敗：' + (err.message.includes('permission-denied') ? '權限不足。' : err.message));

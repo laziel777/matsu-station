@@ -123,7 +123,7 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow get: if isSignedIn();
-      allow list: if isSignedIn();
+      allow list: if isAdmin() || isStationMaster();
       allow create: if isOwner(userId) && hasValidUserCreateFields(userId);
       allow update: if isOwner(userId)
                     && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
@@ -164,8 +164,7 @@ service cloud.firestore {
                     && request.resource.data.commentsCount == 0
                     && request.resource.data.reportsCount == 0
                     && hasValidContent(500);
-      allow update: if isSignedIn()
-                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount', 'commentsCount']);
+      allow update: if false;
       allow delete: if isOwner(resource.data.authorId);
 
       match /likes/{userId} {
@@ -183,8 +182,7 @@ service cloud.firestore {
                       && request.resource.data.likesCount == 0
                       && request.resource.data.repliesCount == 0
                       && hasValidContent(250);
-        allow update: if isSignedIn()
-                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount', 'repliesCount']);
+        allow update: if false;
         allow delete: if isOwner(resource.data.authorId);
 
         match /likes/{userId} {
@@ -201,8 +199,7 @@ service cloud.firestore {
                         && hasValidAuthorRole()
                         && request.resource.data.likesCount == 0
                         && hasValidContent(250);
-          allow update: if isSignedIn()
-                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount']);
+          allow update: if false;
           allow delete: if isOwner(resource.data.authorId);
 
           match /likes/{userId} {

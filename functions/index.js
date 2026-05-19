@@ -1,5 +1,5 @@
 const { onRequest, onCall, HttpsError } = require("firebase-functions/v2/https");
-const { onDocumentCreated } = require("firebase-functions/v2/firestore");
+const { onDocumentCreated, onDocumentDeleted } = require("firebase-functions/v2/firestore");
 const admin = require("firebase-admin");
 const line = require("@line/bot-sdk");
 const { GoogleGenAI } = require("@google/genai");
@@ -13,6 +13,7 @@ const db = admin.firestore();
 
 const REGION = "asia-east1";
 const STATION_MASTER_UID = "gHHxF8p1DnbMkoeVmU5XpB18Elz2";
+const DEFAULT_ISLANDER_PHOTO = "__DEFAULT_ISLANDER__";
 const GEMINI_MODEL = "gemini-2.5-flash";
 const SITE_URL = "https://www.matsustation.com/";
 const LINE_OFFICIAL_URL = "https://lin.ee/nn0RaOc";
@@ -915,6 +916,247 @@ async function runPatrolForSource(payload) {
   const analysis = await analyzeWithGeminiForPatrol(payload);
   await writePatrolArtifacts(payload, analysis);
 }
+
+function requireSignedIn(request) {
+  const uid = request.auth?.uid || "";
+  if (!uid) {
+    throw new HttpsError("unauthenticated", "Sign in is required.");
+  }
+  return uid;
+}
+
+function publicUserPayload(userDoc) {
+  const data = userDoc.data() || {};
+  const uid = data.uid || userDoc.id;
+  return {
+    uid,
+    islanderId: typeof data.islanderId === "string" ? data.islanderId : "",
+    displayName: typeof data.displayName === "string" && data.displayName.trim()
+      ? data.displayName.trim()
+      : (typeof data.islanderId === "string" && data.islanderId.trim() ? data.islanderId.trim() : "匿名島民"),
+    photoURL: typeof data.photoURL === "string" ? data.photoURL : DEFAULT_ISLANDER_PHOTO,
+    role: uid === STATION_MASTER_UID ? "admin" : "user",
+  };
+}
+
+async function loadPublicUsersForSearch(limit = 300) {
+  const snapshot = await db.collection("users").orderBy("displayName").limit(limit).get();
+  return snapshot.docs.map(publicUserPayload);
+}
+
+exports.searchMentionUsers = onCall(
+  {
+    region: REGION,
+  },
+  async (request) => {
+    requireSignedIn(request);
+    const queryText = String(request.data?.query || "").trim().toLowerCase().slice(0, 30);
+    const users = await loadPublicUsersForSearch();
+
+    return {
+      users: users
+        .filter((item) => {
+          if (!queryText) return true;
+          return String(item.displayName || "").toLowerCase().includes(queryText)
+            || String(item.islanderId || "").toLowerCase().includes(queryText);
+        })
+        .slice(0, 6),
+    };
+  }
+);
+
+exports.resolveMentionRecipients = onCall(
+  {
+    region: REGION,
+  },
+  async (request) => {
+    const senderId = requireSignedIn(request);
+    const names = Array.isArray(request.data?.names) ? request.data.names : [];
+    const normalizedNames = [...new Set(
+      names
+        .map((name) => String(name || "").trim())
+        .filter((name) => name.length >= 2 && name.length <= 20)
+    )].slice(0, 10);
+
+    if (normalizedNames.length === 0) {
+      return { users: [] };
+    }
+
+    const found = [];
+    for (const displayName of normalizedNames) {
+      const snapshot = await db.collection("users")
+        .where("displayName", "==", displayName)
+        .limit(5)
+        .get();
+
+      snapshot.docs.forEach((userDoc) => {
+        const userData = publicUserPayload(userDoc);
+        if (userData.uid && userData.uid !== senderId) {
+          found.push(userData);
+        }
+      });
+    }
+
+    const byUid = new Map();
+    found.forEach((item) => byUid.set(item.uid, item));
+
+    return {
+      users: [...byUid.values()].slice(0, 10),
+    };
+  }
+);
+
+exports.checkDisplayNameAvailability = onCall(
+  {
+    region: REGION,
+  },
+  async (request) => {
+    const uid = requireSignedIn(request);
+    const displayName = String(request.data?.displayName || "").trim();
+
+    if (displayName.length < 2 || displayName.length > 12) {
+      throw new HttpsError("invalid-argument", "Invalid display name length.");
+    }
+
+    const snapshot = await db.collection("users")
+      .where("displayName", "==", displayName)
+      .limit(5)
+      .get();
+
+    const isTaken = snapshot.docs.some((userDoc) => userDoc.id !== uid);
+    return {
+      available: !isTaken,
+    };
+  }
+);
+
+async function incrementField(path, field, delta) {
+  try {
+    await db.doc(path).update({
+      [field]: admin.firestore.FieldValue.increment(delta),
+    });
+  } catch (error) {
+    if (error?.code !== 5 && error?.code !== "not-found") {
+      console.error("Counter update failed", { path, field, delta, error });
+    }
+  }
+}
+
+exports.postLikeCreated = onDocumentCreated(
+  {
+    region: REGION,
+    document: "posts/{postId}/likes/{userId}",
+  },
+  async (event) => {
+    await incrementField(`posts/${event.params.postId}`, "likesCount", 1);
+  }
+);
+
+exports.postLikeDeleted = onDocumentDeleted(
+  {
+    region: REGION,
+    document: "posts/{postId}/likes/{userId}",
+  },
+  async (event) => {
+    await incrementField(`posts/${event.params.postId}`, "likesCount", -1);
+  }
+);
+
+exports.commentCreatedCounter = onDocumentCreated(
+  {
+    region: REGION,
+    document: "posts/{postId}/comments/{commentId}",
+  },
+  async (event) => {
+    await incrementField(`posts/${event.params.postId}`, "commentsCount", 1);
+  }
+);
+
+exports.commentDeletedCounter = onDocumentDeleted(
+  {
+    region: REGION,
+    document: "posts/{postId}/comments/{commentId}",
+  },
+  async (event) => {
+    const data = event.data?.data() || {};
+    const repliesCount = Math.max(0, Number(data.repliesCount || 0));
+    await incrementField(`posts/${event.params.postId}`, "commentsCount", -(1 + repliesCount));
+  }
+);
+
+exports.commentLikeCreated = onDocumentCreated(
+  {
+    region: REGION,
+    document: "posts/{postId}/comments/{commentId}/likes/{userId}",
+  },
+  async (event) => {
+    await incrementField(`posts/${event.params.postId}/comments/${event.params.commentId}`, "likesCount", 1);
+  }
+);
+
+exports.commentLikeDeleted = onDocumentDeleted(
+  {
+    region: REGION,
+    document: "posts/{postId}/comments/{commentId}/likes/{userId}",
+  },
+  async (event) => {
+    await incrementField(`posts/${event.params.postId}/comments/${event.params.commentId}`, "likesCount", -1);
+  }
+);
+
+exports.replyCreatedCounter = onDocumentCreated(
+  {
+    region: REGION,
+    document: "posts/{postId}/comments/{commentId}/replies/{replyId}",
+  },
+  async (event) => {
+    await Promise.all([
+      incrementField(`posts/${event.params.postId}/comments/${event.params.commentId}`, "repliesCount", 1),
+      incrementField(`posts/${event.params.postId}`, "commentsCount", 1),
+    ]);
+  }
+);
+
+exports.replyDeletedCounter = onDocumentDeleted(
+  {
+    region: REGION,
+    document: "posts/{postId}/comments/{commentId}/replies/{replyId}",
+  },
+  async (event) => {
+    await Promise.all([
+      incrementField(`posts/${event.params.postId}/comments/${event.params.commentId}`, "repliesCount", -1),
+      incrementField(`posts/${event.params.postId}`, "commentsCount", -1),
+    ]);
+  }
+);
+
+exports.replyLikeCreated = onDocumentCreated(
+  {
+    region: REGION,
+    document: "posts/{postId}/comments/{commentId}/replies/{replyId}/likes/{userId}",
+  },
+  async (event) => {
+    await incrementField(
+      `posts/${event.params.postId}/comments/${event.params.commentId}/replies/${event.params.replyId}`,
+      "likesCount",
+      1
+    );
+  }
+);
+
+exports.replyLikeDeleted = onDocumentDeleted(
+  {
+    region: REGION,
+    document: "posts/{postId}/comments/{commentId}/replies/{replyId}/likes/{userId}",
+  },
+  async (event) => {
+    await incrementField(
+      `posts/${event.params.postId}/comments/${event.params.commentId}/replies/${event.params.replyId}`,
+      "likesCount",
+      -1
+    );
+  }
+);
 
 exports.patrolPostCreated = onDocumentCreated(
   {
