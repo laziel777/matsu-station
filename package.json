@@ -7,6 +7,7 @@
     "dev": "vite --port=3000 --host=0.0.0.0",
     "ranger:lab": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ranger-lab.ps1",
     "ranger:build": "vite build --config ranger-lab/vite.config.ts",
+    "ranger:deploy": "npm run ranger:build && firebase deploy --only hosting",
     "local": "tsx dev-server.ts",
     "ssd:start": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/desktop-launcher.ps1",
     "ssd:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/stop-matsu-station.ps1",

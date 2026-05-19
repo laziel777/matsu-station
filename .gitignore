@@ -3,6 +3,7 @@ build/
 dist/
 coverage/
 dist-ranger-lab/
+.firebase/
 .local-runtime/
 .local-logs/
 .DS_Store
