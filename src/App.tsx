@@ -31,7 +31,7 @@ const DAILY_FIGHT_POST_LIMIT = 5;
 const DAILY_COMMENT_LIMIT = 120;
 const DAILY_FIGHT_COMMENT_LIMIT = 30;
 const ANTI_ABUSE_NOTICE = '為了防止惡意攻擊、複製垃圾文、洗文與攻擊性內容，馬祖小站會限制發文頻率。';
-const FIGHT_NOTICE = 'Fight 模式會提高討論容忍度，但也會提高系統觀察與站長覆核密度。請避免個資、威脅、肉搜與未證實重大指控。';
+const FIGHT_NOTICE = 'Fight 模式會提高討論容忍度，也會保留較完整脈絡，必要時由站長覆核。請避免個資、威脅、肉搜與未證實重大指控。';
 const LINE_OFFICIAL_URL = 'https://lin.ee/nn0RaOc';
 const REACTION_OPTIONS = ['❤️', '😂', '😭', '🔥', '👍', '👎', '😡', '😍', '🤔', '😮'];
 const DEFAULT_REACTION = '❤️';
@@ -2270,7 +2270,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
                       <h3 className="font-bold text-text-main text-base flex items-center gap-2">4. 社群守則</h3>
                       <p>允許：在地生活、交通船班航班、天氣、公共政策、政治討論、公共人物與公共事務評論、消費經驗、合理抱怨、反方觀點與 Fight 模式中的尖銳反駁。</p>
                       <p>禁止：個資曝光、肉搜、威脅恐嚇、持續騷擾、煽動圍剿、詐騙、惡意洗版、仇恨煽動、私密影像、兒少性內容、侵權內容，以及對可識別自然人的未證實重大犯罪或私生活指控。</p>
-                      <p>Fight 模式代表您主動標記高爭議討論，平台會提高言論容忍度，也會提高安全觀察與人工覆核密度；Fight 不代表可以違反安全底線。</p>
+                      <p>Fight 模式代表您主動標記高爭議討論，平台會提高言論容忍度，也會保留較完整脈絡，必要時由站長覆核；Fight 不代表可以違反安全底線。</p>
                     </section>
 
                     <section className="space-y-3 pt-6 border-t border-white/5">
@@ -5455,7 +5455,7 @@ function PostCard({
                         FIGHT
                       </button>
                       <span className="text-[0.5625rem] text-text-muted/45">
-                        {isCommentFightMode ? '較高容忍度，也會進入更密集觀察。' : '一般留言只有每日次數限制，不設冷卻。'}
+                        {isCommentFightMode ? '較高容忍度，並保留較完整討論脈絡。' : '一般留言只有每日次數限制，不設冷卻。'}
                       </span>
                     </div>
                   </div>
