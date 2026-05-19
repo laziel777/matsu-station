@@ -3,6 +3,7 @@ import { auth, onAuthStateChanged, db, doc, getDoc, setDoc, updateDoc, serverTim
 import { User } from 'firebase/auth';
 
 export const DEFAULT_ISLANDER_PHOTO = '__DEFAULT_ISLANDER__';
+const STATION_MASTER_UID = 'gHHxF8p1DnbMkoeVmU5XpB18Elz2';
 
 export interface UserProfile {
   uid: string;
@@ -117,7 +118,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               // Total length will be 8, which is within 6-12 range
               // SPECIAL RULE: Admin user gets "L" as requested
               let islanderId = '';
-              if (user.email === 'marty0912425177@gmail.com') {
+              if (user.uid === STATION_MASTER_UID) {
                 islanderId = 'L';
               } else {
                 const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -129,11 +130,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               const newProfile = {
                 uid: user.uid,
                 islanderId: islanderId,
-                displayName: islanderId === 'L' ? '站長' : `島民 ${islanderId.substring(0, 4)}`, // Custom default for admin
+                displayName: islanderId === 'L' ? '站長' : `島民 ${islanderId.substring(0, 4)}`, // Custom default for station master
                 photoURL: islanderId === 'L' ? `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}` : DEFAULT_ISLANDER_PHOTO, 
-                role: user.email === 'marty0912425177@gmail.com' ? 'admin' : 'user',
-                agreedToTerms: user.email === 'marty0912425177@gmail.com',
-                isProfileSetup: user.email === 'marty0912425177@gmail.com',
+                role: user.uid === STATION_MASTER_UID ? 'admin' : 'user',
+                agreedToTerms: user.uid === STATION_MASTER_UID,
+                isProfileSetup: user.uid === STATION_MASTER_UID,
                 createdAt: serverTimestamp(),
               };
               // Note: We don't store email in the profile document to ensure anonymity
@@ -141,39 +142,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               setProfile(newProfile as UserProfile);
             } else {
               const data = userSnap.data() as UserProfile;
-              // Special case: Ensure the specific admin email always has the admin role and 'L' ID if requested
-              if (user.email === 'marty0912425177@gmail.com') {
-                let needsUpdate = false;
-                const updates: any = {};
-                
-                if (data.role !== 'admin') {
-                  updates.role = 'admin';
-                  data.role = 'admin';
-                  needsUpdate = true;
-                }
-                
-                if (data.islanderId !== 'L') {
-                  updates.islanderId = 'L';
-                  data.islanderId = 'L';
-                  needsUpdate = true;
-                }
-
-                if (data.agreedToTerms !== true) {
-                  updates.agreedToTerms = true;
-                  data.agreedToTerms = true;
-                  needsUpdate = true;
-                }
-
-                if (data.isProfileSetup !== true) {
-                  updates.isProfileSetup = true;
-                  data.isProfileSetup = true;
-                  needsUpdate = true;
-                }
-                
-                if (needsUpdate) {
-                  await updateDoc(userRef, updates);
-                }
-              }
               setProfile(data);
             }
           } catch (syncError: any) {

@@ -5,7 +5,7 @@ import { LogIn, LogOut, MessageSquare, Share2, Send, Plus, User, Waves, Search, 
 import { motion, AnimatePresence } from 'motion/react';
 import { formatDistanceToNow, addMonths, isAfter } from 'date-fns';
 import { zhTW } from 'date-fns/locale';
-import { db, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, updateDoc, doc, increment, setDoc, deleteDoc, getDoc, getDocs, where, handleFirestoreError, OperationType, storage, functions, httpsCallable } from './lib/firebase';
+import { db, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, updateDoc, doc, increment, setDoc, deleteDoc, getDoc, getDocs, where, handleFirestoreError, OperationType, storage } from './lib/firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 const STATION_MASTER_UID = 'gHHxF8p1DnbMkoeVmU5XpB18Elz2';
@@ -154,46 +154,6 @@ interface DiscussionTarget {
   nonce: number;
 }
 
-interface ReportItem {
-  id: string;
-  targetId: string;
-  targetType: 'post' | 'comment' | 'reply' | string;
-  postId?: string;
-  commentId?: string;
-  replyId?: string;
-  targetPreview?: string;
-  reporterId?: string;
-  reporterName?: string;
-  reason?: string;
-  status?: string;
-  createdAt?: any;
-}
-
-interface ModerationCaseItem {
-  id: string;
-  publicCaseId?: string;
-  sourceType: 'post' | 'comment' | 'reply' | string;
-  sourcePath?: string;
-  postId?: string;
-  commentId?: string;
-  replyId?: string;
-  authorId?: string;
-  authorName?: string;
-  category?: string;
-  contentPreview?: string;
-  riskLevel?: 'low' | 'medium' | 'high' | 'critical' | string;
-  riskScore?: number;
-  categories?: string[];
-  summary?: string;
-  legalRisk?: string;
-  publicInterest?: string;
-  recommendedAction?: string;
-  rationale?: string;
-  status?: string;
-  createdAt?: any;
-  updatedAt?: any;
-}
-
 const isModerationHidden = (status?: string) => {
   return status === 'quarantined' || status === 'removed';
 };
@@ -201,20 +161,6 @@ const isModerationHidden = (status?: string) => {
 const getModerationTombstoneText = (status?: string) => {
   if (status === 'removed') return '此內容已被移除。';
   return '此內容因涉及高爭議內容，目前正在審核中。';
-};
-
-const getRiskBadgeClass = (riskLevel?: string) => {
-  if (riskLevel === 'critical') return 'bg-red-500/15 text-red-300 border-red-500/30';
-  if (riskLevel === 'high') return 'bg-orange-500/15 text-orange-300 border-orange-500/30';
-  if (riskLevel === 'medium') return 'bg-amber-500/15 text-amber-300 border-amber-500/30';
-  return 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30';
-};
-
-const getRiskLabel = (riskLevel?: string) => {
-  if (riskLevel === 'critical') return '極高風險';
-  if (riskLevel === 'high') return '高風險';
-  if (riskLevel === 'medium') return '中風險';
-  return '低風險';
 };
 
 // --- Profanity Filter Utility ---
@@ -471,8 +417,8 @@ const AdminAvatar = ({ className = "w-10 h-10" }: { className?: string }) => {
 const UserAvatar = ({ p, className = "w-10 h-10" }: { p?: { islanderId?: string, photoURL?: string, displayName?: string, role?: string }, className?: string }) => {
   if (!p) return <div className={`${className} bg-stone-800 rounded-xl`} />;
   
-  // High-priority special avatar for admin
-  if (p.islanderId === 'L' || p.role === 'admin') {
+  // Station master styling must only come from trusted role checks.
+  if (p.role === 'admin') {
     return <AdminAvatar className={className} />;
   }
 
@@ -662,7 +608,7 @@ const MentionComposerInput = ({
               islanderId: data.islanderId,
               displayName: data.displayName || data.islanderId || '匿名島民',
               photoURL: data.photoURL || DEFAULT_ISLANDER_PHOTO,
-              role: data.role,
+              role: userDoc.id === STATION_MASTER_UID ? 'admin' : 'user',
             } as MentionSuggestion;
           })
           .filter(suggestion => {
@@ -812,11 +758,6 @@ export default function App() {
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
-  const [showReportsPanel, setShowReportsPanel] = useState(false);
-  const [reports, setReports] = useState<ReportItem[]>([]);
-  const [showRangerPanel, setShowRangerPanel] = useState(false);
-  const [rangerCases, setRangerCases] = useState<ModerationCaseItem[]>([]);
-  const [isRunningRangerAction, setIsRunningRangerAction] = useState(false);
   const [discussionTarget, setDiscussionTarget] = useState<DiscussionTarget | null>(null);
   const [weather, setWeather] = useState<{ temp: number; icon: string; text: string; wind: number; dir: string; aqi: number; vis: number; humidity: number } | null>(null);
   const [showWeatherModal, setShowWeatherModal] = useState(false);
@@ -828,10 +769,7 @@ export default function App() {
 });
 
 const [onlineCount, setOnlineCount] = useState(1);
-const canReviewReports = Boolean(user && (profile?.role === 'admin' || user.uid === STATION_MASTER_UID));
-const pendingReportsCount = reports.filter(report => (report.status || 'pending') === 'pending').length;
-const activeRangerCasesCount = rangerCases.filter(item => ['pending', 'quarantined'].includes(item.status || 'pending')).length;
-const isOnboarding = Boolean(user && profile && profile.role !== 'admin' && (!profile.agreedToTerms || !profile.isProfileSetup));
+const isOnboarding = Boolean(user && profile && (!profile.agreedToTerms || !profile.isProfileSetup));
 
   useEffect(() => {
     localStorage.setItem('matsu-font-size', fontSize.toString());
@@ -974,48 +912,6 @@ useEffect(() => {
     return () => unsubscribe();
   }, [user]);
 
-  // Reports listener for station master/admin
-  useEffect(() => {
-    if (!canReviewReports) {
-      setReports([]);
-      setShowReportsPanel(false);
-      return;
-    }
-
-    const reportsQuery = query(collection(db, 'reports'), orderBy('createdAt', 'desc'));
-    const unsubscribe = onSnapshot(reportsQuery, (snapshot) => {
-      setReports(snapshot.docs.map(reportDoc => ({
-        id: reportDoc.id,
-        ...reportDoc.data(),
-      } as ReportItem)));
-    }, (error) => {
-      console.warn('Reports listener failed:', error.message);
-    });
-
-    return () => unsubscribe();
-  }, [canReviewReports]);
-
-  // AI Rangers moderation case listener. Read-only on the client; actions go through Cloud Functions.
-  useEffect(() => {
-    if (!canReviewReports) {
-      setRangerCases([]);
-      setShowRangerPanel(false);
-      return;
-    }
-
-    const casesQuery = query(collection(db, 'moderationCases'), orderBy('createdAt', 'desc'));
-    const unsubscribe = onSnapshot(casesQuery, (snapshot) => {
-      setRangerCases(snapshot.docs.map(caseDoc => ({
-        id: caseDoc.id,
-        ...caseDoc.data(),
-      } as ModerationCaseItem)));
-    }, (error) => {
-      console.warn('AI Rangers cases listener failed:', error.message);
-    });
-
-    return () => unsubscribe();
-  }, [canReviewReports]);
-
   const [isCopiedState, setIsCopiedState] = useState(false);
   const avatarInputRef = React.useRef<HTMLInputElement>(null);
   const avatarUpdateInputRef = React.useRef<HTMLInputElement>(null);
@@ -1127,7 +1023,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
 
   // Check if logged in user needs to agree to terms or setup profile
   React.useEffect(() => {
-    if (user && profile && profile.role !== 'admin' && (!profile.agreedToTerms || !profile.isProfileSetup)) {
+    if (user && profile && (!profile.agreedToTerms || !profile.isProfileSetup)) {
       setShowTerms(true);
     } else {
       setShowTerms(false);
@@ -1207,12 +1103,9 @@ const HOT_TOPICS = Object.entries(topicCounts)
 
   const ALLOWED_PHRASES = ['幹嘛', '幹什麼', '苦幹', '幹練'];
 
-  const checkNameAvailability = async (name: string, currentUid?: string, isAdmin: boolean = false) => {
+  const checkNameAvailability = async (name: string, currentUid?: string) => {
     if (!name.trim()) return null;
-    
-    // Admin has no restrictions
-    if (isAdmin) return null;
-    
+
     if (name.trim().length < 2) return '暱稱太短了 (最少 2 個字)';
     if (name.trim().length > 12) return '暱稱太長了 (最多 12 個字)';
     
@@ -1257,13 +1150,13 @@ const HOT_TOPICS = Object.entries(topicCounts)
 
     const timer = setTimeout(async () => {
       setIsCheckingSetupName(true);
-      const error = await checkNameAvailability(setupName, user?.uid, profile?.role === 'admin');
+      const error = await checkNameAvailability(setupName, user?.uid);
       setSetupNameError(error);
       setIsCheckingSetupName(false);
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [setupName, user, profile?.role]);
+  }, [setupName, user]);
 
   useEffect(() => {
     if (!editDisplayName.trim()) {
@@ -1273,17 +1166,17 @@ const HOT_TOPICS = Object.entries(topicCounts)
 
     const timer = setTimeout(async () => {
       setIsCheckingEditName(true);
-      const error = await checkNameAvailability(editDisplayName, user?.uid, profile?.role === 'admin');
+      const error = await checkNameAvailability(editDisplayName, user?.uid);
       setEditNameError(error);
       setIsCheckingEditName(false);
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [editDisplayName, user, profile?.role]);
+  }, [editDisplayName, user]);
 
   const handleAgree = async () => {
     const missingItems = [];
-    if (profile?.role !== 'admin' && !hasReadToBottom) missingItems.push('閱讀完畢服務條款 (請滑動到底部)');
+    if (!hasReadToBottom) missingItems.push('閱讀完畢服務條款 (請滑動到底部)');
     if (!setupName.trim()) missingItems.push('設定您的島民暱稱');
     if (setupNameError) missingItems.push(setupNameError);
 
@@ -1685,82 +1578,6 @@ const HOT_TOPICS = Object.entries(topicCounts)
     }
   };
 
-  const handleOpenReportTarget = (report: ReportItem) => {
-    const postId = report.postId || (report.targetType === 'post' ? report.targetId : undefined);
-    if (!postId) return;
-
-    setShowReportsPanel(false);
-    setActiveCategory('全部');
-    setSearchQuery('');
-    setDiscussionTarget({
-      postId,
-      commentId: report.commentId || (report.targetType === 'comment' ? report.targetId : undefined),
-      replyId: report.replyId || (report.targetType === 'reply' ? report.targetId : undefined),
-      openComments: report.targetType !== 'post',
-      nonce: Date.now(),
-    });
-  };
-
-  const handleOpenModerationTarget = (caseItem: ModerationCaseItem) => {
-    if (!caseItem.postId) return;
-
-    setShowRangerPanel(false);
-    setActiveCategory('全部');
-    setSearchQuery('');
-    setDiscussionTarget({
-      postId: caseItem.postId,
-      commentId: caseItem.commentId,
-      replyId: caseItem.replyId,
-      openComments: caseItem.sourceType !== 'post',
-      nonce: Date.now(),
-    });
-  };
-
-  const handleUpdateReportStatus = async (report: ReportItem, status: 'reviewed' | 'dismissed') => {
-    if (!user || !canReviewReports) return;
-
-    try {
-      await updateDoc(doc(db, 'reports', report.id), {
-        status,
-        reviewedAt: serverTimestamp(),
-        reviewerId: user.uid,
-      });
-    } catch (err) {
-      console.error('Update report status failed:', err);
-      alert('更新檢舉狀態失敗，請稍後再試。');
-    }
-  };
-
-  const handleRangerAction = async (caseItem: ModerationCaseItem, action: 'mark_reviewed' | 'dismiss' | 'release' | 'quarantine' | 'remove') => {
-    if (!user || !canReviewReports || isRunningRangerAction) return;
-
-    const actionText = {
-      mark_reviewed: '標記已審',
-      dismiss: '忽略案件',
-      release: '放行並恢復內容',
-      quarantine: '維持隔離',
-      remove: '移除內容',
-    }[action];
-
-    if ((action === 'remove' || action === 'release') && !window.confirm(`確定要「${actionText}」案件 ${caseItem.publicCaseId || caseItem.id} 嗎？`)) {
-      return;
-    }
-
-    setIsRunningRangerAction(true);
-    try {
-      const callable = httpsCallable(functions, 'rangerModerationAction');
-      await callable({
-        caseId: caseItem.id,
-        action,
-      });
-    } catch (err) {
-      console.error('AI Rangers action failed:', err);
-      alert('AI 游騎兵案件操作失敗，請確認 Functions 已部署且你是站長帳號。');
-    } finally {
-      setIsRunningRangerAction(false);
-    }
-  };
-
   const handleUpdateAvatarSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !user) return;
@@ -2071,11 +1888,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
   const visibleProfilePosts = profileTab === 'posts' ? viewingProfilePosts : profileLikedPosts;
   const isViewingOwnProfile = Boolean(user && viewingProfile && user.uid === viewingProfile.uid);
   const canViewProfileSocialLists = Boolean(viewingProfile && (isViewingOwnProfile || isFollowingProfile));
-  const rangerRiskCounts = rangerCases.reduce((counts, item) => {
-    const key = item.riskLevel || 'low';
-    counts[key] = (counts[key] || 0) + 1;
-    return counts;
-  }, {} as Record<string, number>);
+  const isViewingStationMaster = viewingProfile?.uid === STATION_MASTER_UID;
 
   if (loading) {
     return (
@@ -2149,7 +1962,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
             >
               <div className="p-6 border-b border-white/5 flex items-center justify-between">
                 <h2 className="text-xl font-bold font-display text-text-main">
-                  {profile?.role === 'admin' ? '初始化站長身分' : '使用者條款與免責聲明'}
+                  使用者條款與免責聲明
                 </h2>
                 <div className="bg-blue-500/10 p-1.5 rounded-lg border border-blue-500/20">
                   <Waves className="text-bio-glow w-5 h-5" />
@@ -2246,8 +2059,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
                   </section>
                 )}
 
-                {profile?.role !== 'admin' && (
-                  <>
+                <>
                     <section className="space-y-3">
                       <h3 className="font-bold text-text-main text-base flex items-center gap-2">
                         <span className="w-1 h-4 bg-bio-glow rounded-full"></span>
@@ -2303,7 +2115,6 @@ const HOT_TOPICS = Object.entries(topicCounts)
                       </div>
                     </section>
                   </>
-                )}
               </div>
 
 
@@ -2630,30 +2441,6 @@ const HOT_TOPICS = Object.entries(topicCounts)
                                 </button>
                               </>
                             )}
-                            {canReviewReports && (
-                              <>
-                                <button onClick={() => { setShowRangerPanel(true); setShowSettingsMenu(false); }} className="w-full flex items-center justify-between gap-3 px-3 py-2.5 text-sm font-medium text-text-main hover:bg-mist-light rounded-lg transition-colors">
-                                  <span className="flex items-center gap-3">
-                                    <Activity className="w-3.5 h-3.5 text-text-muted" /> AI 游騎兵
-                                  </span>
-                                  {activeRangerCasesCount > 0 && (
-                                    <span className="rounded-full bg-red-500/20 px-2 py-0.5 text-[0.625rem] font-bold text-red-300">
-                                      {activeRangerCasesCount}
-                                    </span>
-                                  )}
-                                </button>
-                                <button onClick={() => { setShowReportsPanel(true); setShowSettingsMenu(false); }} className="w-full flex items-center justify-between gap-3 px-3 py-2.5 text-sm font-medium text-text-main hover:bg-mist-light rounded-lg transition-colors">
-                                  <span className="flex items-center gap-3">
-                                    <Flag className="w-3.5 h-3.5 text-text-muted" /> 檢舉處理
-                                  </span>
-                                  {pendingReportsCount > 0 && (
-                                    <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-[0.625rem] font-bold text-amber-400">
-                                      {pendingReportsCount}
-                                    </span>
-                                  )}
-                                </button>
-                              </>
-                            )}
                             {user && (
                               <button onClick={handleLogout} className="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors">
                                 <LogOut className="w-3.5 h-3.5" /> 登出帳號
@@ -2668,7 +2455,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
 
                 {user ? (
                   <button onClick={() => handleOpenProfile(user.uid)} className="cursor-pointer active:scale-95 transition-transform">
-                    <UserAvatar p={{ ...profile, islanderId: profile?.islanderId || user.uid, role: profile?.role }} className="w-8 h-8 rounded-full border border-line hover:border-bio-glow" />
+                    <UserAvatar p={{ ...profile, islanderId: profile?.islanderId || user.uid, role: user.uid === STATION_MASTER_UID ? 'admin' : 'user' }} className="w-8 h-8 rounded-full border border-line hover:border-bio-glow" />
                   </button>
                 ) : (
                 <button onClick={handleLogin} className="bg-blue-600 text-white px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-2 shadow-lg shadow-blue-500/20 active:scale-95 whitespace-nowrap">
@@ -2999,39 +2786,6 @@ const HOT_TOPICS = Object.entries(topicCounts)
                             編輯個人資料
                           </button>
                         )}
-                        {canReviewReports && (
-                          <>
-                            <button 
-                              onClick={() => { setShowRangerPanel(true); setShowSettingsMenu(false); }}
-                              className="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl text-text-main hover:bg-white/10 transition-all text-sm font-medium group"
-                            >
-                              <span className="flex items-center gap-3">
-                                <Activity className="w-4 h-4 text-text-muted group-hover:text-bio-glow" />
-                                AI 游騎兵
-                              </span>
-                              {activeRangerCasesCount > 0 && (
-                                <span className="rounded-full bg-red-500/20 px-2 py-0.5 text-[0.625rem] font-bold text-red-300">
-                                  {activeRangerCasesCount}
-                                </span>
-                              )}
-                            </button>
-                            <button 
-                              onClick={() => { setShowReportsPanel(true); setShowSettingsMenu(false); }}
-                              className="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl text-text-main hover:bg-white/10 transition-all text-sm font-medium group"
-                            >
-                              <span className="flex items-center gap-3">
-                                <Flag className="w-4 h-4 text-text-muted group-hover:text-bio-glow" />
-                                檢舉處理
-                              </span>
-                              {pendingReportsCount > 0 && (
-                                <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-[0.625rem] font-bold text-amber-400">
-                                  {pendingReportsCount}
-                                </span>
-                              )}
-                            </button>
-                          </>
-                        )}
-                        
                         <div className="border-t border-line my-1" />
                         
                         <div className="px-3 py-2">
@@ -3069,12 +2823,9 @@ const HOT_TOPICS = Object.entries(topicCounts)
               <div className="flex items-center gap-3">
                 <div className="flex flex-col items-end">
                   <span className="text-xs font-bold text-text-main">{profile?.displayName?.charAt(0) || user.displayName?.charAt(0)}</span>
-                  {profile?.role === 'admin' && (
-                    <span className="text-[0.625rem] bg-red-500/20 text-red-400 px-1.5 rounded-full font-bold border border-red-500/20">管理員</span>
-                  )}
                 </div>
                 <button onClick={() => handleOpenProfile(user.uid)} className="cursor-pointer active:scale-95 transition-transform">
-                  <UserAvatar p={{ ...profile, islanderId: profile?.islanderId || user.uid, role: profile?.role }} className="w-8 h-8 rounded-full border border-white/10 hover:border-bio-glow" />
+                  <UserAvatar p={{ ...profile, islanderId: profile?.islanderId || user.uid, role: user.uid === STATION_MASTER_UID ? 'admin' : 'user' }} className="w-8 h-8 rounded-full border border-white/10 hover:border-bio-glow" />
                 </button>
               </div>
             ) : (
@@ -3144,7 +2895,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
                           islanderId: viewingProfile.islanderId, 
                           photoURL: isEditingProfile ? (editPhotoURL || viewingProfile.photoURL) : viewingProfile.photoURL,
                           displayName: viewingProfile.displayName,
-                          role: viewingProfile.role
+                          role: isViewingStationMaster ? 'admin' : 'user'
                         }} 
                         className="w-24 h-24 rounded-[2rem] border-4 border-deep-ocean shadow-2xl bg-deep-ocean" 
                       />
@@ -3279,10 +3030,10 @@ const HOT_TOPICS = Object.entries(topicCounts)
                     <div className="space-y-6">
                       <div className="space-y-3">
                          <div className="flex flex-wrap items-center gap-3">
-                           <h2 className={`text-2xl font-bold ${viewingProfile.role === 'admin' ? 'rgb-text' : 'text-text-main'}`}>
+                           <h2 className={`text-2xl font-bold ${isViewingStationMaster ? 'rgb-text' : 'text-text-main'}`}>
                              {viewingProfile.displayName}
                            </h2>
-                            {viewingProfile.role === 'admin' && (
+                            {isViewingStationMaster && (
                               <span className="bg-gradient-to-r from-red-500 via-yellow-500 to-blue-500 text-white px-2 py-0.5 rounded-lg text-[0.625rem] font-black uppercase tracking-tighter shadow-lg">
                                 站長
                               </span>
@@ -3668,7 +3419,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
               className="glass-card p-6 rounded-3xl space-y-4 shadow-xl border-line"
             >
               <div className="flex gap-4">
-                <UserAvatar p={{ ...profile, islanderId: profile?.islanderId || user.uid, role: profile?.role }} className="w-10 h-10 rounded-full border border-line" />
+                <UserAvatar p={{ ...profile, islanderId: profile?.islanderId || user.uid, role: user.uid === STATION_MASTER_UID ? 'admin' : 'user' }} className="w-10 h-10 rounded-full border border-line" />
                 <div className="flex-1 space-y-4">
                   <MentionComposerInput
                     multiline
@@ -4006,293 +3757,6 @@ const HOT_TOPICS = Object.entries(topicCounts)
           </button>
         </div>
       </nav>
-
-      {/* AI Rangers Panel */}
-      <AnimatePresence>
-        {showRangerPanel && canReviewReports && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[110] bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-4"
-          >
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.95, opacity: 0, y: 20 }}
-              className="glass-card w-full max-w-5xl max-h-[calc(100dvh-1.5rem)] rounded-[1.5rem] sm:rounded-[2rem] overflow-hidden shadow-2xl border-line flex flex-col"
-            >
-              <div className="p-4 sm:p-5 border-b border-line bg-mist flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="p-2 bg-bio-glow/15 rounded-xl border border-bio-glow/20">
-                    <Activity className="w-5 h-5 text-bio-glow" />
-                  </div>
-                  <div className="min-w-0">
-                    <h2 className="text-text-main font-bold text-lg">AI 游騎兵戰情室</h2>
-                    <p className="text-text-muted text-[0.625rem] uppercase tracking-widest font-bold">
-                      {activeRangerCasesCount} active / {rangerCases.length} total
-                    </p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setShowRangerPanel(false)}
-                  className="p-2 hover:bg-mist-light rounded-full text-text-muted hover:text-text-main transition-colors"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-4 border-b border-line bg-mist/40">
-                {[
-                  ['低風險', rangerRiskCounts.low || 0, 'emerald'],
-                  ['中風險', rangerRiskCounts.medium || 0, 'amber'],
-                  ['高風險', rangerRiskCounts.high || 0, 'orange'],
-                  ['極高風險', rangerRiskCounts.critical || 0, 'red'],
-                ].map(([label, value, tone]) => (
-                  <div key={label} className="rounded-2xl border border-line bg-mist-light p-3">
-                    <p className={`text-lg font-black font-mono ${
-                      tone === 'red' ? 'text-red-300' : tone === 'orange' ? 'text-orange-300' : tone === 'amber' ? 'text-amber-300' : 'text-emerald-300'
-                    }`}>
-                      {value}
-                    </p>
-                    <p className="text-[0.625rem] text-text-muted font-bold uppercase tracking-widest">{label}</p>
-                  </div>
-                ))}
-              </div>
-
-              <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-3">
-                {rangerCases.length === 0 ? (
-                  <div className="py-12 text-center">
-                    <Shield className="w-10 h-10 mx-auto text-text-muted/40 mb-3" />
-                    <p className="text-sm text-text-muted">目前沒有 AI 巡邏案件</p>
-                  </div>
-                ) : (
-                  rangerCases.map(caseItem => {
-                    const status = caseItem.status || 'pending';
-                    const isActive = status === 'pending' || status === 'quarantined';
-                    const targetLabel = caseItem.sourceType === 'post' ? '貼文' : caseItem.sourceType === 'comment' ? '留言' : '留言回覆';
-                    const riskScore = Math.max(0, Math.min(100, Number(caseItem.riskScore || 0)));
-
-                    return (
-                      <div
-                        key={caseItem.id}
-                        className={`rounded-2xl border p-4 transition-colors ${
-                          isActive ? 'border-bio-glow/25 bg-bio-glow/5' : 'border-line bg-mist/60'
-                        }`}
-                      >
-                        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                          <div className="min-w-0 flex-1 space-y-3">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className={`rounded-full border px-2 py-0.5 text-[0.625rem] font-bold uppercase tracking-widest ${getRiskBadgeClass(caseItem.riskLevel)}`}>
-                                {getRiskLabel(caseItem.riskLevel)}
-                              </span>
-                              <span className="rounded-full bg-mist-medium px-2 py-0.5 text-[0.625rem] font-bold text-text-muted">
-                                {status === 'quarantined' ? '已隔離' : status === 'released' ? '已放行' : status === 'removed' ? '已移除' : status === 'dismissed' ? '已忽略' : '待審核'}
-                              </span>
-                              <span className="text-xs text-text-muted font-bold">{targetLabel}</span>
-                              <span className="text-[0.625rem] text-text-muted/70">
-                                {caseItem.createdAt?.toDate ? formatDistanceToNow(caseItem.createdAt.toDate(), { addSuffix: true, locale: zhTW }) : '剛剛'}
-                              </span>
-                            </div>
-
-                            <div>
-                              <div className="mb-1 flex items-center justify-between gap-2 text-[0.625rem] font-bold uppercase tracking-widest text-text-muted">
-                                <span>{caseItem.publicCaseId || caseItem.id}</span>
-                                <span>{riskScore}/100</span>
-                              </div>
-                              <div className="h-2 overflow-hidden rounded-full bg-mist-dark border border-line">
-                                <div
-                                  className={`h-full ${caseItem.riskLevel === 'critical' ? 'bg-red-400' : caseItem.riskLevel === 'high' ? 'bg-orange-400' : caseItem.riskLevel === 'medium' ? 'bg-amber-400' : 'bg-emerald-400'}`}
-                                  style={{ width: `${riskScore}%` }}
-                                />
-                              </div>
-                            </div>
-
-                            <p className="text-sm text-text-main leading-relaxed">{caseItem.summary || '尚無摘要'}</p>
-                            <p className="rounded-xl border border-line bg-mist px-3 py-2 text-xs text-text-muted leading-relaxed">
-                              {caseItem.contentPreview || '內容已被遮罩'}
-                            </p>
-                            <p className="text-xs text-text-muted leading-relaxed">
-                              <span className="font-bold text-text-main">法律風險：</span>{caseItem.legalRisk || '未提供'}
-                            </p>
-                            {caseItem.categories && caseItem.categories.length > 0 && (
-                              <div className="flex flex-wrap gap-1.5">
-                                {caseItem.categories.map(label => (
-                                  <span key={label} className="rounded-full border border-line bg-mist-light px-2 py-0.5 text-[0.625rem] text-text-muted">
-                                    {label}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-
-                          <div className="flex shrink-0 flex-wrap gap-2 lg:w-56 lg:justify-end">
-                            <button
-                              onClick={() => handleOpenModerationTarget(caseItem)}
-                              className="flex items-center gap-1.5 rounded-xl border border-line bg-mist px-3 py-2 text-xs font-bold text-text-main hover:border-bio-glow/40 hover:text-bio-glow transition-colors"
-                            >
-                              <ExternalLink className="w-3.5 h-3.5" />
-                              前往內容
-                            </button>
-                            {isActive && (
-                              <>
-                                <button
-                                  disabled={isRunningRangerAction}
-                                  onClick={() => handleRangerAction(caseItem, 'release')}
-                                  className="rounded-xl bg-emerald-500/15 px-3 py-2 text-xs font-bold text-emerald-300 hover:bg-emerald-500/25 transition-colors disabled:opacity-50"
-                                >
-                                  放行
-                                </button>
-                                <button
-                                  disabled={isRunningRangerAction}
-                                  onClick={() => handleRangerAction(caseItem, 'quarantine')}
-                                  className="rounded-xl bg-amber-500/15 px-3 py-2 text-xs font-bold text-amber-300 hover:bg-amber-500/25 transition-colors disabled:opacity-50"
-                                >
-                                  隔離
-                                </button>
-                                <button
-                                  disabled={isRunningRangerAction}
-                                  onClick={() => handleRangerAction(caseItem, 'remove')}
-                                  className="rounded-xl bg-red-500/15 px-3 py-2 text-xs font-bold text-red-300 hover:bg-red-500/25 transition-colors disabled:opacity-50"
-                                >
-                                  移除
-                                </button>
-                              </>
-                            )}
-                            {status === 'pending' && (
-                              <button
-                                disabled={isRunningRangerAction}
-                                onClick={() => handleRangerAction(caseItem, 'mark_reviewed')}
-                                className="rounded-xl bg-mist px-3 py-2 text-xs font-bold text-text-muted hover:text-text-main transition-colors disabled:opacity-50"
-                              >
-                                已審
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Station Master Reports Panel */}
-      <AnimatePresence>
-        {showReportsPanel && canReviewReports && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[110] bg-black/80 backdrop-blur-md flex items-center justify-center p-4"
-          >
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.95, opacity: 0, y: 20 }}
-              className="glass-card w-full max-w-3xl rounded-[2rem] overflow-hidden shadow-2xl border-line"
-            >
-              <div className="p-5 border-b border-line bg-mist flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="p-2 bg-amber-500/15 rounded-xl border border-amber-500/20">
-                    <Flag className="w-5 h-5 text-amber-400" />
-                  </div>
-                  <div className="min-w-0">
-                    <h2 className="text-text-main font-bold text-lg">檢舉處理</h2>
-                    <p className="text-text-muted text-[0.625rem] uppercase tracking-widest font-bold">
-                      {pendingReportsCount} pending / {reports.length} total
-                    </p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setShowReportsPanel(false)}
-                  className="p-2 hover:bg-mist-light rounded-full text-text-muted hover:text-text-main transition-colors"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              <div className="max-h-[70vh] overflow-y-auto custom-scrollbar p-4 space-y-3">
-                {reports.length === 0 ? (
-                  <div className="py-12 text-center text-text-muted text-sm">目前沒有檢舉紀錄</div>
-                ) : (
-                  reports.map(report => {
-                    const status = report.status || 'pending';
-                    const isPending = status === 'pending';
-                    const targetLabel = report.targetType === 'post' ? '貼文' : report.targetType === 'comment' ? '留言' : '留言回覆';
-
-                    return (
-                      <div
-                        key={report.id}
-                        className={`rounded-2xl border p-4 transition-colors ${
-                          isPending ? 'border-amber-500/30 bg-amber-500/5' : 'border-line bg-mist/60'
-                        }`}
-                      >
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                          <div className="min-w-0 space-y-2">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className={`rounded-full px-2 py-0.5 text-[0.625rem] font-bold uppercase tracking-widest ${
-                                isPending ? 'bg-amber-500/20 text-amber-400' : 'bg-emerald-500/10 text-emerald-400'
-                              }`}>
-                                {isPending ? '待處理' : status === 'dismissed' ? '已忽略' : '已處理'}
-                              </span>
-                              <span className="text-xs text-text-muted font-bold">{targetLabel}</span>
-                              <span className="text-[0.625rem] text-text-muted/70">
-                                {report.createdAt?.toDate ? formatDistanceToNow(report.createdAt.toDate(), { addSuffix: true, locale: zhTW }) : '剛剛'}
-                              </span>
-                            </div>
-                            <p className="text-sm text-text-main leading-relaxed">
-                              {report.reason || '未填寫理由'}
-                            </p>
-                            {report.targetPreview && (
-                              <p className="rounded-xl border border-line bg-mist px-3 py-2 text-xs text-text-muted leading-relaxed line-clamp-2">
-                                {report.targetPreview}
-                              </p>
-                            )}
-                            <p className="text-[0.625rem] text-text-muted/80">
-                              檢舉人：{report.reporterName || report.reporterId || '未知使用者'}
-                            </p>
-                          </div>
-
-                          <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
-                            <button
-                              onClick={() => handleOpenReportTarget(report)}
-                              className="flex items-center gap-1.5 rounded-xl border border-line bg-mist px-3 py-2 text-xs font-bold text-text-main hover:border-bio-glow/40 hover:text-bio-glow transition-colors"
-                            >
-                              <ExternalLink className="w-3.5 h-3.5" />
-                              前往內容
-                            </button>
-                            {isPending && (
-                              <>
-                                <button
-                                  onClick={() => handleUpdateReportStatus(report, 'reviewed')}
-                                  className="flex items-center gap-1.5 rounded-xl bg-emerald-500/15 px-3 py-2 text-xs font-bold text-emerald-400 hover:bg-emerald-500/25 transition-colors"
-                                >
-                                  <Check className="w-3.5 h-3.5" />
-                                  已處理
-                                </button>
-                                <button
-                                  onClick={() => handleUpdateReportStatus(report, 'dismissed')}
-                                  className="rounded-xl bg-mist px-3 py-2 text-xs font-bold text-text-muted hover:text-text-main transition-colors"
-                                >
-                                  忽略
-                                </button>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Share Modal */}
       <AnimatePresence>
@@ -4951,7 +4415,7 @@ function PostCard({
         authorId: user.uid,
         authorName: senderName,
         authorPhoto: profile?.photoURL || user.photoURL || DEFAULT_ISLANDER_PHOTO,
-        authorRole: profile?.role || 'user',
+        authorRole: user.uid === STATION_MASTER_UID ? 'admin' : 'user',
         content: cleanComment,
         likesCount: 0,
         repliesCount: 0,
@@ -5192,7 +4656,7 @@ function PostCard({
         authorId: user.uid,
         authorName: senderName,
         authorPhoto: profile?.photoURL || user.photoURL || DEFAULT_ISLANDER_PHOTO,
-        authorRole: profile?.role || 'user',
+        authorRole: user.uid === STATION_MASTER_UID ? 'admin' : 'user',
         content: cleanReply,
         likesCount: 0,
         createdAt: serverTimestamp(),
@@ -5241,7 +4705,7 @@ function PostCard({
   };
 
   const handleDeleteReply = async (comment: Comment, reply: CommentReply) => {
-    if (!user || !(reply.authorId === user.uid || profile?.role === 'admin')) return;
+    if (!user || reply.authorId !== user.uid) return;
     if (!window.confirm('確定要刪除這則回覆嗎？')) return;
 
     try {
@@ -5350,7 +4814,8 @@ function PostCard({
     });
   };
 
-  const canModerate = user && (post.authorId === user.uid || profile?.role === 'admin');
+  const canModerate = user && post.authorId === user.uid;
+  const isPostStationMaster = post.authorId === STATION_MASTER_UID;
   const trustedImageUrls = (post.imageUrls || []).filter(isTrustedPostImageUrl);
 
   return (
@@ -5374,7 +4839,7 @@ function PostCard({
                   islanderId: authorProfile?.islanderId || post.authorId, 
                   photoURL: authorProfile?.photoURL || post.authorPhoto,
                   displayName: authorProfile?.displayName || post.authorName,
-                  role: authorProfile?.role
+                  role: isPostStationMaster ? 'admin' : 'user'
                 }} 
                 className="w-10 h-10 rounded-full" 
               />
@@ -5384,16 +4849,16 @@ function PostCard({
               <div className="flex items-center gap-2">
                 <h3 
                   onClick={() => onOpenProfile(post.authorId)} 
-                  className={`font-bold text-sm leading-none cursor-pointer hover:opacity-80 transition-all ${authorProfile?.role === 'admin' ? 'rgb-text' : 'text-text-main/90 hover:text-bio-glow'}`}
+                  className={`font-bold text-sm leading-none cursor-pointer hover:opacity-80 transition-all ${isPostStationMaster ? 'rgb-text' : 'text-text-main/90 hover:text-bio-glow'}`}
                 >
                   {authorProfile?.displayName || post.authorName}
                 </h3>
-                {authorProfile?.role === 'admin' && (
+                {isPostStationMaster && (
                   <span className="text-[0.5625rem] bg-gradient-to-r from-red-500 via-yellow-500 to-blue-500 text-white px-1.5 py-0.5 rounded-sm font-black uppercase tracking-tighter shadow-[0_0_10px_rgba(255,255,255,0.3)]">
                     站長
                   </span>
                 )}
-                {authorProfile?.title && authorProfile?.role !== 'admin' && (
+                {authorProfile?.title && !isPostStationMaster && (
                   <span className="text-[0.5625rem] bg-bio-glow/10 text-bio-glow px-1 rounded border border-bio-glow/20 font-black uppercase tracking-tighter">
                     {authorProfile.title}
                   </span>
@@ -5579,10 +5044,10 @@ function PostCard({
                       <button onClick={() => onOpenProfile(comment.authorId)} className="cursor-pointer active:scale-95 transition-transform">
                         <UserAvatar 
                            p={{ 
-                             islanderId: comment.authorRole === 'admin' ? 'L' : comment.authorId, 
+                             islanderId: comment.authorId,
                              photoURL: comment.authorPhoto,
                              displayName: comment.authorName,
-                             role: comment.authorRole
+                             role: comment.authorId === STATION_MASTER_UID ? 'admin' : 'user'
                            }} 
                            className="w-7 h-7 rounded-full mt-1 opacity-90 hover:opacity-100 transition-opacity" 
                         />
@@ -5594,11 +5059,11 @@ function PostCard({
                           <div className="flex items-center gap-1.5 min-w-0">
                             <span 
                               onClick={() => onOpenProfile(comment.authorId)} 
-                              className={`font-bold text-[0.6875rem] uppercase tracking-wider cursor-pointer hover:opacity-80 transition-all truncate ${comment.authorRole === 'admin' ? 'rgb-text' : 'text-text-muted hover:text-bio-glow'}`}
+                              className={`font-bold text-[0.6875rem] uppercase tracking-wider cursor-pointer hover:opacity-80 transition-all truncate ${comment.authorId === STATION_MASTER_UID ? 'rgb-text' : 'text-text-muted hover:text-bio-glow'}`}
                             >
                               {comment.authorName}
                             </span>
-                            {comment.authorRole === 'admin' && (
+                            {comment.authorId === STATION_MASTER_UID && (
                               <span className="text-[0.5rem] bg-gradient-to-r from-red-500 via-yellow-500 to-blue-500 text-white px-1 rounded-sm font-bold uppercase shadow-[0_0_5px_rgba(255,255,255,0.2)]">
                                 站長
                               </span>
@@ -5627,7 +5092,7 @@ function PostCard({
                                 <Flag className="w-3.5 h-3.5" />
                               </button>
                             )}
-                            {(user && (comment.authorId === user.uid || profile?.role === 'admin')) && (
+                            {(user && comment.authorId === user.uid) && (
                                <button 
                                  onClick={async (e) => {
                                    e.preventDefault();
@@ -5698,10 +5163,10 @@ function PostCard({
                           <button onClick={() => onOpenProfile(reply.authorId)} className="cursor-pointer active:scale-95 transition-transform">
                             <UserAvatar 
                               p={{
-                                islanderId: reply.authorRole === 'admin' ? 'L' : reply.authorId,
+                                islanderId: reply.authorId,
                                 photoURL: reply.authorPhoto,
                                 displayName: reply.authorName,
-                                role: reply.authorRole
+                                role: reply.authorId === STATION_MASTER_UID ? 'admin' : 'user'
                               }}
                               className="w-6 h-6 rounded-full mt-1 opacity-80 hover:opacity-100 transition-opacity"
                             />
@@ -5713,11 +5178,11 @@ function PostCard({
                               <div className="flex items-center gap-1.5 min-w-0">
                                 <span
                                   onClick={() => onOpenProfile(reply.authorId)}
-                                  className={`font-bold text-[0.625rem] uppercase tracking-wider cursor-pointer hover:opacity-80 truncate ${reply.authorRole === 'admin' ? 'rgb-text' : 'text-text-muted hover:text-bio-glow'}`}
+                                  className={`font-bold text-[0.625rem] uppercase tracking-wider cursor-pointer hover:opacity-80 truncate ${reply.authorId === STATION_MASTER_UID ? 'rgb-text' : 'text-text-muted hover:text-bio-glow'}`}
                                 >
                                   {reply.authorName}
                                 </span>
-                                {reply.authorRole === 'admin' && (
+                                {reply.authorId === STATION_MASTER_UID && (
                                   <span className="text-[0.5rem] bg-gradient-to-r from-red-500 via-yellow-500 to-blue-500 text-white px-1 rounded-sm font-bold uppercase">
                                     站長
                                   </span>
@@ -5747,7 +5212,7 @@ function PostCard({
                                     <Flag className="w-3 h-3" />
                                   </button>
                                 )}
-                                {(user && (reply.authorId === user.uid || profile?.role === 'admin')) && (
+                                {(user && reply.authorId === user.uid) && (
                                   <button
                                     type="button"
                                     onClick={() => handleDeleteReply(comment, reply)}

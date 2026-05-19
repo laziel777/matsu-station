@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
+    "ranger:lab": "vite --config ranger-lab/vite.config.ts --host=127.0.0.1 --port=4321",
+    "ranger:build": "vite build --config ranger-lab/vite.config.ts",
     "local": "tsx dev-server.ts",
     "build": "vite build",
     "preview": "vite preview",
