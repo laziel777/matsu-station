@@ -67,16 +67,16 @@ async function diagnosticTest() {
     // Quick ping test
     const pingPromise = getDocFromServer(doc(db, '_status_', 'ping'));
     const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Firestore Connection Timeout')), 5000)
+      setTimeout(() => reject(new Error('Data service connection timeout')), 5000)
     );
     
     await Promise.race([pingPromise, timeoutPromise]);
-    console.log("✅ Firestore 連線測試成功");
+    console.log("✅ 資料服務連線測試成功");
   } catch (error: any) {
     if (error.message?.includes('offline') || error.code === 'unavailable' || error.message?.includes('Timeout')) {
-      console.warn("⚠️ Firestore 無法連線。請確認您已在 Firebase Console 建立資料庫！");
+      console.warn("⚠️ 資料服務暫時無法連線。");
     } else {
-      console.log("ℹ️ Firestore 狀態:", error.message);
+      console.log("ℹ️ 資料服務狀態:", error.message);
     }
   }
 }

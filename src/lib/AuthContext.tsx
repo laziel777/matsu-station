@@ -117,10 +117,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   useEffect(() => {
-    // Timeout to prevent infinite loading if Firebase hangs
+    // Timeout to prevent infinite loading if the data service hangs.
     const timeoutId = setTimeout(() => {
       if (loading) {
-        console.warn('Firebase initialization is taking longer than expected. Possible connectivity issue.');
+        console.warn('資料服務初始化時間較長，可能是連線不穩。');
       }
     }, 8000);
 
@@ -173,9 +173,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             console.error('Profile sync error:', syncError);
             // If offline, we might still have user auth, so let's continue
             if (syncError.message.includes('offline') || syncError.code === 'unavailable') {
-              setError(new Error('無法連線至資料庫。請確認您的網路連線或 Firebase 設定。'));
+              setError(new Error('無法連線至資料服務。請確認您的網路連線，或稍後再試。'));
             } else if (syncError.message.includes('permission-denied')) {
-              console.warn('Firestore permissions issues detected. Check your rules.');
+              console.warn('資料服務權限設定需要檢查。');
             }
           }
         } else {
