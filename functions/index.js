@@ -1562,9 +1562,6 @@ async function assertStationMasterCallable(request) {
 
   if (uid === STATION_MASTER_UID) return uid;
 
-  const userSnap = await db.collection("users").doc(uid).get();
-  if (userSnap.exists && userSnap.data()?.role === "admin") return uid;
-
   throw new HttpsError("permission-denied", "Only the station master can perform moderation actions.");
 }
 
@@ -1648,5 +1645,167 @@ exports.rangerModerationAction = onCall(
       caseId,
       status: nextStatus,
     };
+  }
+);
+
+function parseManagedSourcePath(sourcePath) {
+  const segments = String(sourcePath || "").split("/").filter(Boolean);
+  if (segments.length === 2 && segments[0] === "posts") {
+    return {
+      sourceType: "post",
+      postId: segments[1],
+    };
+  }
+
+  if (segments.length === 4 && segments[0] === "posts" && segments[2] === "comments") {
+    return {
+      sourceType: "comment",
+      postId: segments[1],
+      commentId: segments[3],
+    };
+  }
+
+  if (
+    segments.length === 6 &&
+    segments[0] === "posts" &&
+    segments[2] === "comments" &&
+    segments[4] === "replies"
+  ) {
+    return {
+      sourceType: "reply",
+      postId: segments[1],
+      commentId: segments[3],
+      replyId: segments[5],
+    };
+  }
+
+  throw new HttpsError("invalid-argument", "Unsupported content path.");
+}
+
+async function applyDirectContentAction({ sourcePath, action, reviewerId, reason }) {
+  const sourceMeta = parseManagedSourcePath(sourcePath);
+  const sourceRef = db.doc(sourcePath);
+  const sourceSnap = await sourceRef.get();
+
+  if (!sourceSnap.exists) {
+    throw new HttpsError("not-found", "Content was not found.");
+  }
+
+  const sourceData = sourceSnap.data() || {};
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const sourceKey = getSourceKey(sourcePath);
+  const publicCaseId = sourceData.moderationPublicCaseId || getPublicCaseId(sourcePath);
+  const moderationReason = String(reason || "").trim().slice(0, 240);
+  const contentSnapshot = String(
+    sourceData.content ||
+    sourceData.contentSnapshot ||
+    sourceData.quarantinedContentPreview ||
+    ""
+  ).slice(0, 4000);
+  const riskScore = clampNumber(
+    Number(sourceData.moderationRiskScore || sourceData.aiRisk || 0),
+    0,
+    100
+  );
+  const riskLevel = normalizeRiskLevel(sourceData.moderationRiskLevel, riskScore);
+  const basePatch = {
+    moderationPublicCaseId: publicCaseId,
+    moderationRiskLevel: riskLevel,
+    moderationRiskScore: riskScore,
+    moderationUpdatedAt: now,
+  };
+
+  if (!["hide", "delete"].includes(action)) {
+    throw new HttpsError("invalid-argument", "Unsupported content action.");
+  }
+
+  if (action === "hide" && !moderationReason) {
+    throw new HttpsError("invalid-argument", "A moderation reason is required when hiding content.");
+  }
+
+  if (action === "hide") {
+    await sourceRef.set({
+      ...basePatch,
+      moderationStatus: "removed",
+      moderationReason,
+      content: "",
+      quarantinedContentPreview: compactPreview(contentSnapshot),
+      ...(sourceMeta.sourceType === "post" ? { imageUrls: [] } : {}),
+    }, { merge: true });
+  }
+
+  const caseRecord = {
+    sourceType: sourceMeta.sourceType,
+    sourcePath,
+    postId: sourceMeta.postId || null,
+    commentId: sourceMeta.commentId || null,
+    replyId: sourceMeta.replyId || null,
+    authorId: sourceData.authorId || null,
+    authorName: sourceData.authorName || null,
+    category: sourceData.category || sourceData.aiTag || null,
+    contentPreview: compactPreview(contentSnapshot),
+    contentSnapshot,
+    imageUrlsSnapshot: Array.isArray(sourceData.imageUrls) ? sourceData.imageUrls.slice(0, 8) : [],
+    fightMode: Boolean(sourceData.fightMode),
+    userRiskLabel: sourceData.userRiskLabel || (sourceData.fightMode ? "fight" : "normal"),
+    aiGovernanceMode: sourceData.aiGovernanceMode || "manual",
+    policyVersion: POLICY_VERSION,
+    policyRefs: [
+      { code: "使用者條款第5條", label: "站長可依平台治理需要移除高風險或違規內容" },
+      { code: "社群守則第4條", label: "禁止個資、威脅、騷擾、未證實重大指控與惡意干擾" },
+    ],
+    riskLevel,
+    riskScore,
+    categories: sanitizeArray(sourceData.moderationCategories || sourceData.categories || []),
+    summary: action === "hide" ? `站長遮蔽此內容：${moderationReason}` : "站長從本地後台完全移除此內容。",
+    legalRisk: action === "hide" ? "內容已遮蔽並保留治理紀錄，可供後續申訴與安全稽核。" : "目標文件已刪除，治理紀錄保留於站長後台。",
+    publicInterest: "unknown",
+    recommendedAction: action === "hide" ? "hide" : "delete",
+    rationale: action === "hide" ? moderationReason : "Manual hard delete from AI Ranger dashboard.",
+    publicCaseId,
+    status: "removed",
+    lastAction: action,
+    moderationReason,
+    reviewedBy: reviewerId,
+    reviewedAt: now,
+    updatedAt: now,
+    createdAt: sourceData.createdAt || now,
+    sourceCreatedAt: sourceData.createdAt || null,
+  };
+
+  await db.collection("moderationCases").doc(sourceKey).set(caseRecord, { merge: true });
+
+  if (action === "delete") {
+    await sourceRef.delete();
+  }
+
+  return {
+    ok: true,
+    sourcePath,
+    status: action === "hide" ? "removed" : "deleted",
+    publicCaseId,
+  };
+}
+
+exports.rangerContentAction = onCall(
+  {
+    region: REGION,
+  },
+  async (request) => {
+    const reviewerId = await assertStationMasterCallable(request);
+    const sourcePath = String(request.data?.sourcePath || "").trim();
+    const action = String(request.data?.action || "").trim();
+    const reason = String(request.data?.reason || "").trim();
+
+    if (!sourcePath || !["hide", "delete"].includes(action)) {
+      throw new HttpsError("invalid-argument", "Invalid content action.");
+    }
+
+    return applyDirectContentAction({
+      sourcePath,
+      action,
+      reviewerId,
+      reason,
+    });
   }
 );

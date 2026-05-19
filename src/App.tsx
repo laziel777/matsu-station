@@ -113,6 +113,7 @@ interface Post {
   authorPhoto: string;
   content: string;
   moderationStatus?: 'quarantined' | 'removed' | 'released' | string;
+  moderationReason?: string;
   moderationPublicCaseId?: string;
   moderationRiskLevel?: 'low' | 'medium' | 'high' | 'critical' | string;
   moderationRiskScore?: number;
@@ -139,6 +140,7 @@ interface Comment {
   authorRole?: 'user' | 'admin';
   content: string;
   moderationStatus?: 'quarantined' | 'removed' | 'released' | string;
+  moderationReason?: string;
   moderationPublicCaseId?: string;
   moderationRiskLevel?: 'low' | 'medium' | 'high' | 'critical' | string;
   moderationRiskScore?: number;
@@ -159,6 +161,7 @@ interface CommentReply {
   authorRole?: 'user' | 'admin';
   content: string;
   moderationStatus?: 'quarantined' | 'removed' | 'released' | string;
+  moderationReason?: string;
   moderationPublicCaseId?: string;
   moderationRiskLevel?: 'low' | 'medium' | 'high' | 'critical' | string;
   moderationRiskScore?: number;
@@ -205,8 +208,13 @@ const isModerationHidden = (status?: string) => {
   return status === 'quarantined' || status === 'removed';
 };
 
-const getModerationTombstoneText = (status?: string) => {
-  if (status === 'removed') return '此內容已依使用者條款或社群守則移除。';
+const getModerationTombstoneText = (status?: string, reason?: string) => {
+  const cleanReason = String(reason || '').trim();
+  if (status === 'removed') {
+    return cleanReason
+      ? `此內容已依使用者條款或社群守則移除。原因：${cleanReason}`
+      : '此內容已依使用者條款或社群守則移除。';
+  }
   return '此內容因涉及高爭議或安全風險，目前依社群守則審核中。';
 };
 
@@ -5358,7 +5366,7 @@ function PostCard({
 
         {postIsModerationHidden ? (
           <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3">
-            <p className="text-sm font-bold text-amber-300">{getModerationTombstoneText(post.moderationStatus)}</p>
+            <p className="text-sm font-bold text-amber-300">{getModerationTombstoneText(post.moderationStatus, post.moderationReason)}</p>
             {user?.uid === post.authorId && (
               <p className="mt-2 text-[0.625rem] text-amber-200/80">可到功能選單的「治理紀錄」查詢依據條款與處置狀態。</p>
             )}
@@ -5553,7 +5561,7 @@ function PostCard({
                         </div>
                         {isModerationHidden(comment.moderationStatus) ? (
                           <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2">
-                            <p className="text-xs font-bold text-amber-300">{getModerationTombstoneText(comment.moderationStatus)}</p>
+                            <p className="text-xs font-bold text-amber-300">{getModerationTombstoneText(comment.moderationStatus, comment.moderationReason)}</p>
                             {user?.uid === comment.authorId && (
                               <p className="mt-1 text-[0.5625rem] text-amber-200/80">可到功能選單的「治理紀錄」查詢依據條款與處置狀態。</p>
                             )}
@@ -5662,7 +5670,7 @@ function PostCard({
                             </div>
                             {isModerationHidden(reply.moderationStatus) ? (
                               <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2">
-                                <p className="text-xs font-bold text-amber-300">{getModerationTombstoneText(reply.moderationStatus)}</p>
+                                <p className="text-xs font-bold text-amber-300">{getModerationTombstoneText(reply.moderationStatus, reply.moderationReason)}</p>
                                 {user?.uid === reply.authorId && (
                                   <p className="mt-1 text-[0.5625rem] text-amber-200/80">可到功能選單的「治理紀錄」查詢依據條款與處置狀態。</p>
                                 )}
