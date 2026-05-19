@@ -24,6 +24,7 @@ const MAX_CONTEXT_MESSAGES = 6;
 const TAIPEI_UTC_OFFSET_MS = 8 * 60 * 60 * 1000;
 const DAILY_COMMENT_LIMIT = 120;
 const DAILY_FIGHT_COMMENT_LIMIT = 30;
+const POLICY_VERSION = "2026-05-19";
 const ASSISTANT_IDENTITY = "馬祖小站智能客服（AI 輔助，非真人客服）";
 const AI_NOTICE = "注意事項：小站智能客服僅提供輔助回覆，不提供互動功能，AI 可能會出錯。";
 const SUPPORT_FOOTER = "如果需要站長處理，請按下方對應按鈕。";
@@ -702,6 +703,50 @@ function getAiGovernanceMode(payload, analysis) {
   return "normal";
 }
 
+function addPolicyRef(refs, code, label) {
+  if (!refs.some((ref) => ref.code === code)) {
+    refs.push({ code, label });
+  }
+}
+
+function getPolicyRefsForAnalysis(payload, analysis) {
+  const refs = [];
+  const categories = new Set((analysis.categories || []).map((category) => String(category)));
+  const riskLevel = analysis.riskLevel || "low";
+
+  addPolicyRef(refs, "使用者條款第2條", "內容責任與平台治理");
+
+  if (categories.has("personal_data") || categories.has("privacy")) {
+    addPolicyRef(refs, "隱私權政策第3條", "禁止公開他人個資與非公開識別資訊");
+  }
+
+  if (categories.has("threat") || categories.has("harassment")) {
+    addPolicyRef(refs, "社群守則第4條", "禁止威脅、騷擾、肉搜與煽動圍剿");
+  }
+
+  if (categories.has("unverified_accusation") || categories.has("defamation") || categories.has("insult")) {
+    addPolicyRef(refs, "社群守則第4條", "禁止未證實重大指控與高風險名譽侵害");
+  }
+
+  if (categories.has("spam") || payload.moderationRemovalReason === "daily_comment_limit_exceeded") {
+    addPolicyRef(refs, "社群守則第4條", "禁止洗版、複製垃圾文與惡意干擾");
+  }
+
+  if (categories.has("sexual_image") || categories.has("scam")) {
+    addPolicyRef(refs, "社群守則第4條", "禁止私密影像、詐騙與重大安全風險內容");
+  }
+
+  if (payload.fightMode) {
+    addPolicyRef(refs, "社群守則第4條", "Fight 模式提高討論容忍度，但不放寬違法或安全底線");
+  }
+
+  if (["high", "critical"].includes(riskLevel)) {
+    addPolicyRef(refs, "使用者條款第5條", "平台可審核、隔離、移除並保留必要治理紀錄");
+  }
+
+  return refs;
+}
+
 function stripJsonFence(text) {
   return String(text || "")
     .trim()
@@ -773,6 +818,7 @@ Fight mode policy:
 - Fight means the user voluntarily labels the content as a sharper public-issue challenge or rebuttal. It is not a violation by itself.
 - Fight should increase tolerance for political discussion, public-interest disputes, strong criticism, sarcasm, profanity, and heated counterarguments.
 - Fight also increases monitoring density. It must never lower the bottom line for personal data, doxxing, direct threats, targeted harassment, private sexual images, scams, child sexual content, hate incitement, or concrete unverified serious accusations against identifiable natural persons.
+- Never frame Fight as permission for illegal content. It is only a higher-tolerance discussion label with stricter monitoring.
 - If fightMode is true but the content is actually low-risk, classify riskLevel as low and explain that it can be downgraded to normal governance.
 - If fightMode is false but the content still carries real legal or safety risk, classify it normally and recommend monitoring/quarantine as needed.
 
@@ -794,6 +840,7 @@ Freedom-preserving rules:
 - Strong opinions, sarcasm, profanity, and local complaints are allowed unless they identify a target and include threats, doxxing, harassment, or concrete unverified illegal/private-life allegations.
 - Public-interest criticism and questions should be allow or monitor, especially when phrased as opinion, question, request for clarification, personal experience, or call for official investigation.
 - Quarantine should be reserved for clear, concrete risk. If uncertain between medium and high, choose medium and monitor for station-master review.
+- Governance must be transparent: if recommending monitor/quarantine/urgent_review, explain which safety reason applies instead of using vague censorship language.
 
 JSON schema:
 {
@@ -883,6 +930,7 @@ async function writePatrolArtifacts(payload, analysis) {
   const userRiskLabel = payload.userRiskLabel || (fightMode ? "fight" : "normal");
   const shouldCreateCase = fightMode || ["medium", "high", "critical"].includes(analysis.riskLevel);
   const shouldQuarantine = ["high", "critical"].includes(analysis.riskLevel);
+  const policyRefs = getPolicyRefsForAnalysis(payload, analysis);
   const sourceGovernancePatch = {
     fightMode,
     userRiskLabel,
@@ -905,6 +953,8 @@ async function writePatrolArtifacts(payload, analysis) {
     fightMode,
     userRiskLabel,
     aiGovernanceMode,
+    policyVersion: POLICY_VERSION,
+    policyRefs,
     riskLevel: analysis.riskLevel,
     riskScore: analysis.riskScore,
     categories: analysis.categories,
@@ -1150,19 +1200,61 @@ async function recordDailyCommentUsage(authorId, fightMode) {
 }
 
 async function hideContentForDailyLimit(sourcePath, sourceData, usage) {
+  const sourceKey = getSourceKey(sourcePath);
+  const publicCaseId = getPublicCaseId(sourcePath);
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const policyRefs = [
+    { code: "社群守則第4條", label: "禁止洗版、複製垃圾文與惡意干擾" },
+    { code: "使用者條款第5條", label: "平台可審核、隔離、移除並保留必要治理紀錄" },
+  ];
+  const segments = sourcePath.split("/");
+  const sourceType = segments.includes("replies") ? "reply" : "comment";
+
   await db.doc(sourcePath).set({
     content: "",
     moderationStatus: "removed",
-    moderationPublicCaseId: getPublicCaseId(sourcePath),
+    moderationPublicCaseId: publicCaseId,
     moderationRiskLevel: "medium",
     moderationRiskScore: 45,
-    moderationUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    moderationUpdatedAt: now,
     moderationRemovalReason: "daily_comment_limit_exceeded",
     moderationRemovalNote: `每日留言/回覆上限 ${usage.limit}，目前第 ${usage.count} 則。`,
+    policyVersion: POLICY_VERSION,
+    policyRefs,
     fightMode: Boolean(sourceData.fightMode),
     userRiskLabel: sourceData.userRiskLabel || (sourceData.fightMode ? "fight" : "normal"),
     aiGovernanceMode: sourceData.fightMode ? "fight" : "escalated",
     quarantinedContentPreview: compactPreview(sourceData.content),
+  }, { merge: true });
+
+  await db.collection("moderationCases").doc(sourceKey).set({
+    sourceType,
+    sourcePath,
+    postId: segments[1] || null,
+    commentId: sourceType === "comment" ? segments[3] || null : segments[3] || null,
+    replyId: sourceType === "reply" ? segments[5] || null : null,
+    authorId: sourceData.authorId || null,
+    authorName: sourceData.authorName || null,
+    contentPreview: compactPreview(sourceData.content),
+    contentSnapshot: String(sourceData.content || "").slice(0, 4000),
+    fightMode: Boolean(sourceData.fightMode),
+    userRiskLabel: sourceData.userRiskLabel || (sourceData.fightMode ? "fight" : "normal"),
+    aiGovernanceMode: sourceData.fightMode ? "fight" : "escalated",
+    policyVersion: POLICY_VERSION,
+    policyRefs,
+    riskLevel: "medium",
+    riskScore: 45,
+    categories: ["spam", "rate_limit"],
+    summary: `每日留言/回覆次數已超過上限 ${usage.limit}。`,
+    legalRisk: "疑似洗版或惡意干擾，平台依社群守則移除超量內容並保留紀錄。",
+    publicInterest: "low",
+    recommendedAction: "remove",
+    rationale: "Server-side daily comment usage limit enforcement.",
+    publicCaseId,
+    status: "removed",
+    createdAt: now,
+    updatedAt: now,
+    sourceCreatedAt: sourceData.createdAt || null,
   }, { merge: true });
 }
 

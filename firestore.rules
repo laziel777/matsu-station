@@ -19,6 +19,16 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == 'gHHxF8p1DnbMkoeVmU5XpB18Elz2';
     }
 
+    function hasAcceptedCurrentPolicies() {
+      return isSignedIn()
+             && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+             && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.agreedToTerms == true
+             && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isProfileSetup == true
+             && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.acceptedTermsVersion == '2026-05-19'
+             && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.acceptedPrivacyVersion == '2026-05-19'
+             && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.acceptedCommunityRulesVersion == '2026-05-19';
+    }
+
     function hasValidContent(maxLength) {
       return request.resource.data.content is string
              && request.resource.data.content.size() <= maxLength;
@@ -87,7 +97,9 @@ service cloud.firestore {
     function hasValidUserCreateFields(userId) {
       return request.resource.data.keys().hasOnly([
                'uid', 'islanderId', 'displayName', 'photoURL', 'role',
-               'agreedToTerms', 'isProfileSetup', 'createdAt'
+               'agreedToTerms', 'acceptedTermsVersion', 'acceptedPrivacyVersion',
+               'acceptedCommunityRulesVersion', 'policyAcceptedAt',
+               'isProfileSetup', 'createdAt'
              ])
              && request.resource.data.uid == userId
              && request.resource.data.islanderId is string
@@ -144,12 +156,15 @@ service cloud.firestore {
       allow update: if isOwner(userId)
                     && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
                       'agreedToTerms', 'isProfileSetup', 'displayName',
-                      'photoURL', 'bio', 'title', 'lastProfileUpdate'
+                      'photoURL', 'bio', 'title', 'lastProfileUpdate',
+                      'acceptedTermsVersion', 'acceptedPrivacyVersion',
+                      'acceptedCommunityRulesVersion', 'policyAcceptedAt'
                     ]);
 
       match /following/{targetUserId} {
         allow read: if isSignedIn();
-        allow create, update: if isOwner(targetUserId)
+        allow create, update: if hasAcceptedCurrentPolicies()
+                              && isOwner(targetUserId)
                               && hasValidFollowingFields(targetUserId)
                               && exists(/databases/$(database)/documents/users/$(targetUserId)/followRequests/$(userId));
         allow delete: if isOwner(userId) || isOwner(targetUserId);
@@ -157,7 +172,8 @@ service cloud.firestore {
 
       match /followers/{followerId} {
         allow read: if isSignedIn();
-        allow create, update: if isOwner(userId)
+        allow create, update: if hasAcceptedCurrentPolicies()
+                              && isOwner(userId)
                               && hasValidFollowerFields(followerId)
                               && exists(/databases/$(database)/documents/users/$(userId)/followRequests/$(followerId));
         allow delete: if isOwner(followerId) || isOwner(userId);
@@ -166,7 +182,9 @@ service cloud.firestore {
       match /followRequests/{requesterId} {
         allow get: if isOwner(userId) || isOwner(requesterId);
         allow list: if isOwner(userId);
-        allow create, update: if isOwner(requesterId) && hasValidFollowRequestFields(requesterId);
+        allow create, update: if hasAcceptedCurrentPolicies()
+                              && isOwner(requesterId)
+                              && hasValidFollowRequestFields(requesterId);
         allow delete: if isOwner(userId) || isOwner(requesterId);
       }
     }
@@ -174,6 +192,7 @@ service cloud.firestore {
     match /posts/{postId} {
       allow read: if true;
       allow create: if isSignedIn()
+                    && hasAcceptedCurrentPolicies()
                     && hasOnlyPostCreateFields()
                     && request.resource.data.authorId == request.auth.uid
                     && request.resource.data.likesCount == 0
@@ -186,13 +205,14 @@ service cloud.firestore {
 
       match /likes/{userId} {
         allow read: if true;
-        allow create, update: if isOwner(userId) && hasValidReactionFields();
+        allow create, update: if hasAcceptedCurrentPolicies() && isOwner(userId) && hasValidReactionFields();
         allow delete: if isOwner(userId);
       }
 
       match /comments/{commentId} {
         allow read: if true;
         allow create: if isSignedIn()
+                      && hasAcceptedCurrentPolicies()
                       && hasOnlyCommentCreateFields()
                       && request.resource.data.authorId == request.auth.uid
                       && hasValidAuthorRole()
@@ -205,13 +225,14 @@ service cloud.firestore {
 
         match /likes/{userId} {
           allow read: if true;
-          allow create, update: if isOwner(userId) && hasValidReactionFields();
+          allow create, update: if hasAcceptedCurrentPolicies() && isOwner(userId) && hasValidReactionFields();
           allow delete: if isOwner(userId);
         }
 
         match /replies/{replyId} {
           allow read: if true;
           allow create: if isSignedIn()
+                        && hasAcceptedCurrentPolicies()
                         && hasOnlyReplyCreateFields()
                         && request.resource.data.authorId == request.auth.uid
                         && hasValidAuthorRole()
@@ -223,7 +244,7 @@ service cloud.firestore {
 
           match /likes/{userId} {
             allow read: if true;
-            allow create, update: if isOwner(userId) && hasValidReactionFields();
+            allow create, update: if hasAcceptedCurrentPolicies() && isOwner(userId) && hasValidReactionFields();
             allow delete: if isOwner(userId);
           }
         }
@@ -232,6 +253,7 @@ service cloud.firestore {
 
     match /reports/{reportId} {
       allow create: if isSignedIn()
+                    && hasAcceptedCurrentPolicies()
                     && hasOnlyReportCreateFields()
                     && request.resource.data.reporterId == request.auth.uid
                     && request.resource.data.targetId is string
@@ -248,12 +270,14 @@ service cloud.firestore {
     }
 
     match /moderationCases/{caseId} {
-      allow read: if isAdmin() || isStationMaster();
+      allow read: if isAdmin() || isStationMaster()
+                  || (isSignedIn() && resource.data.authorId == request.auth.uid);
       allow write: if false;
     }
 
     match /notifications/{notificationId} {
       allow create: if isSignedIn()
+                    && hasAcceptedCurrentPolicies()
                     && hasOnlyNotificationCreateFields()
                     && request.resource.data.senderId == request.auth.uid
                     && request.resource.data.recipientId is string

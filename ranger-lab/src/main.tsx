@@ -99,6 +99,8 @@ interface PatrolCase {
   fightMode?: boolean;
   userRiskLabel?: string;
   aiGovernanceMode?: string;
+  policyVersion?: string;
+  policyRefs?: Array<{ code: string; label: string }>;
   createdAt?: unknown;
   updatedAt?: unknown;
 }
@@ -1062,9 +1064,13 @@ function App() {
               <span>作者：{selectedCase.authorName || compactUid(selectedCase.authorId || '')}</span>
               <span>分類：{selectedCase.category || '未分類'}</span>
               <span>模式：{getGovernanceLabel(selectedCase.aiGovernanceMode)}</span>
+              {selectedCase.policyVersion && <span>規範版本：{selectedCase.policyVersion}</span>}
               <span>路徑：{selectedCase.sourcePath || 'unknown'}</span>
               {selectedCase.categories?.slice(0, 5).map(label => (
                 <em key={label}>{label}</em>
+              ))}
+              {selectedCase.policyRefs?.map(ref => (
+                <em key={`${selectedCase.id}-${ref.code}`}>{ref.code}：{ref.label}</em>
               ))}
             </div>
 

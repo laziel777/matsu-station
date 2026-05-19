@@ -1,5 +1,14 @@
 ﻿import React, { useState, useEffect } from 'react';
-import { useAuth, UserProfile, DEFAULT_ISLANDER_PHOTO } from './lib/AuthContext';
+import {
+  useAuth,
+  UserProfile,
+  DEFAULT_ISLANDER_PHOTO,
+  CURRENT_TERMS_VERSION,
+  CURRENT_PRIVACY_VERSION,
+  CURRENT_COMMUNITY_RULES_VERSION,
+  POLICY_EFFECTIVE_DATE,
+  hasAcceptedLatestPolicies,
+} from './lib/AuthContext';
 import { signInWithPopup, googleProvider, auth, signOut } from './lib/firebase';
 import { LogIn, LogOut, MessageSquare, Share2, Send, Plus, User, Waves, Search, Flag, Edit2, Calendar, Menu, X, ChevronRight, Palette, Settings, Image as ImageIcon, Facebook, Instagram, Copy, Check, ExternalLink, Trash2, Bell, Shield, TrendingUp, Zap, Star, Compass, Clock, AlertCircle, Cloud, CloudRain, Snowflake, CloudLightning, Sun, Plane, Ship, Info, Wind, Eye, Activity, MapPin, RotateCcw } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -168,13 +177,37 @@ interface DiscussionTarget {
   nonce: number;
 }
 
+interface PolicyReference {
+  code: string;
+  label: string;
+}
+
+interface GovernanceRecord {
+  id: string;
+  publicCaseId?: string;
+  sourceType?: 'post' | 'comment' | 'reply' | string;
+  status?: string;
+  riskLevel?: string;
+  riskScore?: number;
+  summary?: string;
+  legalRisk?: string;
+  recommendedAction?: string;
+  contentPreview?: string;
+  contentSnapshot?: string;
+  policyVersion?: string;
+  policyRefs?: PolicyReference[];
+  sourcePath?: string;
+  createdAt?: any;
+  updatedAt?: any;
+}
+
 const isModerationHidden = (status?: string) => {
   return status === 'quarantined' || status === 'removed';
 };
 
 const getModerationTombstoneText = (status?: string) => {
-  if (status === 'removed') return '此內容已被移除。';
-  return '此內容因涉及高爭議內容，目前正在審核中。';
+  if (status === 'removed') return '此內容已依使用者條款或社群守則移除。';
+  return '此內容因涉及高爭議或安全風險，目前依社群守則審核中。';
 };
 
 // --- Profanity Filter Utility ---
@@ -413,6 +446,30 @@ const getGovernanceModeLabel = (mode?: string) => {
   if (mode === 'downgraded') return 'AI 降級';
   if (mode === 'escalated') return 'AI 升級';
   return '一般巡邏';
+};
+
+const getGovernanceStatusLabel = (status?: string) => {
+  if (status === 'quarantined') return '審核隔離';
+  if (status === 'removed') return '已移除';
+  if (status === 'released') return '已放行';
+  if (status === 'dismissed') return '已駁回';
+  if (status === 'reviewed') return '已審核';
+  if (status === 'downgraded') return 'AI 已降級';
+  return '待處理';
+};
+
+const getSourceTypeLabel = (sourceType?: string) => {
+  if (sourceType === 'post') return '貼文';
+  if (sourceType === 'comment') return '留言';
+  if (sourceType === 'reply') return '留言回覆';
+  return '內容';
+};
+
+const getRiskLevelLabel = (riskLevel?: string) => {
+  if (riskLevel === 'critical') return '極高風險';
+  if (riskLevel === 'high') return '高風險';
+  if (riskLevel === 'medium') return '中風險';
+  return '低風險';
 };
 
 const isTrustedPostImageUrl = (url: string) => {
@@ -796,6 +853,9 @@ export default function App() {
   const [isDesktop, setIsDesktop] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [showTerms, setShowTerms] = useState(false);
+  const [showGovernanceCenter, setShowGovernanceCenter] = useState(false);
+  const [governanceRecords, setGovernanceRecords] = useState<GovernanceRecord[]>([]);
+  const [isLoadingGovernanceRecords, setIsLoadingGovernanceRecords] = useState(false);
   const [hasReadToBottom, setHasReadToBottom] = useState(false);
   const [setupName, setSetupName] = useState('');
   const [setupNameError, setSetupNameError] = useState<string | null>(null);
@@ -817,7 +877,9 @@ export default function App() {
 });
 
 const [onlineCount, setOnlineCount] = useState(1);
-const isOnboarding = Boolean(user && profile && (!profile.agreedToTerms || !profile.isProfileSetup));
+const isProfileSetupRequired = Boolean(user && profile && !profile.isProfileSetup);
+const needsPolicyAcceptance = Boolean(user && profile && !hasAcceptedLatestPolicies(profile));
+const isOnboarding = Boolean(user && profile && (isProfileSetupRequired || needsPolicyAcceptance));
 
   useEffect(() => {
     localStorage.setItem('matsu-font-size', fontSize.toString());
@@ -1069,9 +1131,9 @@ const HOT_TOPICS = Object.entries(topicCounts)
 
   const POST_TAGS = CATEGORIES.filter(cat => cat.id !== 'all' && cat.id !== 'hot');
 
-  // Check if logged in user needs to agree to terms or setup profile
+  // Check if logged in user needs to agree to the latest policies or setup profile.
   React.useEffect(() => {
-    if (user && profile && (!profile.agreedToTerms || !profile.isProfileSetup)) {
+    if (user && profile && (!profile.isProfileSetup || !hasAcceptedLatestPolicies(profile))) {
       setShowTerms(true);
     } else {
       setShowTerms(false);
@@ -1223,11 +1285,11 @@ const HOT_TOPICS = Object.entries(topicCounts)
 
   const handleAgree = async () => {
     const missingItems = [];
-    if (!hasReadToBottom) missingItems.push('閱讀完畢服務條款 (請滑動到底部)');
-    if (!setupName.trim()) missingItems.push('設定您的島民暱稱');
-    if (setupNameError) missingItems.push(setupNameError);
+    if (!hasReadToBottom) missingItems.push('閱讀完畢使用者條款、隱私權政策與社群守則 (請滑動到底部)');
+    if (isProfileSetupRequired && !setupName.trim()) missingItems.push('設定您的島民暱稱');
+    if (isProfileSetupRequired && setupNameError) missingItems.push(setupNameError);
 
-    if (!setupPhoto) missingItems.push('上傳您的個人頭像');
+    if (isProfileSetupRequired && !setupPhoto) missingItems.push('上傳您的個人頭像');
     // Removed requirement to change from default since we have a specific default islander logo now
 
     if (missingItems.length > 0) {
@@ -1237,13 +1299,46 @@ const HOT_TOPICS = Object.entries(topicCounts)
 
     try {
       await agreeToTerms({
-        displayName: setupName,
-        photoURL: setupPhoto
+        displayName: isProfileSetupRequired ? setupName : profile?.displayName || user?.displayName || undefined,
+        photoURL: isProfileSetupRequired ? setupPhoto : profile?.photoURL || undefined,
       });
       setShowTerms(false);
     } catch (err) {
       console.error('Agree terms failed', err);
       alert('發生錯誤，請重新整理頁面再試。');
+    }
+  };
+
+  const openGovernanceCenter = async () => {
+    if (!user) {
+      alert('請先登入後再查看治理紀錄。');
+      return;
+    }
+
+    setShowGovernanceCenter(true);
+    setShowSettingsMenu(false);
+    setIsLoadingGovernanceRecords(true);
+
+    try {
+      const recordsQuery = query(
+        collection(db, 'moderationCases'),
+        where('authorId', '==', user.uid)
+      );
+      const snapshot = await getDocs(recordsQuery);
+      const records = snapshot.docs
+        .map(recordDoc => ({ id: recordDoc.id, ...recordDoc.data() } as GovernanceRecord))
+        .sort((a, b) => {
+          const aTime = a.updatedAt?.toMillis?.() || a.createdAt?.toMillis?.() || 0;
+          const bTime = b.updatedAt?.toMillis?.() || b.createdAt?.toMillis?.() || 0;
+          return bTime - aTime;
+        });
+
+      setGovernanceRecords(records);
+    } catch (err: any) {
+      console.error('Load governance records failed:', err);
+      alert('治理紀錄讀取失敗，請稍後再試。');
+    } finally {
+      setIsLoadingGovernanceRecords(false);
     }
   };
 
@@ -1745,6 +1840,11 @@ const HOT_TOPICS = Object.entries(topicCounts)
   const handleCreatePost = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || (!newPostContent.trim() && selectedImages.length === 0) || isPosting) return;
+    if (!hasAcceptedLatestPolicies(profile)) {
+      setShowTerms(true);
+      setPostError('請先閱讀並同意最新版使用者條款、隱私權政策與社群守則，才能發布內容。');
+      return;
+    }
 
     setIsPosting(true);
     setPostError(null);
@@ -2024,7 +2124,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
             >
               <div className="p-6 border-b border-white/5 flex items-center justify-between">
                 <h2 className="text-xl font-bold font-display text-text-main">
-                  使用者條款與免責聲明
+                  使用者條款、隱私權政策與社群守則
                 </h2>
                 <div className="bg-blue-500/10 p-1.5 rounded-lg border border-blue-500/20">
                   <Waves className="text-bio-glow w-5 h-5" />
@@ -2037,7 +2137,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
                 className="p-6 overflow-y-auto space-y-8 text-text-muted leading-relaxed text-sm custom-scrollbar"
               >
                 {/* Initial Profile Setup */}
-                {isOnboarding && (
+                {isProfileSetupRequired && (
                   <section className="space-y-6 pb-8 border-b border-white/5">
                     <div className="flex flex-col items-center gap-4">
                       <div className="relative group">
@@ -2080,7 +2180,9 @@ const HOT_TOPICS = Object.entries(topicCounts)
                             島內ID: {profile?.islanderId}
                           </span>
                         </div>
-                        <p className="text-[0.625rem] text-text-muted uppercase tracking-widest">請設定一個在群島中使用的暱稱與頭像</p>
+                        <p className="text-[0.625rem] text-text-muted uppercase tracking-widest">
+                          請設定一個在群島中使用的暱稱與頭像
+                        </p>
                       </div>
                     </div>
 
@@ -2122,37 +2224,68 @@ const HOT_TOPICS = Object.entries(topicCounts)
                 )}
 
                 <>
+                    <section className="space-y-3 rounded-2xl border border-bio-glow/10 bg-bio-glow/5 p-4">
+                      <p className="text-[0.625rem] font-bold uppercase tracking-widest text-bio-glow">目前生效版本</p>
+                      <div className="grid gap-2 text-xs sm:grid-cols-3">
+                        <div className="rounded-xl border border-line bg-mist/40 p-3">
+                          <span className="text-text-muted">使用者條款</span>
+                          <p className="mt-1 font-mono font-bold text-text-main">{CURRENT_TERMS_VERSION}</p>
+                        </div>
+                        <div className="rounded-xl border border-line bg-mist/40 p-3">
+                          <span className="text-text-muted">隱私權政策</span>
+                          <p className="mt-1 font-mono font-bold text-text-main">{CURRENT_PRIVACY_VERSION}</p>
+                        </div>
+                        <div className="rounded-xl border border-line bg-mist/40 p-3">
+                          <span className="text-text-muted">社群守則</span>
+                          <p className="mt-1 font-mono font-bold text-text-main">{CURRENT_COMMUNITY_RULES_VERSION}</p>
+                        </div>
+                      </div>
+                      <p className="text-[0.6875rem] text-text-muted leading-relaxed">
+                        生效日：{POLICY_EFFECTIVE_DATE}。若規範更新，登入後需重新閱讀並同意最新版，才能繼續發文、留言、互動或檢舉。
+                      </p>
+                    </section>
+
                     <section className="space-y-3">
                       <h3 className="font-bold text-text-main text-base flex items-center gap-2">
                         <span className="w-1 h-4 bg-bio-glow rounded-full"></span>
-                        1. 服務條款與社群規範
+                        1. 使用者條款
                       </h3>
-                      <p>「馬祖小站」旨在建立自由且理性的馬祖在地社群。使用者同意在發表內容時遵守在地法律，並尊重他人的隱私與言論自由。禁止發表包含誹謗、侵權、色情、暴力、詐騙、騷擾或任何違反公序良俗之內容。</p>
+                      <p>「馬祖小站」是馬祖在地社群平台，目標是保障公共討論、生活分享與合理批評，同時保護使用者、被討論者與平台安全。使用者發布內容時，需自行確保內容合法、真實、未侵害他人權益，並同意平台可依本條款、隱私權政策與社群守則進行必要治理。</p>
+                      <p>若內容涉及個資、恐嚇、騷擾、肉搜、詐騙、私密影像、未證實重大指控、惡意洗版或其他高風險行為，平台可採取標記、降觸及、審核、隔離、移除、限制功能或保留紀錄等處置。</p>
                     </section>
                     
                     <section className="space-y-3 bg-white/5 p-4 rounded-2xl border border-white/5">
-                      <h3 className="font-bold text-text-main text-base flex items-center gap-2 uppercase tracking-wider text-[0.6875rem] opacity-70">2. 內容與免責聲明</h3>
-                      <p>本平台僅提供資訊儲存空間。所有使用者上傳之內容，均由該使用者自行承擔法律責任。本站及負責人對使用者言論不負連帶賠償責任，言論僅代表發表者個人立場。</p>
-                      <p className="text-[0.6875rem] opacity-60">※ 本站依「避風港」原則運作，若接獲檢舉，管理員有權在不經通知下移除違法內容。</p>
+                      <h3 className="font-bold text-text-main text-base flex items-center gap-2 uppercase tracking-wider text-[0.6875rem] opacity-70">2. 內容責任與平台治理</h3>
+                      <p>使用者上傳的貼文、留言、圖片與反應，原則上代表發表者個人立場。本平台提供資訊儲存與社群互動服務，不保證使用者內容完整、正確或即時。</p>
+                      <p>為降低法律風險與保護大家的安全，平台會使用 AI 游騎兵與站長人工覆核進行風險分級。AI 只負責巡邏、標記、分類與建議；最終裁量仍由站長保留。</p>
+                      <p>平台不鼓勵違法內容，也不承諾「完全免責」。若平台透過檢舉、AI 巡邏或站長確認得知明顯違法或高風險內容，會依規範採取合理處理。</p>
+                      <p className="text-[0.6875rem] opacity-70">若您的內容被處置，通知或治理紀錄會盡可能標示「疑似違反哪一條規範」與目前狀態。</p>
                     </section>
 
                     <section className="space-y-3 text-emerald-300 bg-emerald-500/10 p-4 rounded-2xl border border-emerald-500/10">
-                      <h3 className="font-bold text-emerald-200 text-base flex items-center gap-2">3. 隱私權與數據保護</h3>
-                      <p>本站絕不主動對外洩漏使用者非公開之電郵、個人資料或私訊內容。相關技術數據（如 IP 位址）僅用於防範系統攻擊，除非配合合法司法調核，否則絕不轉交第三方。</p>
+                      <h3 className="font-bold text-emerald-200 text-base flex items-center gap-2">3. 隱私權政策</h3>
+                      <p>平台會處理登入識別、島內 ID、暱稱、頭像、發文留言、互動紀錄、檢舉紀錄、通知與治理紀錄，以維持服務、防止洗版攻擊、保護使用者安全與處理爭議。</p>
+                      <p>平台使用 Google Firebase、Vercel、Google Gemini 與 LINE 官方帳號等第三方基礎服務來提供登入、資料庫、部署、AI 輔助巡邏與客服回報。平台不販售使用者個資，也不會把個資用於與服務無關的商業轉售。</p>
+                      <p>平台不公開 Firebase UID、私人電子郵件或非公開識別資訊。若因法律程序、平台安全、濫用調查、檢舉處理或必要的申訴處理需要，站長可能在合理範圍內查閱相關紀錄。</p>
+                      <p>使用者可透過官方 LINE 請求查詢、更正、停止利用或刪除可刪除的個人資料；但依法、資安、爭議處理或防止濫用所需的紀錄，可能在合理期間內保留。</p>
+                      <p>請勿在公開貼文或留言中發布他人電話、住址、車牌、私人 LINE、身分證、病歷、財務、家庭或其他可識別個資。</p>
                     </section>
 
                     <section className="space-y-3">
-                      <h3 className="font-bold text-text-main text-base flex items-center gap-2">4. 著作權與侵權處理</h3>
-                      <p>使用者分享之原創內容歸作者所有。但使用者授權本站於推廣範圍內無償使用。若您的著作權遭侵害，請備妥權利證明聯繫我們，我們將以最快速度處理並移除爭議內容。</p>
+                      <h3 className="font-bold text-text-main text-base flex items-center gap-2">4. 社群守則</h3>
+                      <p>允許：在地生活、交通船班航班、天氣、公共政策、政治討論、公共人物與公共事務評論、消費經驗、合理抱怨、反方觀點與 Fight 模式中的尖銳反駁。</p>
+                      <p>禁止：個資曝光、肉搜、威脅恐嚇、持續騷擾、煽動圍剿、詐騙、惡意洗版、仇恨煽動、私密影像、兒少性內容、侵權內容，以及對可識別自然人的未證實重大犯罪或私生活指控。</p>
+                      <p>Fight 模式代表您主動標記高爭議討論，平台會提高言論容忍度，也會提高 AI 巡邏與人工覆核密度；Fight 不代表可以違反安全底線。</p>
                     </section>
 
                     <section className="space-y-3 pt-6 border-t border-white/5">
-                      <h3 className="font-bold text-text-main text-base flex items-center gap-2">5. 商業合作與異業結盟</h3>
-                      <p>目前本站為試運行階段。歡迎馬祖在地商家、藝文創作者進行異業結盟或活動推廣贊助。相關合作提案請透過官方 LINE 帳號或簡訊聯繫。</p>
+                      <h3 className="font-bold text-text-main text-base flex items-center gap-2">5. 治理紀錄與查詢</h3>
+                      <p>若您的貼文、留言或回覆被 AI 游騎兵或站長處理，系統會建立案件紀錄。您可以到「功能選單 → 治理紀錄」查詢自己的問題發言、案件編號、處置狀態、風險摘要與依據條款。</p>
+                      <p>其他使用者無法查看您的個人治理紀錄。公開案例若日後開放，只會顯示遮罩內容、處理原因與案例編號，不公開真實身份或 Firebase UID。</p>
                     </section>
 
  <section className="space-y-4 bg-bio-glow/5 p-4 rounded-2xl border border-bio-glow/10">
-                      <h3 className="font-bold text-bio-glow text-base flex items-center gap-2">6. 聯絡方式與損害賠償</h3>
+                      <h3 className="font-bold text-bio-glow text-base flex items-center gap-2">6. 聯絡、回報與合作</h3>
                       <div className="space-y-2 text-xs">
                         <p className="flex items-center gap-2 font-bold text-bio-glow">
                            <span className="text-text-muted font-mono">LINE:</span> 
@@ -2172,7 +2305,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
                         </p>
 
                         <p className="text-[0.6875rem] text-text-muted mt-4 leading-relaxed italic">
-                          ※ 若因使用者違法行為導致本站受損（含法律訴訟費用），該使用者應負完整賠償責任。
+                          ※ 若因使用者違法行為導致平台、站長或其他使用者受損，平台可保留必要紀錄並依法處理。
                         </p>
                       </div>
                     </section>
@@ -2194,16 +2327,16 @@ const HOT_TOPICS = Object.entries(topicCounts)
                 )}
                 {isOnboarding ? (
                   <>
-                    <p className="text-[0.625rem] text-center text-text-muted uppercase tracking-widest">點擊下方按鈕即表示您已閱讀並同意上述條款。</p>
+                    <p className="text-[0.625rem] text-center text-text-muted uppercase tracking-widest">點擊下方按鈕即表示您已閱讀並同意最新版規範。</p>
                     <button 
                       onClick={handleAgree}
                       className={`w-full py-4 rounded-xl font-bold transition-all shadow-lg active:scale-95 ${
-                        hasReadToBottom && setupName.trim() && setupPhoto && setupPhoto !== user?.photoURL
+                        hasReadToBottom && (!isProfileSetupRequired || (setupName.trim() && setupPhoto && setupPhoto !== user?.photoURL))
                           ? 'bg-blue-600 text-white hover:bg-blue-500 shadow-blue-500/20' 
                           : 'bg-white/5 text-text-muted border border-white/10 shadow-none hover:bg-white/10'
                       }`}
                     >
-                      確認設定並進入馬祖小站
+                      {isProfileSetupRequired ? '確認設定並進入馬祖小站' : '同意最新版並繼續使用'}
                     </button>
                     <button 
                       onClick={handleLogout}
@@ -2389,6 +2522,114 @@ const HOT_TOPICS = Object.entries(topicCounts)
         )}
       </AnimatePresence>
 
+      {/* Governance Records Modal */}
+      <AnimatePresence>
+        {showGovernanceCenter && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-end justify-center bg-black/80 backdrop-blur-md p-2 sm:items-center sm:p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 16 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 16 }}
+              className="glass-card w-full max-w-3xl max-h-[calc(100dvh-1rem)] overflow-hidden rounded-t-[1.5rem] border-line shadow-2xl sm:rounded-[2rem]"
+            >
+              <div className="flex items-center justify-between border-b border-line bg-mist p-4 sm:p-6">
+                <div className="flex items-center gap-3">
+                  <div className="rounded-xl bg-bio-glow/20 p-2">
+                    <Shield className="h-5 w-5 text-bio-glow" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold text-text-main">我的治理紀錄</h2>
+                    <p className="text-[0.625rem] font-bold uppercase tracking-widest text-text-muted">
+                      只顯示你自己的貼文、留言與回覆處置紀錄
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowGovernanceCenter(false)}
+                  className="rounded-full p-2 text-text-muted transition-colors hover:bg-mist hover:text-text-main"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="max-h-[calc(100dvh-8.5rem)] overflow-y-auto p-4 custom-scrollbar sm:p-6">
+                <div className="mb-4 rounded-2xl border border-bio-glow/10 bg-bio-glow/5 p-4">
+                  <p className="text-sm font-bold text-text-main">這裡用來保障你的安全與查詢權。</p>
+                  <p className="mt-2 text-xs leading-relaxed text-text-muted">
+                    若內容被審核、隔離、移除或放行，系統會盡量列出案件狀態與依據條款。這不是公開黑名單，其他島民看不到你的治理紀錄。
+                  </p>
+                </div>
+
+                {isLoadingGovernanceRecords ? (
+                  <div className="py-12 text-center text-sm font-bold text-text-muted">正在讀取治理紀錄...</div>
+                ) : governanceRecords.length > 0 ? (
+                  <div className="space-y-3">
+                    {governanceRecords.map(record => (
+                      <div key={record.id} className="rounded-2xl border border-line bg-mist/50 p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="font-mono text-xs font-bold text-bio-glow">{record.publicCaseId || record.id}</p>
+                            <h3 className="mt-1 text-sm font-bold text-text-main">
+                              {getSourceTypeLabel(record.sourceType)} / {getGovernanceStatusLabel(record.status)}
+                            </h3>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2 text-[0.625rem] font-bold">
+                            <span className="rounded-full border border-line bg-deep-ocean/40 px-2 py-1 text-text-muted">
+                              {getRiskLevelLabel(record.riskLevel)} {Math.round(Number(record.riskScore || 0))}/100
+                            </span>
+                            {record.policyVersion && (
+                              <span className="rounded-full border border-line bg-deep-ocean/40 px-2 py-1 text-text-muted">
+                                規範 {record.policyVersion}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <p className="mt-3 rounded-xl border border-line bg-deep-ocean/30 p-3 text-sm leading-relaxed text-text-main/90">
+                          {record.contentPreview || record.contentSnapshot || '內容已遮罩或尚未同步。'}
+                        </p>
+
+                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                          <div>
+                            <p className="text-[0.625rem] font-bold uppercase tracking-widest text-text-muted">處置摘要</p>
+                            <p className="mt-1 text-xs leading-relaxed text-text-muted">{record.summary || '尚無摘要。'}</p>
+                          </div>
+                          <div>
+                            <p className="text-[0.625rem] font-bold uppercase tracking-widest text-text-muted">法律/安全風險</p>
+                            <p className="mt-1 text-xs leading-relaxed text-text-muted">{record.legalRisk || record.recommendedAction || '尚無補充。'}</p>
+                          </div>
+                        </div>
+
+                        {record.policyRefs && record.policyRefs.length > 0 && (
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {record.policyRefs.map(ref => (
+                              <span key={`${record.id}-${ref.code}`} className="rounded-full border border-amber-400/20 bg-amber-400/10 px-2.5 py-1 text-[0.625rem] font-bold text-amber-300">
+                                {ref.code}：{ref.label}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-line bg-mist/40 px-4 py-12 text-center">
+                    <Shield className="mx-auto h-8 w-8 text-bio-glow/70" />
+                    <p className="mt-3 text-sm font-bold text-text-main">目前沒有治理紀錄</p>
+                    <p className="mt-2 text-xs text-text-muted">如果未來有內容被標記、審核或處置，會在這裡顯示。</p>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Header */}
       <header className="sticky top-0 z-50 bg-deep-ocean/60 backdrop-blur-xl border-b border-white/5 py-3 sm:py-0">
         <div className="max-w-7xl mx-auto px-4 min-h-[4rem] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -2500,6 +2741,9 @@ const HOT_TOPICS = Object.entries(topicCounts)
                                 </button>
                                 <button onClick={() => { handleOpenProfile(user.uid, { edit: true }); setShowSettingsMenu(false); }} className="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium text-text-main hover:bg-mist-light rounded-lg transition-colors">
                                   <Edit2 className="w-3.5 h-3.5 text-text-muted" /> 編輯個人資料
+                                </button>
+                                <button onClick={() => { void openGovernanceCenter(); }} className="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium text-text-main hover:bg-mist-light rounded-lg transition-colors">
+                                  <Shield className="w-3.5 h-3.5 text-text-muted" /> 治理紀錄
                                 </button>
                               </>
                             )}
@@ -2846,6 +3090,15 @@ const HOT_TOPICS = Object.entries(topicCounts)
                           >
                             <Edit2 className="w-4 h-4 text-text-muted group-hover:text-bio-glow" />
                             編輯個人資料
+                          </button>
+                        )}
+                        {user && (
+                          <button 
+                            onClick={() => { void openGovernanceCenter(); }}
+                            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-text-main hover:bg-white/10 transition-all text-sm font-medium group"
+                          >
+                            <Shield className="w-4 h-4 text-text-muted group-hover:text-bio-glow" />
+                            治理紀錄
                           </button>
                         )}
                         <div className="border-t border-line my-1" />
@@ -3472,7 +3725,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
           )}
 
           {/* Post Form */}
-          {user && profile?.agreedToTerms && (
+          {user && hasAcceptedLatestPolicies(profile) && (
             <motion.form 
               id="post-form"
               initial={{ opacity: 0, y: 10 }}
@@ -4248,6 +4501,10 @@ function PostCard({
       alert("請登入後再使用表情反應。");
       return;
     }
+    if (!hasAcceptedLatestPolicies(profile)) {
+      alert('請先閱讀並同意最新版使用者條款、隱私權政策與社群守則，才能互動。');
+      return;
+    }
     
     if (post.id.startsWith('sample-')) {
       alert("這是範例貼文，無法進行互動。請發布您自己的貼文後再試！");
@@ -4507,6 +4764,10 @@ function PostCard({
   const handleAddComment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !newComment.trim()) return;
+    if (!hasAcceptedLatestPolicies(profile)) {
+      alert('請先閱讀並同意最新版使用者條款、隱私權政策與社群守則，才能留言。');
+      return;
+    }
     const commentPath = `posts/${post.id}/comments`;
 
     try {
@@ -4578,6 +4839,10 @@ function PostCard({
   const handleCommentReaction = async (comment: Comment, reaction: string) => {
     if (!user) {
       alert('請登入後再幫留言加表情反應。');
+      return;
+    }
+    if (!hasAcceptedLatestPolicies(profile)) {
+      alert('請先閱讀並同意最新版使用者條款、隱私權政策與社群守則，才能互動。');
       return;
     }
 
@@ -4655,6 +4920,10 @@ function PostCard({
   const handleReplyReaction = async (comment: Comment, reply: CommentReply, reaction: string) => {
     if (!user) {
       alert('請登入後再幫回覆加表情反應。');
+      return;
+    }
+    if (!hasAcceptedLatestPolicies(profile)) {
+      alert('請先閱讀並同意最新版使用者條款、隱私權政策與社群守則，才能互動。');
       return;
     }
 
@@ -4743,6 +5012,10 @@ function PostCard({
 
   const handleAddReply = async (comment: Comment) => {
     if (!user) return;
+    if (!hasAcceptedLatestPolicies(profile)) {
+      alert('請先閱讀並同意最新版使用者條款、隱私權政策與社群守則，才能回覆。');
+      return;
+    }
     const replyText = (replyInputs[comment.id] || '').trim();
     if (!replyText) return;
     const isReplyFightMode = Boolean(replyFightModes[comment.id]);
@@ -4862,6 +5135,10 @@ function PostCard({
   }) => {
     if (!user) {
       alert('請先登入後再進行檢舉。');
+      return;
+    }
+    if (!hasAcceptedLatestPolicies(profile)) {
+      alert('請先閱讀並同意最新版使用者條款、隱私權政策與社群守則，才能檢舉內容。');
       return;
     }
 
@@ -5073,6 +5350,9 @@ function PostCard({
             {post.moderationPublicCaseId && (
               <p className="mt-1 text-[0.625rem] font-mono text-amber-300/70">案件 {post.moderationPublicCaseId}</p>
             )}
+            {user?.uid === post.authorId && (
+              <p className="mt-2 text-[0.625rem] text-amber-200/80">可到功能選單的「治理紀錄」查詢依據條款與處置狀態。</p>
+            )}
           </div>
         ) : (
           <div className="user-content-text text-text-main/90 leading-relaxed whitespace-pre-wrap selection:bg-blue-500/30">
@@ -5273,6 +5553,9 @@ function PostCard({
                             {comment.moderationPublicCaseId && (
                               <p className="mt-1 text-[0.5625rem] font-mono text-amber-300/70">案件 {comment.moderationPublicCaseId}</p>
                             )}
+                            {user?.uid === comment.authorId && (
+                              <p className="mt-1 text-[0.5625rem] text-amber-200/80">可到功能選單的「治理紀錄」查詢依據條款與處置狀態。</p>
+                            )}
                           </div>
                         ) : (
                           <p className="user-content-text-sm text-text-main/90 leading-relaxed whitespace-pre-wrap">
@@ -5386,6 +5669,9 @@ function PostCard({
                                 <p className="text-xs font-bold text-amber-300">{getModerationTombstoneText(reply.moderationStatus)}</p>
                                 {reply.moderationPublicCaseId && (
                                   <p className="mt-1 text-[0.5625rem] font-mono text-amber-300/70">案件 {reply.moderationPublicCaseId}</p>
+                                )}
+                                {user?.uid === reply.authorId && (
+                                  <p className="mt-1 text-[0.5625rem] text-amber-200/80">可到功能選單的「治理紀錄」查詢依據條款與處置狀態。</p>
                                 )}
                               </div>
                             ) : (

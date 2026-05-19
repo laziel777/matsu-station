@@ -4,6 +4,10 @@ import { User } from 'firebase/auth';
 
 export const DEFAULT_ISLANDER_PHOTO = '__DEFAULT_ISLANDER__';
 const STATION_MASTER_UID = 'gHHxF8p1DnbMkoeVmU5XpB18Elz2';
+export const CURRENT_TERMS_VERSION = '2026-05-19';
+export const CURRENT_PRIVACY_VERSION = '2026-05-19';
+export const CURRENT_COMMUNITY_RULES_VERSION = '2026-05-19';
+export const POLICY_EFFECTIVE_DATE = '2026年5月19日';
 
 export interface UserProfile {
   uid: string;
@@ -12,6 +16,10 @@ export interface UserProfile {
   photoURL: string | null;
   role: 'user' | 'admin';
   agreedToTerms: boolean;
+  acceptedTermsVersion?: string;
+  acceptedPrivacyVersion?: string;
+  acceptedCommunityRulesVersion?: string;
+  policyAcceptedAt?: any;
   isProfileSetup: boolean;
   createdAt: any;
   bio?: string;
@@ -24,12 +32,21 @@ interface AuthContextType {
   loading: boolean;
   error: Error | null;
   profile: UserProfile | null;
-  agreeToTerms: (profileData: { displayName: string; photoURL: string }) => Promise<void>;
+  agreeToTerms: (profileData?: { displayName?: string; photoURL?: string }) => Promise<void>;
   refreshProfile: () => Promise<void>;
   updateProfileData: (data: { bio?: string; title?: string; displayName?: string; photoURL?: string; isProfileSetup?: boolean }) => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextType>({ 
+export function hasAcceptedLatestPolicies(profile: UserProfile | null) {
+  return Boolean(
+    profile?.agreedToTerms
+    && profile.acceptedTermsVersion === CURRENT_TERMS_VERSION
+    && profile.acceptedPrivacyVersion === CURRENT_PRIVACY_VERSION
+    && profile.acceptedCommunityRulesVersion === CURRENT_COMMUNITY_RULES_VERSION
+  );
+}
+
+const AuthContext = createContext<AuthContextType>({
   user: null, 
   loading: true, 
   error: null,
@@ -60,17 +77,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const agreeToTerms = async (profileData: { displayName: string; photoURL: string }) => {
+  const agreeToTerms = async (profileData?: { displayName?: string; photoURL?: string }) => {
     if (user) {
       const userPath = `users/${user.uid}`;
       try {
         const userRef = doc(db, 'users', user.uid);
-        const updateData: any = { 
+        const updateData: any = {
           agreedToTerms: true,
           isProfileSetup: true,
-          displayName: profileData.displayName,
-          photoURL: profileData.photoURL
+          acceptedTermsVersion: CURRENT_TERMS_VERSION,
+          acceptedPrivacyVersion: CURRENT_PRIVACY_VERSION,
+          acceptedCommunityRulesVersion: CURRENT_COMMUNITY_RULES_VERSION,
+          policyAcceptedAt: serverTimestamp(),
         };
+        if (profileData?.displayName) updateData.displayName = profileData.displayName;
+        if (profileData?.photoURL) updateData.photoURL = profileData.photoURL;
         await setDoc(userRef, updateData, { merge: true });
         await refreshProfile();
       } catch (error) {
@@ -134,6 +155,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 photoURL: islanderId === 'L' ? `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}` : DEFAULT_ISLANDER_PHOTO, 
                 role: user.uid === STATION_MASTER_UID ? 'admin' : 'user',
                 agreedToTerms: user.uid === STATION_MASTER_UID,
+                acceptedTermsVersion: user.uid === STATION_MASTER_UID ? CURRENT_TERMS_VERSION : '',
+                acceptedPrivacyVersion: user.uid === STATION_MASTER_UID ? CURRENT_PRIVACY_VERSION : '',
+                acceptedCommunityRulesVersion: user.uid === STATION_MASTER_UID ? CURRENT_COMMUNITY_RULES_VERSION : '',
+                policyAcceptedAt: user.uid === STATION_MASTER_UID ? serverTimestamp() : null,
                 isProfileSetup: user.uid === STATION_MASTER_UID,
                 createdAt: serverTimestamp(),
               };
