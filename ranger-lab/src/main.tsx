@@ -2,6 +2,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut, type User } from 'firebase/auth';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 import {
   collection,
   getDocs,
@@ -13,13 +14,21 @@ import {
 } from 'firebase/firestore';
 import {
   Activity,
+  AlertTriangle,
+  CheckCircle2,
+  CircleSlash,
   Cpu,
   Eye,
+  FileWarning,
+  Filter,
+  Gavel,
   Network,
   Radar,
   RefreshCw,
+  RotateCcw,
   Shield,
   Tags,
+  TerminalSquare,
   UserCircle2,
 } from 'lucide-react';
 import firebaseConfig from '../../firebase-applet-config.json';
@@ -27,6 +36,8 @@ import './styles.css';
 
 type GraphMode = 'social' | 'topics';
 type RiskLevel = 'low' | 'medium' | 'high' | 'critical';
+type CaseStatusFilter = 'active' | 'all' | 'pending' | 'quarantined' | 'released' | 'removed' | 'dismissed';
+type RangerAction = 'mark_reviewed' | 'dismiss' | 'release' | 'quarantine' | 'remove';
 
 interface GraphNode {
   id: string;
@@ -68,10 +79,25 @@ interface PatrolCase {
   publicCaseId?: string;
   riskLevel?: RiskLevel | string;
   riskScore?: number;
+  categories?: string[];
   summary?: string;
+  legalRisk?: string;
+  publicInterest?: string;
+  recommendedAction?: string;
+  rationale?: string;
   sourceType?: string;
+  sourcePath?: string;
+  postId?: string;
+  commentId?: string;
+  replyId?: string;
+  authorId?: string;
+  authorName?: string;
+  category?: string;
   status?: string;
   contentPreview?: string;
+  contentSnapshot?: string;
+  createdAt?: unknown;
+  updatedAt?: unknown;
 }
 
 interface UserMeta {
@@ -83,6 +109,7 @@ interface UserMeta {
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+const functions = getFunctions(app, 'asia-east1');
 const provider = new GoogleAuthProvider();
 
 const EMPTY_DATA: LabData = {
@@ -107,6 +134,7 @@ const KNOWN_TOPICS = [
   '交通',
   '船班',
   '航班',
+  '馬祖氣象',
   '美景分享',
   '馬祖鬼故事',
   '野生動物',
@@ -138,9 +166,51 @@ function getRiskTone(level?: string) {
   return '#30f2a2';
 }
 
+function getRiskLabel(level?: string) {
+  if (level === 'critical') return '極高風險';
+  if (level === 'high') return '高風險';
+  if (level === 'medium') return '中風險';
+  return '低風險';
+}
+
+function getStatusLabel(status?: string) {
+  if (status === 'quarantined') return '已隔離';
+  if (status === 'released') return '已放行';
+  if (status === 'removed') return '已移除';
+  if (status === 'dismissed') return '已忽略';
+  if (status === 'reviewed') return '已審核';
+  return '待處理';
+}
+
+function getSourceLabel(sourceType?: string) {
+  if (sourceType === 'post') return '貼文';
+  if (sourceType === 'comment') return '留言';
+  if (sourceType === 'reply') return '留言回覆';
+  return '內容';
+}
+
+function isActiveCase(item: PatrolCase) {
+  return !item.status || item.status === 'pending' || item.status === 'quarantined';
+}
+
+function matchesCaseFilter(item: PatrolCase, filter: CaseStatusFilter) {
+  if (filter === 'all') return true;
+  if (filter === 'active') return isActiveCase(item);
+  return (item.status || 'pending') === filter;
+}
+
+function getCaseTime(item: PatrolCase) {
+  return toMillis(item.updatedAt) || toMillis(item.createdAt);
+}
+
+function getCaseSortScore(item: PatrolCase) {
+  const activeBoost = isActiveCase(item) ? 1000000 : 0;
+  return activeBoost + Number(item.riskScore || 0) * 1000 + getCaseTime(item) / 1000000000;
+}
+
 function compactUid(uid: string) {
   if (!uid) return 'unknown';
-  return uid.length > 10 ? `${uid.slice(0, 4)}…${uid.slice(-4)}` : uid;
+  return uid.length > 10 ? `${uid.slice(0, 4)}-${uid.slice(-4)}` : uid;
 }
 
 function safeText(value: unknown) {
@@ -240,7 +310,7 @@ async function collectLabData(scanLimit: number): Promise<LabData> {
   const startedAt = Date.now();
   const users = await loadUsers();
   const postsSnapshot = await getDocs(query(collection(db, 'posts'), orderBy('createdAt', 'desc'), firestoreLimit(scanLimit)));
-  const patrolFeed = await loadPatrolCases();
+  const patrolFeed = (await loadPatrolCases()).sort((a, b) => getCaseSortScore(b) - getCaseSortScore(a));
 
   const userWeights = new Map<string, number>();
   const userRisk = new Map<string, number>();
@@ -611,6 +681,9 @@ function ForceGraph({ nodes, links, mode }: { nodes: GraphNode[]; links: GraphLi
 function App() {
   const [user, setUser] = React.useState<User | null>(null);
   const [mode, setMode] = React.useState<GraphMode>('social');
+  const [caseFilter, setCaseFilter] = React.useState<CaseStatusFilter>('active');
+  const [selectedCaseId, setSelectedCaseId] = React.useState<string | null>(null);
+  const [actionState, setActionState] = React.useState<{ caseId: string; action: RangerAction } | null>(null);
   const [scanLimit, setScanLimit] = React.useState(60);
   const [data, setData] = React.useState<LabData>(EMPTY_DATA);
   const [isLoading, setIsLoading] = React.useState(false);
@@ -645,6 +718,60 @@ function App() {
   const nodes = mode === 'social' ? data.socialNodes : data.topicNodes;
   const links = mode === 'social' ? data.socialLinks : data.topicLinks;
   const highestRisk = Math.max(0, ...data.patrolFeed.map(item => Number(item.riskScore || 0)));
+  const filteredCases = data.patrolFeed.filter(item => matchesCaseFilter(item, caseFilter));
+  const selectedCase = data.patrolFeed.find(item => item.id === selectedCaseId) || filteredCases[0] || null;
+  const activeCaseCount = data.patrolFeed.filter(isActiveCase).length;
+
+  React.useEffect(() => {
+    if (!selectedCaseId && filteredCases[0]) {
+      setSelectedCaseId(filteredCases[0].id);
+    }
+    if (selectedCaseId && !data.patrolFeed.some(item => item.id === selectedCaseId)) {
+      setSelectedCaseId(filteredCases[0]?.id || null);
+    }
+  }, [data.patrolFeed, filteredCases, selectedCaseId]);
+
+  const runCaseAction = React.useCallback(async (caseItem: PatrolCase, action: RangerAction) => {
+    if (!user) return;
+
+    const actionLabel = {
+      mark_reviewed: '標記已審',
+      dismiss: '忽略案件',
+      release: '放行內容',
+      quarantine: '隔離內容',
+      remove: '移除內容',
+    }[action];
+
+    if ((action === 'remove' || action === 'release') && !window.confirm(`確定要「${actionLabel}」案件 ${caseItem.publicCaseId || caseItem.id} 嗎？`)) {
+      return;
+    }
+
+    setActionState({ caseId: caseItem.id, action });
+    try {
+      const callable = httpsCallable(functions, 'rangerModerationAction');
+      await callable({ caseId: caseItem.id, action });
+      setData(previous => ({
+        ...previous,
+        consoleLines: [
+          `Action ${action} completed for ${caseItem.publicCaseId || caseItem.id}.`,
+          ...previous.consoleLines,
+        ].slice(0, 8),
+      }));
+      await loadData();
+    } catch (error) {
+      console.error(error);
+      setData(previous => ({
+        ...previous,
+        consoleLines: [
+          `Action ${action} failed for ${caseItem.publicCaseId || caseItem.id}.`,
+          String(error),
+          ...previous.consoleLines,
+        ].slice(0, 8),
+      }));
+    } finally {
+      setActionState(null);
+    }
+  }, [loadData, user]);
 
   return (
     <main className="lab-root">
@@ -715,10 +842,15 @@ function App() {
           <div className="risk-stack">
             {(['critical', 'high', 'medium', 'low'] as const).map(level => (
               <div key={level}>
-                <span style={{ color: getRiskTone(level) }}>{level.toUpperCase()}</span>
+                <span style={{ color: getRiskTone(level) }}>{getRiskLabel(level)}</span>
                 <strong>{data.riskCounts[level] || 0}</strong>
               </div>
             ))}
+          </div>
+
+          <div className="mission-note">
+            <TerminalSquare size={15} />
+            <p>本地後台只跑在你的電腦上。公開前台不會顯示這些站長操作。</p>
           </div>
         </aside>
 
@@ -740,23 +872,130 @@ function App() {
             <strong>{highestRisk}</strong>
             <em>/100</em>
           </div>
+
+          <div className="case-filter">
+            <Filter size={14} />
+            {(['active', 'all', 'pending', 'quarantined', 'released', 'removed'] as CaseStatusFilter[]).map(filter => (
+              <button
+                key={filter}
+                className={caseFilter === filter ? 'active' : ''}
+                onClick={() => setCaseFilter(filter)}
+              >
+                {filter === 'active' ? '處理中' : filter === 'all' ? '全部' : getStatusLabel(filter)}
+              </button>
+            ))}
+          </div>
+
+          <div className="case-summary-strip">
+            <div>
+              <span>active</span>
+              <strong>{activeCaseCount}</strong>
+            </div>
+            <div>
+              <span>visible</span>
+              <strong>{filteredCases.length}</strong>
+            </div>
+          </div>
+
           <div className="feed-list">
-            {data.patrolFeed.length ? data.patrolFeed.slice(0, 10).map(item => (
-              <div key={item.id} className="feed-item">
+            {filteredCases.length ? filteredCases.slice(0, 12).map(item => (
+              <button
+                key={item.id}
+                className={`feed-item case-card ${selectedCase?.id === item.id ? 'selected' : ''}`}
+                onClick={() => setSelectedCaseId(item.id)}
+              >
                 <div>
-                  <span style={{ color: getRiskTone(item.riskLevel) }}>{item.riskLevel || 'low'}</span>
+                  <span style={{ color: getRiskTone(item.riskLevel) }}>{getRiskLabel(item.riskLevel)}</span>
                   <em>{item.publicCaseId || item.id.slice(0, 12)}</em>
                 </div>
+                <small>{getSourceLabel(item.sourceType)} / {getStatusLabel(item.status)}</small>
                 <p>{item.summary || item.contentPreview || 'AI case pending summary'}</p>
-              </div>
+              </button>
             )) : (
               <div className="empty-feed">
                 <Activity size={22} />
-                <p>尚未讀到 AI 案件。若你不是站長帳號，Firestore Rules 會阻擋 moderationCases。</p>
+                <p>尚未讀到 AI 案件。請確認你已用站長帳號登入，且 Firestore Rules 允許讀取 moderationCases。</p>
               </div>
             )}
           </div>
         </aside>
+      </section>
+
+      <section className="case-inspector">
+        {selectedCase ? (
+          <>
+            <div className="case-inspector-head">
+              <div>
+                <span className="eyebrow">CASE INSPECTOR</span>
+                <h2>{selectedCase.publicCaseId || selectedCase.id}</h2>
+              </div>
+              <div className="case-badges">
+                <span style={{ borderColor: getRiskTone(selectedCase.riskLevel), color: getRiskTone(selectedCase.riskLevel) }}>
+                  {getRiskLabel(selectedCase.riskLevel)} {Math.round(Number(selectedCase.riskScore || 0))}/100
+                </span>
+                <span>{getSourceLabel(selectedCase.sourceType)}</span>
+                <span>{getStatusLabel(selectedCase.status)}</span>
+              </div>
+            </div>
+
+            <div className="case-detail-grid">
+              <div className="case-text">
+                <label>AI 摘要</label>
+                <p>{selectedCase.summary || '尚無摘要。'}</p>
+              </div>
+              <div className="case-text">
+                <label>內容預覽</label>
+                <p>{selectedCase.contentPreview || selectedCase.contentSnapshot || '內容已被遮罩或尚未同步。'}</p>
+              </div>
+              <div className="case-text">
+                <label>法律風險</label>
+                <p>{selectedCase.legalRisk || '未提供。'}</p>
+              </div>
+              <div className="case-text">
+                <label>AI 建議</label>
+                <p>{selectedCase.recommendedAction || selectedCase.rationale || '未提供。'}</p>
+              </div>
+            </div>
+
+            <div className="case-meta-row">
+              <span>作者：{selectedCase.authorName || compactUid(selectedCase.authorId || '')}</span>
+              <span>分類：{selectedCase.category || '未分類'}</span>
+              <span>路徑：{selectedCase.sourcePath || 'unknown'}</span>
+              {selectedCase.categories?.slice(0, 5).map(label => (
+                <em key={label}>{label}</em>
+              ))}
+            </div>
+
+            <div className="case-actions">
+              <button disabled={Boolean(actionState)} onClick={() => void runCaseAction(selectedCase, 'release')} className="ok">
+                <CheckCircle2 size={15} /> 放行
+              </button>
+              <button disabled={Boolean(actionState)} onClick={() => void runCaseAction(selectedCase, 'quarantine')} className="warn">
+                <FileWarning size={15} /> 隔離
+              </button>
+              <button disabled={Boolean(actionState)} onClick={() => void runCaseAction(selectedCase, 'remove')} className="danger">
+                <CircleSlash size={15} /> 移除
+              </button>
+              <button disabled={Boolean(actionState)} onClick={() => void runCaseAction(selectedCase, 'mark_reviewed')}>
+                <Gavel size={15} /> 已審
+              </button>
+              <button disabled={Boolean(actionState)} onClick={() => void runCaseAction(selectedCase, 'dismiss')}>
+                <RotateCcw size={15} /> 忽略
+              </button>
+              {actionState && (
+                <span className="action-state">
+                  <RefreshCw size={14} className="spin" />
+                  {actionState.action} / {actionState.caseId.slice(0, 10)}
+                </span>
+              )}
+            </div>
+          </>
+        ) : (
+          <div className="case-empty">
+            <AlertTriangle size={18} />
+            <span>尚未選取案件。</span>
+          </div>
+        )}
       </section>
 
       <footer className="console-panel">
