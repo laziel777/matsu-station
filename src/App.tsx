@@ -31,7 +31,7 @@ const DAILY_FIGHT_POST_LIMIT = 5;
 const DAILY_COMMENT_LIMIT = 120;
 const DAILY_FIGHT_COMMENT_LIMIT = 30;
 const ANTI_ABUSE_NOTICE = '為了防止惡意攻擊、複製垃圾文、洗文與攻擊性內容，馬祖小站會限制發文頻率。';
-const FIGHT_NOTICE = 'Fight 模式會提高討論容忍度，但也會提高系統巡邏與站長覆核密度。請避免個資、威脅、肉搜與未證實重大指控。';
+const FIGHT_NOTICE = 'Fight 模式會提高討論容忍度，但也會提高系統觀察與站長覆核密度。請避免個資、威脅、肉搜與未證實重大指控。';
 const LINE_OFFICIAL_URL = 'https://lin.ee/nn0RaOc';
 const REACTION_OPTIONS = ['❤️', '😂', '😭', '🔥', '👍', '👎', '😡', '😍', '🤔', '😮'];
 const DEFAULT_REACTION = '❤️';
@@ -441,20 +441,13 @@ const getFightModeLabel = (fightMode?: boolean) => {
   return fightMode ? 'FIGHT｜挑戰觀點' : '一般討論';
 };
 
-const getGovernanceModeLabel = (mode?: string) => {
-  if (mode === 'fight') return 'Fight 監管';
-  if (mode === 'downgraded') return '巡邏降級';
-  if (mode === 'escalated') return '巡邏升級';
-  return '一般巡邏';
-};
-
 const getGovernanceStatusLabel = (status?: string) => {
   if (status === 'quarantined') return '審核隔離';
   if (status === 'removed') return '已移除';
   if (status === 'released') return '已放行';
   if (status === 'dismissed') return '已駁回';
   if (status === 'reviewed') return '已審核';
-  if (status === 'downgraded') return '已降級';
+  if (status === 'downgraded') return '已轉一般處理';
   return '待處理';
 };
 
@@ -2259,8 +2252,8 @@ const HOT_TOPICS = Object.entries(topicCounts)
                     <section className="space-y-3 bg-white/5 p-4 rounded-2xl border border-white/5">
                       <h3 className="font-bold text-text-main text-base flex items-center gap-2 uppercase tracking-wider text-[0.6875rem] opacity-70">2. 內容責任與平台治理</h3>
                       <p>使用者上傳的貼文、留言、圖片與反應，原則上代表發表者個人立場。本平台提供資訊儲存與社群互動服務，不保證使用者內容完整、正確或即時。</p>
-                      <p>為降低法律風險與保護大家的安全，平台會使用輔助巡邏系統與站長人工覆核進行風險分級。系統只負責巡邏、標記、分類與建議；最終裁量仍由站長保留。</p>
-                      <p>平台不鼓勵違法內容，也不承諾「完全免責」。若平台透過檢舉、系統巡邏或站長確認得知明顯違法或高風險內容，會依規範採取合理處理。</p>
+                      <p>為降低法律風險與保護大家的安全，平台會使用輔助安全檢查與站長人工覆核進行必要處理。系統只提供標記、分類與建議；最終裁量仍由站長保留。</p>
+                      <p>平台不鼓勵違法內容，也不承諾「完全免責」。若平台透過檢舉、安全檢查或站長確認得知明顯違法或高風險內容，會依規範採取合理處理。</p>
                       <p className="text-[0.6875rem] opacity-70">若您的內容被處置，通知或治理紀錄會盡可能標示「疑似違反哪一條規範」與目前狀態。</p>
                     </section>
 
@@ -2277,12 +2270,12 @@ const HOT_TOPICS = Object.entries(topicCounts)
                       <h3 className="font-bold text-text-main text-base flex items-center gap-2">4. 社群守則</h3>
                       <p>允許：在地生活、交通船班航班、天氣、公共政策、政治討論、公共人物與公共事務評論、消費經驗、合理抱怨、反方觀點與 Fight 模式中的尖銳反駁。</p>
                       <p>禁止：個資曝光、肉搜、威脅恐嚇、持續騷擾、煽動圍剿、詐騙、惡意洗版、仇恨煽動、私密影像、兒少性內容、侵權內容，以及對可識別自然人的未證實重大犯罪或私生活指控。</p>
-                      <p>Fight 模式代表您主動標記高爭議討論，平台會提高言論容忍度，也會提高系統巡邏與人工覆核密度；Fight 不代表可以違反安全底線。</p>
+                      <p>Fight 模式代表您主動標記高爭議討論，平台會提高言論容忍度，也會提高安全觀察與人工覆核密度；Fight 不代表可以違反安全底線。</p>
                     </section>
 
                     <section className="space-y-3 pt-6 border-t border-white/5">
                       <h3 className="font-bold text-text-main text-base flex items-center gap-2">5. 治理紀錄與查詢</h3>
-                      <p>若您的貼文、留言或回覆被輔助巡邏系統或站長處理，系統會建立案件紀錄。您可以到「功能選單 → 治理紀錄」查詢自己的問題發言、案件編號、處置狀態、風險摘要與依據條款。</p>
+                      <p>若您的貼文、留言或回覆被安全檢查或站長處理，系統會建立紀錄。您可以到「功能選單 → 治理紀錄」查詢自己的問題發言、處置狀態、風險摘要與依據條款。</p>
                       <p>其他使用者無法查看您的個人治理紀錄。公開案例若日後開放，只會顯示遮罩內容、處理原因與案例編號，不公開真實身份或內部識別碼。</p>
                     </section>
 
@@ -5282,11 +5275,6 @@ function PostCard({
                     {getFightModeLabel(post.fightMode)}
                   </span>
                 )}
-                {post.aiGovernanceMode && post.aiGovernanceMode !== 'normal' && (
-                  <span className="text-[0.5625rem] rounded-sm border border-bio-glow/20 bg-bio-glow/10 px-1.5 py-0.5 font-bold text-bio-glow">
-                    {getGovernanceModeLabel(post.aiGovernanceMode)}
-                  </span>
-                )}
               </div>
               <p className="text-[0.625rem] text-text-muted font-display mt-1">
                 {post.createdAt?.toDate ? formatDistanceToNow(post.createdAt.toDate(), { addSuffix: true, locale: zhTW }) : '剛剛'}
@@ -5371,9 +5359,6 @@ function PostCard({
         {postIsModerationHidden ? (
           <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3">
             <p className="text-sm font-bold text-amber-300">{getModerationTombstoneText(post.moderationStatus)}</p>
-            {post.moderationPublicCaseId && (
-              <p className="mt-1 text-[0.625rem] font-mono text-amber-300/70">案件 {post.moderationPublicCaseId}</p>
-            )}
             {user?.uid === post.authorId && (
               <p className="mt-2 text-[0.625rem] text-amber-200/80">可到功能選單的「治理紀錄」查詢依據條款與處置狀態。</p>
             )}
@@ -5470,7 +5455,7 @@ function PostCard({
                         FIGHT
                       </button>
                       <span className="text-[0.5625rem] text-text-muted/45">
-                        {isCommentFightMode ? '較高容忍度，也會進入更密集巡邏。' : '一般留言只有每日次數限制，不設冷卻。'}
+                        {isCommentFightMode ? '較高容忍度，也會進入更密集觀察。' : '一般留言只有每日次數限制，不設冷卻。'}
                       </span>
                     </div>
                   </div>
@@ -5514,11 +5499,6 @@ function PostCard({
                             {comment.fightMode && (
                               <span className="text-[0.5rem] rounded-sm border border-amber-400/30 bg-amber-400/10 px-1 font-black uppercase tracking-tight text-amber-300">
                                 FIGHT
-                              </span>
-                            )}
-                            {comment.aiGovernanceMode && comment.aiGovernanceMode !== 'normal' && (
-                              <span className="text-[0.5rem] rounded-sm border border-bio-glow/20 bg-bio-glow/10 px-1 font-bold text-bio-glow">
-                                {getGovernanceModeLabel(comment.aiGovernanceMode)}
                               </span>
                             )}
                           </div>
@@ -5574,9 +5554,6 @@ function PostCard({
                         {isModerationHidden(comment.moderationStatus) ? (
                           <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2">
                             <p className="text-xs font-bold text-amber-300">{getModerationTombstoneText(comment.moderationStatus)}</p>
-                            {comment.moderationPublicCaseId && (
-                              <p className="mt-1 text-[0.5625rem] font-mono text-amber-300/70">案件 {comment.moderationPublicCaseId}</p>
-                            )}
                             {user?.uid === comment.authorId && (
                               <p className="mt-1 text-[0.5625rem] text-amber-200/80">可到功能選單的「治理紀錄」查詢依據條款與處置狀態。</p>
                             )}
@@ -5646,11 +5623,6 @@ function PostCard({
                                     FIGHT
                                   </span>
                                 )}
-                                {reply.aiGovernanceMode && reply.aiGovernanceMode !== 'normal' && (
-                                  <span className="text-[0.5rem] rounded-sm border border-bio-glow/20 bg-bio-glow/10 px-1 font-bold text-bio-glow">
-                                    {getGovernanceModeLabel(reply.aiGovernanceMode)}
-                                  </span>
-                                )}
                               </div>
                               <div className="flex items-center gap-2 shrink-0">
                                 <span className="text-[0.5625rem] text-text-muted font-display">
@@ -5691,9 +5663,6 @@ function PostCard({
                             {isModerationHidden(reply.moderationStatus) ? (
                               <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2">
                                 <p className="text-xs font-bold text-amber-300">{getModerationTombstoneText(reply.moderationStatus)}</p>
-                                {reply.moderationPublicCaseId && (
-                                  <p className="mt-1 text-[0.5625rem] font-mono text-amber-300/70">案件 {reply.moderationPublicCaseId}</p>
-                                )}
                                 {user?.uid === reply.authorId && (
                                   <p className="mt-1 text-[0.5625rem] text-amber-200/80">可到功能選單的「治理紀錄」查詢依據條款與處置狀態。</p>
                                 )}

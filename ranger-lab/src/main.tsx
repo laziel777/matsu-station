@@ -44,6 +44,7 @@ interface GraphNode {
   id: string;
   label: string;
   type: 'user' | 'topic';
+  role?: string;
   weight: number;
   risk: number;
   cluster: string;
@@ -155,8 +156,9 @@ const KNOWN_TOPICS = [
   '抱怨',
 ];
 
-const USER_COLORS = ['#00d9e8', '#7dd3fc', '#a78bfa', '#22c55e', '#f59e0b', '#fb7185', '#e879f9'];
-const TOPIC_COLORS = ['#f97316', '#eab308', '#22c55e', '#14b8a6', '#38bdf8', '#818cf8', '#f472b6'];
+const STATION_MASTER_NODE_COLOR = '#e8fcff';
+const USER_COLORS = ['#00d9e8', '#38bdf8', '#60a5fa', '#818cf8', '#a78bfa', '#14b8a6', '#2dd4bf'];
+const TOPIC_COLORS = ['#22d3ee', '#38bdf8', '#60a5fa', '#818cf8', '#a78bfa', '#14b8a6', '#2dd4bf'];
 
 function toMillis(value: unknown) {
   if (!value) return 0;
@@ -188,6 +190,13 @@ function getNodeRiskTone(risk: number, fallbackColor: string) {
   if (risk >= 70) return getRiskTone('high');
   if (risk >= 35) return getRiskTone('medium');
   return fallbackColor;
+}
+
+function getRiskBandLabel(risk: number) {
+  if (risk >= 90) return '極高';
+  if (risk >= 70) return '高';
+  if (risk >= 35) return '中';
+  return '低';
 }
 
 function getStoredRiskScore(data: DocumentData) {
@@ -537,10 +546,11 @@ async function collectLabData(scanLimit: number): Promise<LabData> {
       id: uid,
       label: meta?.label || compactUid(uid),
       type: 'user' as const,
+      role: meta?.role,
       weight,
       risk,
       cluster: 'c0',
-      color: meta?.role === 'admin' ? '#ff4d4d' : USER_COLORS[Math.abs(uid.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0)) % USER_COLORS.length],
+      color: meta?.role === 'admin' ? STATION_MASTER_NODE_COLOR : USER_COLORS[Math.abs(uid.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0)) % USER_COLORS.length],
     };
   });
   const socialClusters = getComponentClusters(socialNodes, socialLinks);
@@ -740,11 +750,17 @@ function ForceGraph({ nodes, links, mode }: { nodes: GraphNode[]; links: GraphLi
         ctx.fill();
         ctx.restore();
 
-        ctx.strokeStyle = 'rgba(255,255,255,0.45)';
-        ctx.lineWidth = 1;
+        ctx.strokeStyle = node.role === 'admin' ? 'rgba(0, 217, 232, 0.95)' : 'rgba(255,255,255,0.45)';
+        ctx.lineWidth = node.role === 'admin' ? 2.5 : 1;
         ctx.beginPath();
         ctx.arc(node.x || 0, node.y || 0, radius + 4, 0, Math.PI * 2);
         ctx.stroke();
+
+        if (node.role === 'admin') {
+          ctx.fillStyle = 'rgba(0, 217, 232, 0.92)';
+          ctx.font = '900 10px Inter, system-ui, sans-serif';
+          ctx.fillText('站長', (node.x || 0) - 11, (node.y || 0) - radius - 8);
+        }
 
         if (node.weight >= 6 || node.risk >= 35) {
           ctx.fillStyle = 'rgba(232, 252, 255, 0.82)';
@@ -793,7 +809,7 @@ function ForceGraph({ nodes, links, mode }: { nodes: GraphNode[]; links: GraphLi
         <div className="node-tooltip">
           <span>{hovered.type === 'user' ? '島民 UID' : '話題'}</span>
           <strong>{hovered.label}</strong>
-          <em>權重 {Math.round(hovered.weight)} | 風險 {Math.round(hovered.risk)}</em>
+          <em>權重 {Math.round(hovered.weight)} | {getRiskBandLabel(hovered.risk)}風險 {Math.round(hovered.risk)}</em>
         </div>
       )}
     </div>
@@ -1175,8 +1191,8 @@ function App() {
             <span><i style={{ background: '#ff2d55' }} />極高 90+</span>
             <span><i style={{ background: '#ff7a18' }} />高 70-89</span>
             <span><i style={{ background: '#facc15' }} />中 35-69</span>
-            <span><i className="rainbow-dot" />低風險：色盤分群</span>
-            <span><i style={{ background: '#ff4d4d' }} />站長節點</span>
+            <span><i className="rainbow-dot" />低風險：冷色分群</span>
+            <span><i className="station-dot" />站長節點</span>
           </div>
           <ForceGraph nodes={nodes} links={links} mode={mode} />
         </section>
