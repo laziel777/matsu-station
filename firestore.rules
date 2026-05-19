@@ -64,16 +64,8 @@ service cloud.firestore {
 
     function hasValidReactionFields() {
       return request.resource.data.keys().hasOnly(['reaction', 'createdAt', 'updatedAt'])
-             && request.resource.data.reaction in ['❤️', '😂', '😭', '🔥', '👍', '👎', '😡', '😍', '🤔', '😮'];
-    }
-
-    function hasValidFriendFields(friendId) {
-      return request.resource.data.keys().hasOnly([
-               'friendId', 'islanderId', 'displayName', 'photoURL', 'createdAt'
-             ])
-             && request.resource.data.friendId == friendId
-             && request.resource.data.islanderId is string
-             && request.resource.data.displayName is string;
+             && request.resource.data.reaction is string
+             && request.resource.data.reaction.size() <= 4;
     }
 
     function hasValidFollowingFields(targetUserId) {
@@ -94,6 +86,16 @@ service cloud.firestore {
              && request.resource.data.displayName is string;
     }
 
+    function hasValidFollowRequestFields(requesterId) {
+      return request.resource.data.keys().hasOnly([
+               'requesterId', 'islanderId', 'displayName', 'photoURL', 'status', 'createdAt'
+             ])
+             && request.resource.data.requesterId == requesterId
+             && request.resource.data.islanderId is string
+             && request.resource.data.displayName is string
+             && request.resource.data.status == 'pending';
+    }
+
     match /users/{userId} {
       allow get: if isSignedIn();
       allow list: if isSignedIn();
@@ -102,22 +104,27 @@ service cloud.firestore {
                     && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']);
       allow update: if isAdmin();
 
-      match /friends/{friendId} {
-        allow read: if isSignedIn();
-        allow create, update: if isOwner(userId) && hasValidFriendFields(friendId);
-        allow delete: if isOwner(userId);
-      }
-
       match /following/{targetUserId} {
         allow read: if isSignedIn();
-        allow create, update: if isOwner(userId) && hasValidFollowingFields(targetUserId);
-        allow delete: if isOwner(userId);
+        allow create, update: if isOwner(targetUserId)
+                              && hasValidFollowingFields(targetUserId)
+                              && exists(/databases/$(database)/documents/users/$(targetUserId)/followRequests/$(userId));
+        allow delete: if isOwner(userId) || isOwner(targetUserId);
       }
 
       match /followers/{followerId} {
         allow read: if isSignedIn();
-        allow create, update: if isOwner(followerId) && hasValidFollowerFields(followerId);
+        allow create, update: if isOwner(userId)
+                              && hasValidFollowerFields(followerId)
+                              && exists(/databases/$(database)/documents/users/$(userId)/followRequests/$(followerId));
         allow delete: if isOwner(followerId) || isOwner(userId);
+      }
+
+      match /followRequests/{requesterId} {
+        allow get: if isOwner(userId) || isOwner(requesterId);
+        allow list: if isOwner(userId);
+        allow create, update: if isOwner(requesterId) && hasValidFollowRequestFields(requesterId);
+        allow delete: if isOwner(userId) || isOwner(requesterId);
       }
     }
 
@@ -132,9 +139,9 @@ service cloud.firestore {
                     && hasValidContent(500);
       allow update: if (isSignedIn()
                         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount', 'commentsCount']))
-                    || isOwner(resource.data.authorId)
-                    || isAdmin();
-      allow delete: if isOwner(resource.data.authorId) || isAdmin();
+                    || isAdmin()
+                    || isStationMaster();
+      allow delete: if isOwner(resource.data.authorId) || isAdmin() || isStationMaster();
 
       match /likes/{userId} {
         allow read: if true;
@@ -150,9 +157,11 @@ service cloud.firestore {
                       && request.resource.data.likesCount == 0
                       && request.resource.data.repliesCount == 0
                       && hasValidContent(250);
-        allow update: if isSignedIn()
-                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount', 'repliesCount']);
-        allow delete: if isOwner(resource.data.authorId) || isAdmin();
+        allow update: if (isSignedIn()
+                          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount', 'repliesCount']))
+                      || isAdmin()
+                      || isStationMaster();
+        allow delete: if isOwner(resource.data.authorId) || isAdmin() || isStationMaster();
 
         match /likes/{userId} {
           allow read: if true;
@@ -167,9 +176,11 @@ service cloud.firestore {
                         && request.resource.data.authorId == request.auth.uid
                         && request.resource.data.likesCount == 0
                         && hasValidContent(250);
-          allow update: if isSignedIn()
-                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount']);
-          allow delete: if isOwner(resource.data.authorId) || isAdmin();
+          allow update: if (isSignedIn()
+                            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount']))
+                        || isAdmin()
+                        || isStationMaster();
+          allow delete: if isOwner(resource.data.authorId) || isAdmin() || isStationMaster();
 
           match /likes/{userId} {
             allow read: if true;
@@ -192,12 +203,22 @@ service cloud.firestore {
       allow read, update, delete: if isAdmin() || isStationMaster();
     }
 
+    match /aiPatrolLogs/{logId} {
+      allow read: if isAdmin() || isStationMaster();
+      allow write: if false;
+    }
+
+    match /moderationCases/{caseId} {
+      allow read: if isAdmin() || isStationMaster();
+      allow write: if false;
+    }
+
     match /notifications/{notificationId} {
       allow create: if isSignedIn()
                     && hasOnlyNotificationCreateFields()
                     && request.resource.data.senderId == request.auth.uid
                     && request.resource.data.recipientId is string
-                    && request.resource.data.type in ['like', 'comment', 'mention', 'report']
+                    && request.resource.data.type in ['like', 'comment', 'mention', 'report', 'follow_request']
                     && request.resource.data.read == false;
       allow read: if isSignedIn()
                   && (resource.data.recipientId == request.auth.uid || isAdmin() || isStationMaster());

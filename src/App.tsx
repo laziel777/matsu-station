@@ -5,7 +5,7 @@ import { LogIn, LogOut, MessageSquare, Share2, Send, Plus, User, Waves, Search, 
 import { motion, AnimatePresence } from 'motion/react';
 import { formatDistanceToNow, addMonths, isAfter } from 'date-fns';
 import { zhTW } from 'date-fns/locale';
-import { db, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, updateDoc, doc, increment, setDoc, deleteDoc, getDoc, getDocs, where, handleFirestoreError, OperationType, storage } from './lib/firebase';
+import { db, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, updateDoc, doc, increment, setDoc, deleteDoc, getDoc, getDocs, where, handleFirestoreError, OperationType, storage, functions, httpsCallable } from './lib/firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 const STATION_MASTER_UID = 'gHHxF8p1DnbMkoeVmU5XpB18Elz2';
@@ -30,9 +30,20 @@ type ProfileTabId = typeof PROFILE_TABS[number]['id'];
 
 interface ProfileStats {
   postCount: number;
-  friendCount: number;
   followingCount: number;
   followerCount: number;
+}
+
+interface RelationshipListItem {
+  uid: string;
+  islanderId?: string;
+  displayName: string;
+  photoURL?: string;
+}
+
+interface FollowRequestItem extends RelationshipListItem {
+  requesterId: string;
+  createdAt?: any;
 }
 
 interface MentionSuggestion {
@@ -45,7 +56,6 @@ interface MentionSuggestion {
 
 const EMPTY_PROFILE_STATS: ProfileStats = {
   postCount: 0,
-  friendCount: 0,
   followingCount: 0,
   followerCount: 0,
 };
@@ -88,6 +98,10 @@ interface Post {
   authorName: string;
   authorPhoto: string;
   content: string;
+  moderationStatus?: 'quarantined' | 'removed' | 'released' | string;
+  moderationPublicCaseId?: string;
+  moderationRiskLevel?: 'low' | 'medium' | 'high' | 'critical' | string;
+  moderationRiskScore?: number;
   category?: string;
   aiSafe?: boolean;
   aiRisk?: number;
@@ -107,6 +121,10 @@ interface Comment {
   authorPhoto: string;
   authorRole?: 'user' | 'admin';
   content: string;
+  moderationStatus?: 'quarantined' | 'removed' | 'released' | string;
+  moderationPublicCaseId?: string;
+  moderationRiskLevel?: 'low' | 'medium' | 'high' | 'critical' | string;
+  moderationRiskScore?: number;
   likesCount?: number;
   repliesCount?: number;
   replies?: CommentReply[];
@@ -120,6 +138,10 @@ interface CommentReply {
   authorPhoto: string;
   authorRole?: 'user' | 'admin';
   content: string;
+  moderationStatus?: 'quarantined' | 'removed' | 'released' | string;
+  moderationPublicCaseId?: string;
+  moderationRiskLevel?: 'low' | 'medium' | 'high' | 'critical' | string;
+  moderationRiskScore?: number;
   likesCount?: number;
   createdAt: any;
 }
@@ -146,6 +168,54 @@ interface ReportItem {
   status?: string;
   createdAt?: any;
 }
+
+interface ModerationCaseItem {
+  id: string;
+  publicCaseId?: string;
+  sourceType: 'post' | 'comment' | 'reply' | string;
+  sourcePath?: string;
+  postId?: string;
+  commentId?: string;
+  replyId?: string;
+  authorId?: string;
+  authorName?: string;
+  category?: string;
+  contentPreview?: string;
+  riskLevel?: 'low' | 'medium' | 'high' | 'critical' | string;
+  riskScore?: number;
+  categories?: string[];
+  summary?: string;
+  legalRisk?: string;
+  publicInterest?: string;
+  recommendedAction?: string;
+  rationale?: string;
+  status?: string;
+  createdAt?: any;
+  updatedAt?: any;
+}
+
+const isModerationHidden = (status?: string) => {
+  return status === 'quarantined' || status === 'removed';
+};
+
+const getModerationTombstoneText = (status?: string) => {
+  if (status === 'removed') return '此內容已被移除。';
+  return '此內容因涉及高爭議內容，目前正在審核中。';
+};
+
+const getRiskBadgeClass = (riskLevel?: string) => {
+  if (riskLevel === 'critical') return 'bg-red-500/15 text-red-300 border-red-500/30';
+  if (riskLevel === 'high') return 'bg-orange-500/15 text-orange-300 border-orange-500/30';
+  if (riskLevel === 'medium') return 'bg-amber-500/15 text-amber-300 border-amber-500/30';
+  return 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30';
+};
+
+const getRiskLabel = (riskLevel?: string) => {
+  if (riskLevel === 'critical') return '極高風險';
+  if (riskLevel === 'high') return '高風險';
+  if (riskLevel === 'medium') return '中風險';
+  return '低風險';
+};
 
 // --- Profanity Filter Utility ---
 const VULGAR_PHRASES = [
@@ -223,6 +293,7 @@ const getActiveMentionRange = (value: string, caretIndex: number | null) => {
   const beforeCaret = value.slice(0, caretIndex);
   const match = beforeCaret.match(/(^|\s)@([^\s@]*)$/);
   if (!match) return null;
+  if (match[2].trim().length === 0) return null;
 
   return {
     start: caretIndex - match[2].length - 1,
@@ -425,17 +496,63 @@ const ReactionButton = ({
   count,
   onSelect,
   compact = false,
+  reactionCollectionPath,
 }: {
   currentReaction?: string | null;
   count: number;
   onSelect: (reaction: string) => void;
   compact?: boolean;
+  reactionCollectionPath?: string;
 }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [reactionCounts, setReactionCounts] = useState<Record<string, number>>({});
+  const rootRef = React.useRef<HTMLDivElement | null>(null);
   const displayReaction = currentReaction || DEFAULT_REACTION;
+  const visibleReactionCounts = REACTION_OPTIONS
+    .map(reaction => ({ reaction, count: reactionCounts[reaction] || 0 }))
+    .filter(item => item.count > 0);
+  const displayedCount = visibleReactionCounts.length > 0
+    ? visibleReactionCounts.reduce((total, item) => total + item.count, 0)
+    : count;
+
+  React.useEffect(() => {
+    if (!isOpen) return;
+
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && rootRef.current?.contains(target)) return;
+      setIsOpen(false);
+    };
+
+    document.addEventListener('pointerdown', closeOnOutsideClick);
+    return () => document.removeEventListener('pointerdown', closeOnOutsideClick);
+  }, [isOpen]);
+
+  React.useEffect(() => {
+    if (!reactionCollectionPath) {
+      setReactionCounts({});
+      return;
+    }
+
+    const unsubscribe = onSnapshot(collection(db, reactionCollectionPath), (snapshot) => {
+      const nextCounts: Record<string, number> = {};
+      snapshot.docs.forEach(reactionDoc => {
+        const reaction = reactionDoc.data().reaction || DEFAULT_REACTION;
+        if (REACTION_OPTIONS.includes(reaction)) {
+          nextCounts[reaction] = (nextCounts[reaction] || 0) + 1;
+        }
+      });
+      setReactionCounts(nextCounts);
+    }, (error) => {
+      console.warn('Reaction counts listener failed:', error.message);
+      setReactionCounts({});
+    });
+
+    return unsubscribe;
+  }, [reactionCollectionPath]);
 
   return (
-    <div className="relative inline-flex">
+    <div ref={rootRef} className="relative inline-flex max-w-full flex-wrap items-center gap-1.5">
       <button
         type="button"
         onClick={() => setIsOpen(previous => !previous)}
@@ -447,16 +564,32 @@ const ReactionButton = ({
         <span className={compact ? 'text-base leading-none' : 'text-lg leading-none'}>
           {displayReaction}
         </span>
-        <span>{count}</span>
+        <span>{displayedCount}</span>
       </button>
+
+      {visibleReactionCounts.length > 0 && (
+        <div className="flex max-w-[12rem] flex-wrap items-center gap-1">
+          {visibleReactionCounts.map(item => (
+            <span
+              key={item.reaction}
+              className={`inline-flex items-center gap-0.5 rounded-full border border-line bg-mist-light px-1.5 py-0.5 font-bold text-text-muted ${
+                compact ? 'text-[0.625rem]' : 'text-[0.6875rem]'
+              }`}
+            >
+              <span>{item.reaction}</span>
+              <span>{item.count}</span>
+            </span>
+          ))}
+        </div>
+      )}
 
       <AnimatePresence>
         {isOpen && (
           <motion.div
-            initial={{ opacity: 0, y: 8, scale: 0.96 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 8, scale: 0.96 }}
-            className="absolute bottom-full left-0 z-[80] mb-2 grid grid-cols-5 gap-1 rounded-2xl border border-line bg-mist-medium/95 p-2 shadow-2xl backdrop-blur-xl"
+            initial={{ opacity: 0, y: 8, x: '-50%', scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, x: '-50%', scale: 1 }}
+            exit={{ opacity: 0, y: 8, x: '-50%', scale: 0.96 }}
+            className="absolute bottom-full left-1/2 z-[80] mb-2 grid w-max max-w-[calc(100vw-2rem)] grid-cols-5 gap-1.5 rounded-2xl border border-line bg-mist-medium/95 p-2.5 shadow-2xl backdrop-blur-xl"
           >
             {REACTION_OPTIONS.map(reaction => (
               <button
@@ -466,7 +599,7 @@ const ReactionButton = ({
                   onSelect(reaction);
                   setIsOpen(false);
                 }}
-                className={`flex h-8 w-8 items-center justify-center rounded-xl text-lg transition-all hover:bg-mist-light active:scale-90 ${
+                className={`flex h-10 w-10 items-center justify-center rounded-xl text-xl transition-all hover:bg-mist-light active:scale-90 ${
                   currentReaction === reaction ? 'bg-bio-glow/20 ring-1 ring-bio-glow/40' : ''
                 }`}
                 title={currentReaction === reaction ? '再點一次取消反應' : `使用 ${reaction} 反應`}
@@ -681,6 +814,9 @@ export default function App() {
   const [notifications, setNotifications] = useState<any[]>([]);
   const [showReportsPanel, setShowReportsPanel] = useState(false);
   const [reports, setReports] = useState<ReportItem[]>([]);
+  const [showRangerPanel, setShowRangerPanel] = useState(false);
+  const [rangerCases, setRangerCases] = useState<ModerationCaseItem[]>([]);
+  const [isRunningRangerAction, setIsRunningRangerAction] = useState(false);
   const [discussionTarget, setDiscussionTarget] = useState<DiscussionTarget | null>(null);
   const [weather, setWeather] = useState<{ temp: number; icon: string; text: string; wind: number; dir: string; aqi: number; vis: number; humidity: number } | null>(null);
   const [showWeatherModal, setShowWeatherModal] = useState(false);
@@ -694,11 +830,13 @@ export default function App() {
 const [onlineCount, setOnlineCount] = useState(1);
 const canReviewReports = Boolean(user && (profile?.role === 'admin' || user.uid === STATION_MASTER_UID));
 const pendingReportsCount = reports.filter(report => (report.status || 'pending') === 'pending').length;
+const activeRangerCasesCount = rangerCases.filter(item => ['pending', 'quarantined'].includes(item.status || 'pending')).length;
 const isOnboarding = Boolean(user && profile && profile.role !== 'admin' && (!profile.agreedToTerms || !profile.isProfileSetup));
 
   useEffect(() => {
     localStorage.setItem('matsu-font-size', fontSize.toString());
-    document.documentElement.style.fontSize = `${(fontSize / 100) * 16}px`;
+    document.documentElement.style.removeProperty('font-size');
+    document.documentElement.style.setProperty('--matsu-user-font-scale', `${fontSize / 100}`);
   }, [fontSize]);
 
   const updateFontSize = (value: string) => {
@@ -857,6 +995,27 @@ useEffect(() => {
     return () => unsubscribe();
   }, [canReviewReports]);
 
+  // AI Rangers moderation case listener. Read-only on the client; actions go through Cloud Functions.
+  useEffect(() => {
+    if (!canReviewReports) {
+      setRangerCases([]);
+      setShowRangerPanel(false);
+      return;
+    }
+
+    const casesQuery = query(collection(db, 'moderationCases'), orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(casesQuery, (snapshot) => {
+      setRangerCases(snapshot.docs.map(caseDoc => ({
+        id: caseDoc.id,
+        ...caseDoc.data(),
+      } as ModerationCaseItem)));
+    }, (error) => {
+      console.warn('AI Rangers cases listener failed:', error.message);
+    });
+
+    return () => unsubscribe();
+  }, [canReviewReports]);
+
   const [isCopiedState, setIsCopiedState] = useState(false);
   const avatarInputRef = React.useRef<HTMLInputElement>(null);
   const avatarUpdateInputRef = React.useRef<HTMLInputElement>(null);
@@ -935,10 +1094,12 @@ const HOT_TOPICS = Object.entries(topicCounts)
   const [profileLikedPosts, setProfileLikedPosts] = useState<Post[]>([]);
   const [profileStats, setProfileStats] = useState<ProfileStats>(EMPTY_PROFILE_STATS);
   const [isLoadingProfileActivity, setIsLoadingProfileActivity] = useState(false);
-  const [friendIslandIdInput, setFriendIslandIdInput] = useState('');
   const [friendActionMessage, setFriendActionMessage] = useState<string | null>(null);
   const [isFollowingProfile, setIsFollowingProfile] = useState(false);
-  const [isFriendProfile, setIsFriendProfile] = useState(false);
+  const [hasPendingFollowRequest, setHasPendingFollowRequest] = useState(false);
+  const [followRequests, setFollowRequests] = useState<FollowRequestItem[]>([]);
+  const [socialListModal, setSocialListModal] = useState<{ type: 'following' | 'followers'; title: string; items: RelationshipListItem[] } | null>(null);
+  const [isLoadingSocialList, setIsLoadingSocialList] = useState(false);
   const [isSavingRelationship, setIsSavingRelationship] = useState(false);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [editBio, setEditBio] = useState('');
@@ -1154,7 +1315,9 @@ const HOT_TOPICS = Object.entries(topicCounts)
 
     setProfileTab(options?.tab || 'posts');
     setFriendActionMessage(null);
-    setFriendIslandIdInput('');
+    setHasPendingFollowRequest(false);
+    setFollowRequests([]);
+    setSocialListModal(null);
 
     if (user && userId === user.uid && profile) {
       setViewingProfile(profile);
@@ -1235,7 +1398,9 @@ const HOT_TOPICS = Object.entries(topicCounts)
       setProfileLikedPosts([]);
       setProfileStats(EMPTY_PROFILE_STATS);
       setIsFollowingProfile(false);
-      setIsFriendProfile(false);
+      setHasPendingFollowRequest(false);
+      setFollowRequests([]);
+      setSocialListModal(null);
       return;
     }
 
@@ -1259,30 +1424,43 @@ const HOT_TOPICS = Object.entries(topicCounts)
           })
         );
 
-        const [friendsSnap, followingSnap, followersSnap] = await Promise.all([
-          getDocs(collection(db, 'users', targetUid, 'friends')),
+        const [followingSnap, followersSnap] = await Promise.all([
           getDocs(collection(db, 'users', targetUid, 'following')),
           getDocs(collection(db, 'users', targetUid, 'followers')),
         ]);
 
-        const [currentFollowingSnap, currentFriendSnap] = user && user.uid !== targetUid
+        const [currentFollowingSnap, pendingFollowRequestSnap] = user && user.uid !== targetUid
           ? await Promise.all([
               getDoc(doc(db, 'users', user.uid, 'following', targetUid)),
-              getDoc(doc(db, 'users', user.uid, 'friends', targetUid)),
+              getDoc(doc(db, 'users', targetUid, 'followRequests', user.uid)),
             ])
           : [null, null];
+
+        const ownFollowRequestsSnap = user && user.uid === targetUid
+          ? await getDocs(collection(db, 'users', targetUid, 'followRequests'))
+          : null;
 
         if (isCancelled) return;
 
         setProfileLikedPosts(likedPostResults.filter(Boolean) as Post[]);
         setProfileStats({
           postCount: authoredPosts.length,
-          friendCount: friendsSnap.size,
           followingCount: followingSnap.size,
           followerCount: followersSnap.size,
         });
         setIsFollowingProfile(Boolean(currentFollowingSnap?.exists()));
-        setIsFriendProfile(Boolean(currentFriendSnap?.exists()));
+        setHasPendingFollowRequest(Boolean(pendingFollowRequestSnap?.exists()));
+        setFollowRequests((ownFollowRequestsSnap?.docs || []).map(requestDoc => {
+          const data = requestDoc.data();
+          return {
+            uid: data.requesterId || requestDoc.id,
+            requesterId: data.requesterId || requestDoc.id,
+            islanderId: data.islanderId,
+            displayName: data.displayName || data.islanderId || '匿名島民',
+            photoURL: data.photoURL || DEFAULT_ISLANDER_PHOTO,
+            createdAt: data.createdAt,
+          } as FollowRequestItem;
+        }));
       } catch (err) {
         console.warn('Profile activity fetch failed:', err);
         if (!isCancelled) {
@@ -1304,84 +1482,6 @@ const HOT_TOPICS = Object.entries(topicCounts)
     };
   }, [viewingProfile?.uid, posts, user?.uid]);
 
-  const saveFriend = async (targetProfile: UserProfile) => {
-    if (!user || !profile) {
-      alert('請先登入後再加好友。');
-      return;
-    }
-
-    if (targetProfile.uid === user.uid) {
-      setFriendActionMessage('不能把自己加入好友。');
-      return;
-    }
-
-    setIsSavingRelationship(true);
-    setFriendActionMessage(null);
-
-    try {
-      const friendRef = doc(db, 'users', user.uid, 'friends', targetProfile.uid);
-      const existingFriend = await getDoc(friendRef);
-
-      if (existingFriend.exists()) {
-        setIsFriendProfile(viewingProfile?.uid === targetProfile.uid ? true : isFriendProfile);
-        setFriendActionMessage(`${targetProfile.displayName || targetProfile.islanderId} 已經在好友名單裡。`);
-        return;
-      }
-
-      await setDoc(friendRef, {
-        friendId: targetProfile.uid,
-        islanderId: targetProfile.islanderId,
-        displayName: targetProfile.displayName || targetProfile.islanderId,
-        photoURL: targetProfile.photoURL || DEFAULT_ISLANDER_PHOTO,
-        createdAt: serverTimestamp(),
-      });
-
-      if (viewingProfile?.uid === targetProfile.uid) setIsFriendProfile(true);
-      if (viewingProfile?.uid === user.uid) {
-        setProfileStats(previous => ({
-          ...previous,
-          friendCount: previous.friendCount + 1,
-        }));
-      }
-      setFriendActionMessage(`已加入 ${targetProfile.displayName || targetProfile.islanderId}。`);
-    } catch (err: any) {
-      console.error('Add friend failed:', err);
-      setFriendActionMessage(err.message?.includes('permission-denied') ? '加好友失敗，請確認 Firebase Rules 已更新。' : '加好友失敗，請稍後再試。');
-    } finally {
-      setIsSavingRelationship(false);
-    }
-  };
-
-  const handleAddFriendByIslandId = async () => {
-    const islanderId = friendIslandIdInput.trim();
-    if (!islanderId) {
-      setFriendActionMessage('請輸入島民ID。');
-      return;
-    }
-
-    setIsSavingRelationship(true);
-    setFriendActionMessage(null);
-
-    try {
-      const usersQuery = query(collection(db, 'users'), where('islanderId', '==', islanderId));
-      const snap = await getDocs(usersQuery);
-
-      if (snap.empty) {
-        setFriendActionMessage('找不到這個島民ID。');
-        return;
-      }
-
-      const targetDoc = snap.docs[0];
-      await saveFriend({ uid: targetDoc.id, ...targetDoc.data() } as UserProfile);
-      setFriendIslandIdInput('');
-    } catch (err: any) {
-      console.error('Find friend failed:', err);
-      setFriendActionMessage(err.message?.includes('permission-denied') ? '搜尋島民失敗，請確認 Firebase Rules 已更新。' : '搜尋島民失敗，請稍後再試。');
-    } finally {
-      setIsSavingRelationship(false);
-    }
-  };
-
   const handleToggleFollow = async () => {
     if (!user || !profile || !viewingProfile || viewingProfile.uid === user.uid) {
       return;
@@ -1392,6 +1492,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
 
     const followingRef = doc(db, 'users', user.uid, 'following', viewingProfile.uid);
     const followerRef = doc(db, 'users', viewingProfile.uid, 'followers', user.uid);
+    const followRequestRef = doc(db, 'users', viewingProfile.uid, 'followRequests', user.uid);
 
     try {
       if (isFollowingProfile) {
@@ -1402,32 +1503,125 @@ const HOT_TOPICS = Object.entries(topicCounts)
           ...previous,
           followerCount: Math.max(0, previous.followerCount - 1),
         }));
+        setFriendActionMessage('已取消追蹤。');
+      } else if (hasPendingFollowRequest) {
+        await deleteDoc(followRequestRef);
+        setHasPendingFollowRequest(false);
+        setFriendActionMessage('已取消追蹤申請。');
       } else {
-        await setDoc(followingRef, {
-          targetUserId: viewingProfile.uid,
-          islanderId: viewingProfile.islanderId,
-          displayName: viewingProfile.displayName || viewingProfile.islanderId,
-          photoURL: viewingProfile.photoURL || DEFAULT_ISLANDER_PHOTO,
+        await setDoc(followRequestRef, {
+          requesterId: user.uid,
+          islanderId: profile.islanderId,
+          displayName: profile.displayName || profile.islanderId,
+          photoURL: profile.photoURL || DEFAULT_ISLANDER_PHOTO,
+          status: 'pending',
           createdAt: serverTimestamp(),
         });
-        await setDoc(followerRef, {
-          followerId: user.uid,
+        setHasPendingFollowRequest(true);
+        setFriendActionMessage('追蹤申請已送出，等待對方同意。');
+        try {
+          await addDoc(collection(db, 'notifications'), {
+            recipientId: viewingProfile.uid,
+            senderId: user.uid,
+            senderName: profile.displayName || user.displayName || '匿名島民',
+            type: 'follow_request',
+            title: '收到新的追蹤申請',
+            content: `${profile.displayName || profile.islanderId || '匿名島民'} 想追蹤你的個人主頁。`,
+            read: false,
+            createdAt: serverTimestamp(),
+          });
+        } catch (notificationErr) {
+          console.warn('Follow request notification failed:', notificationErr);
+        }
+      }
+    } catch (err: any) {
+      console.error('Follow failed:', err);
+      setFriendActionMessage(err.message?.includes('permission-denied') ? '追蹤申請失敗，請確認 Firebase Rules 已更新。' : '追蹤申請失敗，請稍後再試。');
+    } finally {
+      setIsSavingRelationship(false);
+    }
+  };
+
+  const handleFollowRequestAction = async (request: FollowRequestItem, action: 'approve' | 'reject') => {
+    if (!user || !profile) return;
+
+    setIsSavingRelationship(true);
+    setFriendActionMessage(null);
+
+    const requestRef = doc(db, 'users', user.uid, 'followRequests', request.requesterId);
+
+    try {
+      if (action === 'approve') {
+        await setDoc(doc(db, 'users', request.requesterId, 'following', user.uid), {
+          targetUserId: user.uid,
           islanderId: profile.islanderId,
           displayName: profile.displayName || profile.islanderId,
           photoURL: profile.photoURL || DEFAULT_ISLANDER_PHOTO,
           createdAt: serverTimestamp(),
         });
-        setIsFollowingProfile(true);
+        await setDoc(doc(db, 'users', user.uid, 'followers', request.requesterId), {
+          followerId: request.requesterId,
+          islanderId: request.islanderId,
+          displayName: request.displayName,
+          photoURL: request.photoURL || DEFAULT_ISLANDER_PHOTO,
+          createdAt: serverTimestamp(),
+        });
         setProfileStats(previous => ({
           ...previous,
           followerCount: previous.followerCount + 1,
         }));
+        setFriendActionMessage(`已同意 ${request.displayName} 的追蹤申請。`);
+      } else {
+        setFriendActionMessage(`已婉拒 ${request.displayName} 的追蹤申請。`);
       }
+
+      await deleteDoc(requestRef);
+      setFollowRequests(previous => previous.filter(item => item.requesterId !== request.requesterId));
     } catch (err: any) {
-      console.error('Follow failed:', err);
-      setFriendActionMessage(err.message?.includes('permission-denied') ? '追蹤失敗，請確認 Firebase Rules 已更新。' : '追蹤失敗，請稍後再試。');
+      console.error('Follow request action failed:', err);
+      setFriendActionMessage(err.message?.includes('permission-denied') ? '處理追蹤申請失敗，請確認 Firebase Rules 已更新。' : '處理追蹤申請失敗，請稍後再試。');
     } finally {
       setIsSavingRelationship(false);
+    }
+  };
+
+  const handleOpenSocialList = async (type: 'following' | 'followers') => {
+    if (!user || !viewingProfile?.uid) return;
+
+    const canViewSocialList = user.uid === viewingProfile.uid || isFollowingProfile;
+    if (!canViewSocialList) {
+      setFriendActionMessage('追蹤通過後，才能查看這位島民的追蹤中與追蹤者名單。');
+      return;
+    }
+
+    const title = type === 'following' ? '追蹤中' : '追蹤者';
+    setSocialListModal({ type, title, items: [] });
+    setIsLoadingSocialList(true);
+    setFriendActionMessage(null);
+
+    try {
+      const snapshot = await getDocs(collection(db, 'users', viewingProfile.uid, type));
+      const items = snapshot.docs.map(itemDoc => {
+        const data = itemDoc.data();
+        const uid = type === 'following'
+          ? data.targetUserId || itemDoc.id
+          : data.followerId || itemDoc.id;
+
+        return {
+          uid,
+          islanderId: data.islanderId,
+          displayName: data.displayName || data.islanderId || '匿名島民',
+          photoURL: data.photoURL || DEFAULT_ISLANDER_PHOTO,
+        } as RelationshipListItem;
+      });
+
+      setSocialListModal({ type, title, items });
+    } catch (err: any) {
+      console.error('Open social list failed:', err);
+      setSocialListModal({ type, title, items: [] });
+      setFriendActionMessage(err.message?.includes('permission-denied') ? '目前無法查看這份名單。' : '讀取名單失敗，請稍後再試。');
+    } finally {
+      setIsLoadingSocialList(false);
     }
   };
 
@@ -1461,6 +1655,11 @@ const HOT_TOPICS = Object.entries(topicCounts)
     }
 
     setShowNotifications(false);
+
+    if (notification.type === 'follow_request' && user) {
+      await handleOpenProfile(user.uid);
+      return;
+    }
 
     if (notification.postId) {
       const deletedLabel = notification.deletedLabel || await getNotificationDeletedLabel(notification);
@@ -1502,6 +1701,21 @@ const HOT_TOPICS = Object.entries(topicCounts)
     });
   };
 
+  const handleOpenModerationTarget = (caseItem: ModerationCaseItem) => {
+    if (!caseItem.postId) return;
+
+    setShowRangerPanel(false);
+    setActiveCategory('全部');
+    setSearchQuery('');
+    setDiscussionTarget({
+      postId: caseItem.postId,
+      commentId: caseItem.commentId,
+      replyId: caseItem.replyId,
+      openComments: caseItem.sourceType !== 'post',
+      nonce: Date.now(),
+    });
+  };
+
   const handleUpdateReportStatus = async (report: ReportItem, status: 'reviewed' | 'dismissed') => {
     if (!user || !canReviewReports) return;
 
@@ -1514,6 +1728,36 @@ const HOT_TOPICS = Object.entries(topicCounts)
     } catch (err) {
       console.error('Update report status failed:', err);
       alert('更新檢舉狀態失敗，請稍後再試。');
+    }
+  };
+
+  const handleRangerAction = async (caseItem: ModerationCaseItem, action: 'mark_reviewed' | 'dismiss' | 'release' | 'quarantine' | 'remove') => {
+    if (!user || !canReviewReports || isRunningRangerAction) return;
+
+    const actionText = {
+      mark_reviewed: '標記已審',
+      dismiss: '忽略案件',
+      release: '放行並恢復內容',
+      quarantine: '維持隔離',
+      remove: '移除內容',
+    }[action];
+
+    if ((action === 'remove' || action === 'release') && !window.confirm(`確定要「${actionText}」案件 ${caseItem.publicCaseId || caseItem.id} 嗎？`)) {
+      return;
+    }
+
+    setIsRunningRangerAction(true);
+    try {
+      const callable = httpsCallable(functions, 'rangerModerationAction');
+      await callable({
+        caseId: caseItem.id,
+        action,
+      });
+    } catch (err) {
+      console.error('AI Rangers action failed:', err);
+      alert('AI 游騎兵案件操作失敗，請確認 Functions 已部署且你是站長帳號。');
+    } finally {
+      setIsRunningRangerAction(false);
     }
   };
 
@@ -1826,6 +2070,12 @@ const HOT_TOPICS = Object.entries(topicCounts)
   const viewingProfilePosts = viewingProfile ? posts.filter(post => post.authorId === viewingProfile.uid) : [];
   const visibleProfilePosts = profileTab === 'posts' ? viewingProfilePosts : profileLikedPosts;
   const isViewingOwnProfile = Boolean(user && viewingProfile && user.uid === viewingProfile.uid);
+  const canViewProfileSocialLists = Boolean(viewingProfile && (isViewingOwnProfile || isFollowingProfile));
+  const rangerRiskCounts = rangerCases.reduce((counts, item) => {
+    const key = item.riskLevel || 'low';
+    counts[key] = (counts[key] || 0) + 1;
+    return counts;
+  }, {} as Record<string, number>);
 
   if (loading) {
     return (
@@ -2110,15 +2360,15 @@ const HOT_TOPICS = Object.entries(topicCounts)
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md p-4"
+            className="fixed inset-0 z-[100] flex items-end justify-center bg-black/80 backdrop-blur-md p-2 sm:items-center sm:p-4"
           >
             <motion.div 
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className="glass-card w-full max-w-md rounded-[2rem] overflow-hidden shadow-2xl border-line"
+              className="glass-card w-full max-w-md max-h-[calc(100dvh-1rem)] rounded-t-[1.5rem] overflow-hidden shadow-2xl border-line sm:rounded-[2rem]"
             >
-              <div className="p-6 border-b border-line flex items-center justify-between bg-mist">
+              <div className="p-4 sm:p-6 border-b border-line flex items-center justify-between bg-mist">
                 <div className="flex items-center gap-3">
                   <div className="p-2 bg-bio-glow/20 rounded-xl">
                     <Settings className="w-5 h-5 text-bio-glow" />
@@ -2136,7 +2386,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
                 </button>
               </div>
               
-              <div className="p-6 space-y-6 max-h-[75vh] overflow-y-auto custom-scrollbar">
+              <div className="p-4 sm:p-6 space-y-5 sm:space-y-6 max-h-[calc(100dvh-12rem)] overflow-y-auto custom-scrollbar">
                 <div>
                   <label className="text-[0.625rem] text-text-muted font-bold uppercase tracking-widest mb-4 block">背景模式</label>
                   <div className="grid grid-cols-2 gap-3">
@@ -2208,7 +2458,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
 
                 <div>
                   <label className="text-[0.625rem] text-text-muted font-bold uppercase tracking-widest mb-4 block flex justify-between">
-                    <span>界面文字大小</span>
+                    <span>內容文字大小</span>
                     <span className="text-bio-glow">{fontSize}%</span>
                   </label>
                   <div className="px-2 py-4 bg-mist rounded-2xl border border-line">
@@ -2226,7 +2476,14 @@ const HOT_TOPICS = Object.entries(topicCounts)
                       <span className="text-[0.5625rem] text-text-muted font-bold uppercase">較大 (150%)</span>
                     </div>
                   </div>
-                  <p className="text-[0.5625rem] text-text-muted mt-2 px-1 italic">調整後會即時改變全站介面文字的大小比例。</p>
+                  <p className="text-[0.5625rem] text-text-muted mt-2 px-1 italic">調整後只影響貼文、留言與回覆內容文字，不會放大整個操作介面。</p>
+                </div>
+
+                <div className="rounded-2xl border border-line bg-mist/70 p-4">
+                  <p className="text-xs font-bold text-text-main">手機瀏覽建議</p>
+                  <p className="mt-1 text-[0.6875rem] leading-relaxed text-text-muted">
+                    手機瀏覽器若工具列擠壓畫面，可用 iOS 分享選單或 Android 瀏覽器選單，把馬祖小站加入主畫面後再開啟。
+                  </p>
                 </div>
 
                 <div className="pt-4 border-t border-line">
@@ -2239,7 +2496,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
                 </div>
               </div>
 
-              <div className="p-6 bg-mist border-t border-line flex flex-col sm:flex-row gap-3">
+              <div className="p-4 sm:p-6 bg-mist border-t border-line flex flex-col sm:flex-row gap-3">
                 <button
                   onClick={resetPreferences}
                   className="sm:w-auto bg-mist/50 hover:bg-mist-medium text-text-muted hover:text-text-main py-3 px-4 rounded-xl font-bold transition-all border border-line flex items-center justify-center gap-2"
@@ -2302,13 +2559,13 @@ const HOT_TOPICS = Object.entries(topicCounts)
                           initial={{ opacity: 0, y: 10, scale: 0.95 }}
                           animate={{ opacity: 1, y: 0, scale: 1 }}
                           exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                          className="absolute top-full right-[-50px] mt-2 w-72 dropdown-panel rounded-2xl z-50 shadow-2xl overflow-hidden"
+                          className="fixed left-3 right-3 top-20 z-50 max-h-[calc(100dvh-6rem)] dropdown-panel rounded-2xl shadow-2xl overflow-hidden"
                         >
                            <div className="p-4 border-b border-white/5 flex items-center justify-between">
                               <span className="text-xs text-text-main font-bold uppercase tracking-widest">系統通知</span>
                               <button onClick={markAllAsRead} className="text-xs text-bio-glow font-bold uppercase">標記已讀</button>
                             </div>
-                            <div className="max-h-[300px] overflow-y-auto">
+                            <div className="max-h-[calc(100dvh-11rem)] overflow-y-auto custom-scrollbar">
                               {notifications.length > 0 ? (
                                 notifications.map(n => (
                                   <div 
@@ -2316,8 +2573,8 @@ const HOT_TOPICS = Object.entries(topicCounts)
                                     onClick={() => handleNotificationClick(n)}
                                     className={`p-4 border-b border-white/5 cursor-pointer hover:bg-white/5 transition-colors ${!n.read ? 'bg-bio-glow/5' : ''}`}
                                   >
-                                    <h4 className="text-sm font-bold text-text-main mb-1">{n.title}</h4>
-                                    <p className="text-xs text-text-muted mb-1 leading-relaxed">{n.content}</p>
+                                    <h4 className="text-sm font-bold text-text-main mb-1 break-words">{n.title}</h4>
+                                    <p className="text-xs text-text-muted mb-1 leading-relaxed break-words">{n.content}</p>
                                     {n.deletedLabel && (
                                       <p className="mb-2 inline-flex rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-[0.625rem] font-bold text-amber-400">
                                         {n.deletedLabel}
@@ -2374,16 +2631,28 @@ const HOT_TOPICS = Object.entries(topicCounts)
                               </>
                             )}
                             {canReviewReports && (
-                              <button onClick={() => { setShowReportsPanel(true); setShowSettingsMenu(false); }} className="w-full flex items-center justify-between gap-3 px-3 py-2.5 text-sm font-medium text-text-main hover:bg-mist-light rounded-lg transition-colors">
-                                <span className="flex items-center gap-3">
-                                  <Flag className="w-3.5 h-3.5 text-text-muted" /> 檢舉處理
-                                </span>
-                                {pendingReportsCount > 0 && (
-                                  <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-[0.625rem] font-bold text-amber-400">
-                                    {pendingReportsCount}
+                              <>
+                                <button onClick={() => { setShowRangerPanel(true); setShowSettingsMenu(false); }} className="w-full flex items-center justify-between gap-3 px-3 py-2.5 text-sm font-medium text-text-main hover:bg-mist-light rounded-lg transition-colors">
+                                  <span className="flex items-center gap-3">
+                                    <Activity className="w-3.5 h-3.5 text-text-muted" /> AI 游騎兵
                                   </span>
-                                )}
-                              </button>
+                                  {activeRangerCasesCount > 0 && (
+                                    <span className="rounded-full bg-red-500/20 px-2 py-0.5 text-[0.625rem] font-bold text-red-300">
+                                      {activeRangerCasesCount}
+                                    </span>
+                                  )}
+                                </button>
+                                <button onClick={() => { setShowReportsPanel(true); setShowSettingsMenu(false); }} className="w-full flex items-center justify-between gap-3 px-3 py-2.5 text-sm font-medium text-text-main hover:bg-mist-light rounded-lg transition-colors">
+                                  <span className="flex items-center gap-3">
+                                    <Flag className="w-3.5 h-3.5 text-text-muted" /> 檢舉處理
+                                  </span>
+                                  {pendingReportsCount > 0 && (
+                                    <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-[0.625rem] font-bold text-amber-400">
+                                      {pendingReportsCount}
+                                    </span>
+                                  )}
+                                </button>
+                              </>
                             )}
                             {user && (
                               <button onClick={handleLogout} className="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors">
@@ -2631,7 +2900,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
                       initial={{ opacity: 0, y: 10, scale: 0.95 }}
                       animate={{ opacity: 1, y: 0, scale: 1 }}
                       exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                      className="absolute top-full right-0 mt-2 w-80 dropdown-panel rounded-2xl z-50 shadow-2xl overflow-hidden"
+                      className="absolute top-full right-0 mt-2 w-80 max-w-[calc(100vw-2rem)] dropdown-panel rounded-2xl z-50 shadow-2xl overflow-hidden"
                     >
                       <div className="p-4 border-b border-line flex items-center justify-between">
                         <span className="text-xs text-text-main font-bold uppercase tracking-widest">系統通知</span>
@@ -2646,8 +2915,8 @@ const HOT_TOPICS = Object.entries(topicCounts)
                               className={`p-4 border-b border-line hover:bg-white/5 transition-colors cursor-pointer relative ${!n.read ? 'bg-bio-glow/5' : ''}`}
                             >
                               {!n.read && <div className="absolute left-1 top-1/2 -translate-y-1/2 w-1 h-8 bg-bio-glow rounded-full" />}
-                              <h4 className="text-sm font-bold text-text-main mb-1">{n.title}</h4>
-                              <p className="text-sm text-text-muted mb-2 leading-relaxed">{n.content}</p>
+                              <h4 className="text-sm font-bold text-text-main mb-1 break-words">{n.title}</h4>
+                              <p className="text-sm text-text-muted mb-2 leading-relaxed break-words">{n.content}</p>
                               {n.deletedLabel && (
                                 <p className="mb-2 inline-flex rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-[0.625rem] font-bold text-amber-400">
                                   {n.deletedLabel}
@@ -2731,20 +3000,36 @@ const HOT_TOPICS = Object.entries(topicCounts)
                           </button>
                         )}
                         {canReviewReports && (
-                          <button 
-                            onClick={() => { setShowReportsPanel(true); setShowSettingsMenu(false); }}
-                            className="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl text-text-main hover:bg-white/10 transition-all text-sm font-medium group"
-                          >
-                            <span className="flex items-center gap-3">
-                              <Flag className="w-4 h-4 text-text-muted group-hover:text-bio-glow" />
-                              檢舉處理
-                            </span>
-                            {pendingReportsCount > 0 && (
-                              <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-[0.625rem] font-bold text-amber-400">
-                                {pendingReportsCount}
+                          <>
+                            <button 
+                              onClick={() => { setShowRangerPanel(true); setShowSettingsMenu(false); }}
+                              className="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl text-text-main hover:bg-white/10 transition-all text-sm font-medium group"
+                            >
+                              <span className="flex items-center gap-3">
+                                <Activity className="w-4 h-4 text-text-muted group-hover:text-bio-glow" />
+                                AI 游騎兵
                               </span>
-                            )}
-                          </button>
+                              {activeRangerCasesCount > 0 && (
+                                <span className="rounded-full bg-red-500/20 px-2 py-0.5 text-[0.625rem] font-bold text-red-300">
+                                  {activeRangerCasesCount}
+                                </span>
+                              )}
+                            </button>
+                            <button 
+                              onClick={() => { setShowReportsPanel(true); setShowSettingsMenu(false); }}
+                              className="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl text-text-main hover:bg-white/10 transition-all text-sm font-medium group"
+                            >
+                              <span className="flex items-center gap-3">
+                                <Flag className="w-4 h-4 text-text-muted group-hover:text-bio-glow" />
+                                檢舉處理
+                              </span>
+                              {pendingReportsCount > 0 && (
+                                <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-[0.625rem] font-bold text-amber-400">
+                                  {pendingReportsCount}
+                                </span>
+                              )}
+                            </button>
+                          </>
                         )}
                         
                         <div className="border-t border-line my-1" />
@@ -2902,18 +3187,12 @@ const HOT_TOPICS = Object.entries(topicCounts)
                           className={`px-4 py-2 rounded-xl text-sm font-bold border transition-all ${
                             isFollowingProfile
                               ? 'bg-bio-glow/10 text-bio-glow border-bio-glow/30'
+                              : hasPendingFollowRequest
+                                ? 'bg-amber-500/10 text-amber-300 border-amber-500/30'
                               : 'bg-bio-glow text-deep-ocean border-bio-glow hover:bg-white'
                           } disabled:opacity-50`}
                         >
-                          {isFollowingProfile ? '已追蹤' : '追蹤'}
-                        </button>
-                        <button
-                          type="button"
-                          disabled={isSavingRelationship || isFriendProfile}
-                          onClick={() => saveFriend(viewingProfile)}
-                          className="px-4 py-2 rounded-xl text-sm font-bold bg-mist-medium text-text-main border border-line hover:bg-mist disabled:opacity-50 transition-all"
-                        >
-                          {isFriendProfile ? '已是好友' : '加好友'}
+                          {isFollowingProfile ? '已追蹤' : hasPendingFollowRequest ? '等待同意' : '申請追蹤'}
                         </button>
                       </div>
                     )}
@@ -3026,19 +3305,72 @@ const HOT_TOPICS = Object.entries(topicCounts)
                          </div>
                       </div>
 
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                        {[
-                          ['發文', profileStats.postCount],
-                          ['好友', profileStats.friendCount],
-                          ['追蹤中', profileStats.followingCount],
-                          ['追蹤者', profileStats.followerCount],
-                        ].map(([label, value]) => (
-                          <div key={label} className="rounded-2xl border border-line bg-mist-light p-3 text-center">
-                            <p className="text-lg font-bold text-text-main font-mono">{value}</p>
-                            <p className="text-[0.625rem] text-text-muted font-bold uppercase tracking-widest mt-0.5">{label}</p>
-                          </div>
-                        ))}
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="rounded-2xl border border-line bg-mist-light p-3 text-center">
+                          <p className="text-lg font-bold text-text-main font-mono">{profileStats.postCount}</p>
+                          <p className="text-[0.625rem] text-text-muted font-bold uppercase tracking-widest mt-0.5">發文</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenSocialList('following')}
+                          className="rounded-2xl border border-line bg-mist-light p-3 text-center transition-all hover:border-bio-glow/40 hover:bg-mist"
+                          title={canViewProfileSocialLists ? '查看追蹤中名單' : '追蹤通過後才能查看名單'}
+                        >
+                          <p className="text-lg font-bold text-text-main font-mono">{profileStats.followingCount}</p>
+                          <p className="text-[0.625rem] text-text-muted font-bold uppercase tracking-widest mt-0.5">追蹤中</p>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenSocialList('followers')}
+                          className="rounded-2xl border border-line bg-mist-light p-3 text-center transition-all hover:border-bio-glow/40 hover:bg-mist"
+                          title={canViewProfileSocialLists ? '查看追蹤者名單' : '追蹤通過後才能查看名單'}
+                        >
+                          <p className="text-lg font-bold text-text-main font-mono">{profileStats.followerCount}</p>
+                          <p className="text-[0.625rem] text-text-muted font-bold uppercase tracking-widest mt-0.5">追蹤者</p>
+                        </button>
                       </div>
+
+                      {socialListModal && (
+                        <div className="rounded-[1.5rem] border border-line bg-mist/70 overflow-hidden">
+                          <div className="flex items-center justify-between border-b border-line px-4 py-3">
+                            <div>
+                              <p className="text-sm font-bold text-text-main">{socialListModal.title}</p>
+                              <p className="text-[0.625rem] text-text-muted">
+                                {canViewProfileSocialLists ? '已通過追蹤關係，可查看名單。' : '追蹤通過後才可查看。'}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setSocialListModal(null)}
+                              className="rounded-full p-2 text-text-muted transition-colors hover:bg-mist-light hover:text-text-main"
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
+                          </div>
+                          <div className="max-h-56 overflow-y-auto custom-scrollbar p-2">
+                            {isLoadingSocialList ? (
+                              <div className="p-6 text-center text-xs text-text-muted">讀取名單中...</div>
+                            ) : socialListModal.items.length > 0 ? (
+                              socialListModal.items.map(item => (
+                                <button
+                                  key={item.uid}
+                                  type="button"
+                                  onClick={() => handleOpenProfile(item.uid)}
+                                  className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors hover:bg-mist-light"
+                                >
+                                  <UserAvatar p={item} className="h-8 w-8 rounded-full border border-line" />
+                                  <div className="min-w-0">
+                                    <p className="truncate text-sm font-bold text-text-main">{item.displayName}</p>
+                                    <p className="text-[0.625rem] font-mono text-text-muted">島民ID: {item.islanderId || item.uid}</p>
+                                  </div>
+                                </button>
+                              ))
+                            ) : (
+                              <div className="p-6 text-center text-xs text-text-muted">目前沒有名單資料</div>
+                            )}
+                          </div>
+                        </div>
+                      )}
 
                       <div className="p-5 bg-mist-light border border-line rounded-[2rem] min-h-[96px]">
                          <p className="text-text-muted text-sm leading-relaxed whitespace-pre-wrap">
@@ -3046,41 +3378,47 @@ const HOT_TOPICS = Object.entries(topicCounts)
                          </p>
                       </div>
 
-                      {isViewingOwnProfile && (
-                        <form
-                          onSubmit={(e) => {
-                            e.preventDefault();
-                            handleAddFriendByIslandId();
-                          }}
-                          className="rounded-[1.5rem] border border-line bg-mist/70 p-4 space-y-3"
-                        >
+                      {isViewingOwnProfile && followRequests.length > 0 && (
+                        <div className="rounded-[1.5rem] border border-line bg-mist/70 p-4 space-y-3">
                           <div>
-                            <p className="text-xs font-bold text-text-main">用島民ID加好友</p>
-                            <p className="text-[0.6875rem] text-text-muted mt-1">輸入對方個人資訊頁上的島民ID，就能加入自己的好友名單。</p>
+                            <p className="text-xs font-bold text-text-main">追蹤申請</p>
+                            <p className="text-[0.6875rem] text-text-muted mt-1">同意後，對方才會成為你的追蹤者。</p>
                           </div>
-                          <div className="flex flex-col sm:flex-row gap-2">
-                            <input
-                              type="text"
-                              value={friendIslandIdInput}
-                              onChange={(e) => setFriendIslandIdInput(e.target.value)}
-                              placeholder="例如：L"
-                              className="flex-1 rounded-xl border border-line bg-mist px-4 py-2.5 text-sm text-text-main outline-none focus:border-bio-glow/50 placeholder:text-text-muted/40"
-                            />
-                            <button
-                              type="submit"
-                              disabled={isSavingRelationship}
-                              className="rounded-xl bg-bio-glow px-4 py-2.5 text-sm font-bold text-deep-ocean hover:bg-white disabled:opacity-50 transition-all"
-                            >
-                              加好友
-                            </button>
+                          <div className="space-y-2">
+                            {followRequests.map(request => (
+                              <div key={request.requesterId} className="flex flex-col gap-3 rounded-2xl border border-line bg-mist-light p-3 sm:flex-row sm:items-center sm:justify-between">
+                                <div className="flex min-w-0 items-center gap-3">
+                                  <UserAvatar p={request} className="h-9 w-9 rounded-full border border-line" />
+                                  <div className="min-w-0">
+                                    <p className="truncate text-sm font-bold text-text-main">{request.displayName}</p>
+                                    <p className="text-[0.625rem] font-mono text-text-muted">島民ID: {request.islanderId || request.requesterId}</p>
+                                  </div>
+                                </div>
+                                <div className="flex gap-2">
+                                  <button
+                                    type="button"
+                                    disabled={isSavingRelationship}
+                                    onClick={() => handleFollowRequestAction(request, 'reject')}
+                                    className="flex-1 rounded-xl border border-line px-3 py-2 text-xs font-bold text-text-muted transition-colors hover:bg-mist sm:flex-none"
+                                  >
+                                    婉拒
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={isSavingRelationship}
+                                    onClick={() => handleFollowRequestAction(request, 'approve')}
+                                    className="flex-1 rounded-xl bg-bio-glow px-3 py-2 text-xs font-bold text-deep-ocean transition-colors hover:bg-white sm:flex-none"
+                                  >
+                                    同意
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
                           </div>
-                          {friendActionMessage && (
-                            <p className="text-[0.6875rem] text-bio-glow">{friendActionMessage}</p>
-                          )}
-                        </form>
+                        </div>
                       )}
 
-                      {!isViewingOwnProfile && friendActionMessage && (
+                      {friendActionMessage && (
                         <div className="rounded-2xl border border-bio-glow/20 bg-bio-glow/10 px-4 py-3 text-sm text-bio-glow">
                           {friendActionMessage}
                         </div>
@@ -3286,18 +3624,14 @@ const HOT_TOPICS = Object.entries(topicCounts)
         <div className="flex-1 max-w-[640px] w-full space-y-8">
           {/* Whisper Bar */}
           <div className="overflow-hidden bg-mist/30 border-y border-white/5 py-2 -mx-4 rounded-xl flex">
-            <motion.div 
-              animate={{ x: [0, "-50%"] }}
-              transition={{ duration: 15, repeat: Infinity, ease: "linear" }}
-              className="flex gap-12 whitespace-nowrap text-[0.625rem] text-bio-glow uppercase tracking-[0.3em] font-bold opacity-60"
-            >
+            <div className="marquee-track flex gap-12 whitespace-nowrap text-[0.625rem] text-bio-glow uppercase tracking-[0.3em] font-bold opacity-60">
               <div className="flex gap-12 shrink-0">
-                <span>馬祖小站目前為 Beta 測試版，歡迎馬祖鄉親協助測試。<br />請勿發布個資、未查證爆料或攻擊性內容。<br />若遇到問題，請截圖回報馬祖小站 LINE 官方帳號。<br />感謝大家一起讓馬祖小站變得更好。</span>
+                <span>馬祖小站目前為 Beta 測試版，歡迎馬祖鄉親協助測試。請勿發布個資、未查證爆料或攻擊性內容。若遇到問題，請截圖回報馬祖小站 LINE 官方帳號。感謝大家一起讓馬祖小站變得更好。</span>
               </div>
               <div className="flex gap-12 shrink-0">
-                <span>馬祖小站目前為 Beta 測試版，歡迎馬祖鄉親協助測試。<br />請勿發布個資、未查證爆料或攻擊性內容。<br />若遇到問題，請截圖回報馬祖小站 LINE 官方帳號。<br />感謝大家一起讓馬祖小站變得更好。</span>
+                <span>馬祖小站目前為 Beta 測試版，歡迎馬祖鄉親協助測試。請勿發布個資、未查證爆料或攻擊性內容。若遇到問題，請截圖回報馬祖小站 LINE 官方帳號。感謝大家一起讓馬祖小站變得更好。</span>
               </div>
-            </motion.div>
+            </div>
           </div>
 
           {/* Welcome Section */}
@@ -3672,6 +4006,179 @@ const HOT_TOPICS = Object.entries(topicCounts)
           </button>
         </div>
       </nav>
+
+      {/* AI Rangers Panel */}
+      <AnimatePresence>
+        {showRangerPanel && canReviewReports && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[110] bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="glass-card w-full max-w-5xl max-h-[calc(100dvh-1.5rem)] rounded-[1.5rem] sm:rounded-[2rem] overflow-hidden shadow-2xl border-line flex flex-col"
+            >
+              <div className="p-4 sm:p-5 border-b border-line bg-mist flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="p-2 bg-bio-glow/15 rounded-xl border border-bio-glow/20">
+                    <Activity className="w-5 h-5 text-bio-glow" />
+                  </div>
+                  <div className="min-w-0">
+                    <h2 className="text-text-main font-bold text-lg">AI 游騎兵戰情室</h2>
+                    <p className="text-text-muted text-[0.625rem] uppercase tracking-widest font-bold">
+                      {activeRangerCasesCount} active / {rangerCases.length} total
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowRangerPanel(false)}
+                  className="p-2 hover:bg-mist-light rounded-full text-text-muted hover:text-text-main transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-4 border-b border-line bg-mist/40">
+                {[
+                  ['低風險', rangerRiskCounts.low || 0, 'emerald'],
+                  ['中風險', rangerRiskCounts.medium || 0, 'amber'],
+                  ['高風險', rangerRiskCounts.high || 0, 'orange'],
+                  ['極高風險', rangerRiskCounts.critical || 0, 'red'],
+                ].map(([label, value, tone]) => (
+                  <div key={label} className="rounded-2xl border border-line bg-mist-light p-3">
+                    <p className={`text-lg font-black font-mono ${
+                      tone === 'red' ? 'text-red-300' : tone === 'orange' ? 'text-orange-300' : tone === 'amber' ? 'text-amber-300' : 'text-emerald-300'
+                    }`}>
+                      {value}
+                    </p>
+                    <p className="text-[0.625rem] text-text-muted font-bold uppercase tracking-widest">{label}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-3">
+                {rangerCases.length === 0 ? (
+                  <div className="py-12 text-center">
+                    <Shield className="w-10 h-10 mx-auto text-text-muted/40 mb-3" />
+                    <p className="text-sm text-text-muted">目前沒有 AI 巡邏案件</p>
+                  </div>
+                ) : (
+                  rangerCases.map(caseItem => {
+                    const status = caseItem.status || 'pending';
+                    const isActive = status === 'pending' || status === 'quarantined';
+                    const targetLabel = caseItem.sourceType === 'post' ? '貼文' : caseItem.sourceType === 'comment' ? '留言' : '留言回覆';
+                    const riskScore = Math.max(0, Math.min(100, Number(caseItem.riskScore || 0)));
+
+                    return (
+                      <div
+                        key={caseItem.id}
+                        className={`rounded-2xl border p-4 transition-colors ${
+                          isActive ? 'border-bio-glow/25 bg-bio-glow/5' : 'border-line bg-mist/60'
+                        }`}
+                      >
+                        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                          <div className="min-w-0 flex-1 space-y-3">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className={`rounded-full border px-2 py-0.5 text-[0.625rem] font-bold uppercase tracking-widest ${getRiskBadgeClass(caseItem.riskLevel)}`}>
+                                {getRiskLabel(caseItem.riskLevel)}
+                              </span>
+                              <span className="rounded-full bg-mist-medium px-2 py-0.5 text-[0.625rem] font-bold text-text-muted">
+                                {status === 'quarantined' ? '已隔離' : status === 'released' ? '已放行' : status === 'removed' ? '已移除' : status === 'dismissed' ? '已忽略' : '待審核'}
+                              </span>
+                              <span className="text-xs text-text-muted font-bold">{targetLabel}</span>
+                              <span className="text-[0.625rem] text-text-muted/70">
+                                {caseItem.createdAt?.toDate ? formatDistanceToNow(caseItem.createdAt.toDate(), { addSuffix: true, locale: zhTW }) : '剛剛'}
+                              </span>
+                            </div>
+
+                            <div>
+                              <div className="mb-1 flex items-center justify-between gap-2 text-[0.625rem] font-bold uppercase tracking-widest text-text-muted">
+                                <span>{caseItem.publicCaseId || caseItem.id}</span>
+                                <span>{riskScore}/100</span>
+                              </div>
+                              <div className="h-2 overflow-hidden rounded-full bg-mist-dark border border-line">
+                                <div
+                                  className={`h-full ${caseItem.riskLevel === 'critical' ? 'bg-red-400' : caseItem.riskLevel === 'high' ? 'bg-orange-400' : caseItem.riskLevel === 'medium' ? 'bg-amber-400' : 'bg-emerald-400'}`}
+                                  style={{ width: `${riskScore}%` }}
+                                />
+                              </div>
+                            </div>
+
+                            <p className="text-sm text-text-main leading-relaxed">{caseItem.summary || '尚無摘要'}</p>
+                            <p className="rounded-xl border border-line bg-mist px-3 py-2 text-xs text-text-muted leading-relaxed">
+                              {caseItem.contentPreview || '內容已被遮罩'}
+                            </p>
+                            <p className="text-xs text-text-muted leading-relaxed">
+                              <span className="font-bold text-text-main">法律風險：</span>{caseItem.legalRisk || '未提供'}
+                            </p>
+                            {caseItem.categories && caseItem.categories.length > 0 && (
+                              <div className="flex flex-wrap gap-1.5">
+                                {caseItem.categories.map(label => (
+                                  <span key={label} className="rounded-full border border-line bg-mist-light px-2 py-0.5 text-[0.625rem] text-text-muted">
+                                    {label}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="flex shrink-0 flex-wrap gap-2 lg:w-56 lg:justify-end">
+                            <button
+                              onClick={() => handleOpenModerationTarget(caseItem)}
+                              className="flex items-center gap-1.5 rounded-xl border border-line bg-mist px-3 py-2 text-xs font-bold text-text-main hover:border-bio-glow/40 hover:text-bio-glow transition-colors"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" />
+                              前往內容
+                            </button>
+                            {isActive && (
+                              <>
+                                <button
+                                  disabled={isRunningRangerAction}
+                                  onClick={() => handleRangerAction(caseItem, 'release')}
+                                  className="rounded-xl bg-emerald-500/15 px-3 py-2 text-xs font-bold text-emerald-300 hover:bg-emerald-500/25 transition-colors disabled:opacity-50"
+                                >
+                                  放行
+                                </button>
+                                <button
+                                  disabled={isRunningRangerAction}
+                                  onClick={() => handleRangerAction(caseItem, 'quarantine')}
+                                  className="rounded-xl bg-amber-500/15 px-3 py-2 text-xs font-bold text-amber-300 hover:bg-amber-500/25 transition-colors disabled:opacity-50"
+                                >
+                                  隔離
+                                </button>
+                                <button
+                                  disabled={isRunningRangerAction}
+                                  onClick={() => handleRangerAction(caseItem, 'remove')}
+                                  className="rounded-xl bg-red-500/15 px-3 py-2 text-xs font-bold text-red-300 hover:bg-red-500/25 transition-colors disabled:opacity-50"
+                                >
+                                  移除
+                                </button>
+                              </>
+                            )}
+                            {status === 'pending' && (
+                              <button
+                                disabled={isRunningRangerAction}
+                                onClick={() => handleRangerAction(caseItem, 'mark_reviewed')}
+                                className="rounded-xl bg-mist px-3 py-2 text-xs font-bold text-text-muted hover:text-text-main transition-colors disabled:opacity-50"
+                              >
+                                已審
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Station Master Reports Panel */}
       <AnimatePresence>
@@ -4145,6 +4652,7 @@ function PostCard({
   const [authorProfile, setAuthorProfile] = useState<any>(null);
   const commentsUnsubscribeRef = React.useRef<(() => void) | null>(null);
   const repliesUnsubscribeRef = React.useRef<Record<string, () => void>>({});
+  const postIsModerationHidden = isModerationHidden(post.moderationStatus);
 
   React.useEffect(() => {
     if (user && !post.id.startsWith('sample-')) {
@@ -4972,11 +5480,20 @@ function PostCard({
           </div>
         </div>
 
-        <div className="text-text-main/90 leading-relaxed whitespace-pre-wrap text-[0.9375rem] selection:bg-blue-500/30">
-          {renderContentWithMentions(post.content)}
-        </div>
+        {postIsModerationHidden ? (
+          <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3">
+            <p className="text-sm font-bold text-amber-300">{getModerationTombstoneText(post.moderationStatus)}</p>
+            {post.moderationPublicCaseId && (
+              <p className="mt-1 text-[0.625rem] font-mono text-amber-300/70">案件 {post.moderationPublicCaseId}</p>
+            )}
+          </div>
+        ) : (
+          <div className="user-content-text text-text-main/90 leading-relaxed whitespace-pre-wrap selection:bg-blue-500/30">
+            {renderContentWithMentions(post.content)}
+          </div>
+        )}
 
-        {trustedImageUrls.length > 0 && (
+        {!postIsModerationHidden && trustedImageUrls.length > 0 && (
           <div className={`grid gap-2 ${
             trustedImageUrls.length === 1 ? 'grid-cols-1' : 
             trustedImageUrls.length === 2 ? 'grid-cols-2' : 
@@ -5002,11 +5519,13 @@ function PostCard({
           </div>
         )}
 
+        {!postIsModerationHidden && (
         <div className="flex items-center gap-6 pt-5 border-t border-line">
           <ReactionButton
             currentReaction={selectedReaction}
             count={likes}
             onSelect={handleReaction}
+            reactionCollectionPath={`posts/${post.id}/likes`}
           />
           <button 
             onClick={fetchComments}
@@ -5016,10 +5535,11 @@ function PostCard({
             {post.commentsCount}
           </button>
         </div>
+        )}
       </div>
 
       <AnimatePresence>
-        {showComments && (
+        {showComments && !postIsModerationHidden && (
           <motion.div 
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
@@ -5135,15 +5655,26 @@ function PostCard({
                             )}
                           </div>
                         </div>
-                        <p className="text-sm text-text-main/90 leading-relaxed whitespace-pre-wrap">
-                          {renderContentWithMentions(comment.content)}
-                        </p>
+                        {isModerationHidden(comment.moderationStatus) ? (
+                          <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2">
+                            <p className="text-xs font-bold text-amber-300">{getModerationTombstoneText(comment.moderationStatus)}</p>
+                            {comment.moderationPublicCaseId && (
+                              <p className="mt-1 text-[0.5625rem] font-mono text-amber-300/70">案件 {comment.moderationPublicCaseId}</p>
+                            )}
+                          </div>
+                        ) : (
+                          <p className="user-content-text-sm text-text-main/90 leading-relaxed whitespace-pre-wrap">
+                            {renderContentWithMentions(comment.content)}
+                          </p>
+                        )}
+                        {!isModerationHidden(comment.moderationStatus) && (
                         <div className="flex items-center gap-4 pt-3">
                           <ReactionButton
                             compact
                             currentReaction={commentReactions[comment.id]}
                             count={comment.likesCount || 0}
                             onSelect={(reaction) => handleCommentReaction(comment, reaction)}
+                            reactionCollectionPath={`posts/${post.id}/comments/${comment.id}/likes`}
                           />
                           {user && (
                             <button
@@ -5156,9 +5687,11 @@ function PostCard({
                             </button>
                           )}
                         </div>
+                        )}
                       </div>
                     </div>
 
+                    {!isModerationHidden(comment.moderationStatus) && (
                     <div className="ml-10 space-y-3 border-l border-line/80 pl-4">
                       {(comment.replies || []).map(reply => (
                         <div key={reply.id} id={`reply-${reply.id}`} className="flex gap-2.5 scroll-mt-24">
@@ -5226,17 +5759,29 @@ function PostCard({
                                 )}
                               </div>
                             </div>
-                            <p className="text-[0.8125rem] text-text-main/90 leading-relaxed whitespace-pre-wrap">
-                              {renderContentWithMentions(reply.content)}
-                            </p>
+                            {isModerationHidden(reply.moderationStatus) ? (
+                              <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2">
+                                <p className="text-xs font-bold text-amber-300">{getModerationTombstoneText(reply.moderationStatus)}</p>
+                                {reply.moderationPublicCaseId && (
+                                  <p className="mt-1 text-[0.5625rem] font-mono text-amber-300/70">案件 {reply.moderationPublicCaseId}</p>
+                                )}
+                              </div>
+                            ) : (
+                              <p className="user-content-text-xs text-text-main/90 leading-relaxed whitespace-pre-wrap">
+                                {renderContentWithMentions(reply.content)}
+                              </p>
+                            )}
+                            {!isModerationHidden(reply.moderationStatus) && (
                             <div className="flex items-center gap-3 pt-2">
                               <ReactionButton
                                 compact
                                 currentReaction={replyReactions[getReplyLikeKey(comment.id, reply.id)]}
                                 count={reply.likesCount || 0}
                                 onSelect={(reaction) => handleReplyReaction(comment, reply, reaction)}
+                                reactionCollectionPath={`posts/${post.id}/comments/${comment.id}/replies/${reply.id}/likes`}
                               />
                             </div>
+                            )}
                           </div>
                         </div>
                       ))}
@@ -5271,6 +5816,7 @@ function PostCard({
                         </form>
                       )}
                     </div>
+                    )}
                   </div>
                 ))}
               </div>

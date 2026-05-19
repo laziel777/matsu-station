@@ -9,6 +9,7 @@
   --surface-color: #171B22;
   --border-color: rgba(255, 255, 255, 0.12);
   --glass-overlay: rgba(23, 27, 34, 0.72);
+  --matsu-user-font-scale: 1;
 }
 
 :root[data-theme-mode="light"] {
@@ -114,6 +115,35 @@
 @keyframes pulse-glow {
   0%, 100% { box-shadow: 0 0 15px rgba(245,158,11,0.5); transform: scale(1); }
   50% { box-shadow: 0 0 25px rgba(245,158,11,0.8), 0 0 40px rgba(59,130,246,0.3); transform: scale(1.02); }
+}
+
+@keyframes matsu-marquee {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(-50%, 0, 0); }
+}
+
+.marquee-track {
+  animation: matsu-marquee 28s linear infinite;
+  transform: translate3d(0, 0, 0);
+  will-change: transform;
+}
+
+.user-content-text {
+  font-size: calc(0.9375rem * var(--matsu-user-font-scale));
+}
+
+.user-content-text-sm {
+  font-size: calc(0.875rem * var(--matsu-user-font-scale));
+}
+
+.user-content-text-xs {
+  font-size: calc(0.8125rem * var(--matsu-user-font-scale));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marquee-track {
+    animation: none;
+  }
 }
 
 /* Custom Scrollbar */

@@ -1,6 +1,7 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, doc, getDoc, getDocFromServer, setDoc, updateDoc, collection, getDocs, addDoc, query, orderBy, onSnapshot, where, serverTimestamp, increment, deleteDoc, enableNetwork } from 'firebase/firestore';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import firebaseConfig from '../../firebase-applet-config.json';
 
@@ -16,6 +17,9 @@ export const googleProvider = new GoogleAuthProvider();
 
 // Initialize Storage
 export const storage = getStorage(app);
+
+// Initialize Cloud Functions
+export const functions = getFunctions(app, 'asia-east1');
 
 export enum OperationType {
   CREATE = 'create',
@@ -97,5 +101,6 @@ export {
   getDocs,
   serverTimestamp,
   increment,
-  deleteDoc
+  deleteDoc,
+  httpsCallable
 };
