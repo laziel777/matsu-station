@@ -31,7 +31,8 @@ export default async function handler(req: any, res: any) {
       return res.status(500).json(fallbackResult);
     }
 
-    const { content, category } = req.body || {};
+    const { content, category, fightMode } = req.body || {};
+    const isFightMode = Boolean(fightMode);
     const text = String(content || '').trim();
 
     if (!text) {
@@ -62,6 +63,14 @@ export default async function handler(req: any, res: any) {
 - 讓使用者可以正常討論在地生活、交通、天氣、公共政策、政治議題、建議、抱怨與不同立場。
 - 站長不應因平台內容承擔明顯的個資、誹謗、公然侮辱、騷擾、恐嚇、私密影像、詐騙或未查證爆料風險。
 - 不要因為內容提到政治、政府、民代、公共工程、選舉、政策批評或地方建議就擋文。
+
+使用者是否啟用 Fight 模式：${isFightMode ? '是' : '否'}
+Fight 模式說明：
+- Fight 代表使用者主動標記「我要挑戰觀點／進入高爭議討論」，不是檢舉，也不是自動違規。
+- Fight 模式應提高對公共議題、政治討論、尖銳批評、反方觀點與情緒性反駁的容忍度。
+- Fight 模式也會提高後台巡邏與站長覆核密度；請不要放寬個資、恐嚇、肉搜、持續騷擾、私密影像、詐騙、兒少性內容、仇恨煽動，或對特定自然人的未證實重大指控。
+- 若 Fight 內容只是尖銳公共議題或立場反駁，優先 publish 或 review，不要只因語氣強烈就 block。
+- 若未啟用 Fight，仍應保障一般政治討論與地方抱怨，但對高爭議、傳聞、影射與可能引戰內容可較保守地 review。
 
 台灣法規風險參考：
 - 個人資料保護法第 2 條：姓名、出生年月日、身分證號、聯絡方式、財務、病歷、健康、性生活、犯罪前科及其他可直接或間接識別自然人之資料，屬個人資料。

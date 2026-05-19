@@ -15,9 +15,14 @@ const DEFAULT_FONT_SIZE = 100;
 const POST_CHAR_LIMIT = 500;
 const COMMENT_CHAR_LIMIT = 250;
 const POST_COOLDOWN_MS = 30 * 1000;
+const FIGHT_POST_COOLDOWN_MS = 5 * 60 * 1000;
 const NEW_ACCOUNT_WINDOW_MS = 30 * 60 * 1000;
 const DAILY_POST_LIMIT = 20;
+const DAILY_FIGHT_POST_LIMIT = 5;
+const DAILY_COMMENT_LIMIT = 120;
+const DAILY_FIGHT_COMMENT_LIMIT = 30;
 const ANTI_ABUSE_NOTICE = '為了防止惡意攻擊、複製垃圾文、洗文與攻擊性內容，馬祖小站會限制發文頻率。';
+const FIGHT_NOTICE = 'Fight 模式會提高討論容忍度，但也會提高 AI 巡邏與站長覆核密度。請避免個資、威脅、肉搜與未證實重大指控。';
 const LINE_OFFICIAL_URL = 'https://lin.ee/nn0RaOc';
 const REACTION_OPTIONS = ['❤️', '😂', '😭', '🔥', '👍', '👎', '😡', '😍', '🤔', '😮'];
 const DEFAULT_REACTION = '❤️';
@@ -108,6 +113,9 @@ interface Post {
   aiTag?: string;
   aiSummary?: string;
   aiAction?: string;
+  fightMode?: boolean;
+  userRiskLabel?: 'normal' | 'fight' | string;
+  aiGovernanceMode?: 'normal' | 'fight' | 'downgraded' | 'escalated' | string;
   likesCount: number;
   commentsCount: number;
   imageUrls?: string[];
@@ -125,6 +133,9 @@ interface Comment {
   moderationPublicCaseId?: string;
   moderationRiskLevel?: 'low' | 'medium' | 'high' | 'critical' | string;
   moderationRiskScore?: number;
+  fightMode?: boolean;
+  userRiskLabel?: 'normal' | 'fight' | string;
+  aiGovernanceMode?: 'normal' | 'fight' | 'downgraded' | 'escalated' | string;
   likesCount?: number;
   repliesCount?: number;
   replies?: CommentReply[];
@@ -142,6 +153,9 @@ interface CommentReply {
   moderationPublicCaseId?: string;
   moderationRiskLevel?: 'low' | 'medium' | 'high' | 'critical' | string;
   moderationRiskScore?: number;
+  fightMode?: boolean;
+  userRiskLabel?: 'normal' | 'fight' | string;
+  aiGovernanceMode?: 'normal' | 'fight' | 'downgraded' | 'escalated' | string;
   likesCount?: number;
   createdAt: any;
 }
@@ -353,6 +367,52 @@ const getTimestampMillis = (value: any) => {
 const getAccountAgeMs = (user: any) => {
   const createdAt = user?.metadata?.creationTime ? Date.parse(user.metadata.creationTime) : 0;
   return createdAt ? Date.now() - createdAt : Number.POSITIVE_INFINITY;
+};
+
+const getTodayStartMs = () => {
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  return todayStart.getTime();
+};
+
+const getClientUsageKey = (uid: string, kind: 'comment', fightMode: boolean) => {
+  return `matsu-usage:${uid}:${kind}:${fightMode ? 'fight' : 'normal'}`;
+};
+
+const readClientUsage = (uid: string, kind: 'comment', fightMode: boolean) => {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(getClientUsageKey(uid, kind, fightMode));
+    const values = raw ? JSON.parse(raw) : [];
+    const todayStartMs = getTodayStartMs();
+    return Array.isArray(values)
+      ? values.map(Number).filter(value => Number.isFinite(value) && value >= todayStartMs)
+      : [];
+  } catch {
+    return [];
+  }
+};
+
+const writeClientUsage = (uid: string, kind: 'comment', fightMode: boolean, values: number[]) => {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(getClientUsageKey(uid, kind, fightMode), JSON.stringify(values.slice(-180)));
+};
+
+const recordClientUsage = (uid: string, kind: 'comment', fightMode: boolean) => {
+  const values = readClientUsage(uid, kind, fightMode);
+  values.push(Date.now());
+  writeClientUsage(uid, kind, fightMode, values);
+};
+
+const getFightModeLabel = (fightMode?: boolean) => {
+  return fightMode ? 'FIGHT｜挑戰觀點' : '一般討論';
+};
+
+const getGovernanceModeLabel = (mode?: string) => {
+  if (mode === 'fight') return 'Fight 監管';
+  if (mode === 'downgraded') return 'AI 降級';
+  if (mode === 'escalated') return 'AI 升級';
+  return '一般巡邏';
 };
 
 const isTrustedPostImageUrl = (url: string) => {
@@ -725,6 +785,7 @@ export default function App() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [newPostContent, setNewPostContent] = useState('');
   const [newPostCategory, setNewPostCategory] = useState('在地生活');
+  const [isPostFightMode, setIsPostFightMode] = useState(false);
   const [isPosting, setIsPosting] = useState(false);
   const [postingMessage, setPostingMessage] = useState('');
   const [postError, setPostError] = useState<string | null>(null);
@@ -1641,27 +1702,38 @@ const HOT_TOPICS = Object.entries(topicCounts)
     setImagePreviews(newPreviews);
   };
 
-  const getPostRateLimitMessage = () => {
+  const getPostRateLimitMessage = (fightMode: boolean) => {
     if (!user) return null;
+    if (user.uid === STATION_MASTER_UID) return null;
 
     const now = Date.now();
     const userPosts = posts.filter(post => post.authorId === user.uid);
-    const latestPostTime = Math.max(0, ...userPosts.map(post => getTimestampMillis(post.createdAt)));
+    const modePosts = userPosts.filter(post => Boolean(post.fightMode) === fightMode);
+    const latestPostTime = Math.max(0, ...modePosts.map(post => getTimestampMillis(post.createdAt)));
+    const cooldownMs = fightMode ? FIGHT_POST_COOLDOWN_MS : POST_COOLDOWN_MS;
 
-    if (latestPostTime && now - latestPostTime < POST_COOLDOWN_MS) {
-      const secondsLeft = Math.ceil((POST_COOLDOWN_MS - (now - latestPostTime)) / 1000);
-      return `${ANTI_ABUSE_NOTICE} 請再等 ${secondsLeft} 秒後再發文。`;
+    if (latestPostTime && now - latestPostTime < cooldownMs) {
+      const secondsLeft = Math.ceil((cooldownMs - (now - latestPostTime)) / 1000);
+      return fightMode
+        ? `${FIGHT_NOTICE} Fight 發文請再等 ${secondsLeft} 秒。`
+        : `${ANTI_ABUSE_NOTICE} 請再等 ${secondsLeft} 秒後再發文。`;
     }
 
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayPostCount = userPosts.filter(post => getTimestampMillis(post.createdAt) >= todayStart.getTime()).length;
+    const todayPostCount = modePosts.filter(post => getTimestampMillis(post.createdAt) >= getTodayStartMs()).length;
+    const dailyLimit = fightMode ? DAILY_FIGHT_POST_LIMIT : DAILY_POST_LIMIT;
 
-    if (todayPostCount >= DAILY_POST_LIMIT) {
-      return `${ANTI_ABUSE_NOTICE} 每個帳號一天最多 ${DAILY_POST_LIMIT} 篇，請明天再發。`;
+    if (todayPostCount >= dailyLimit) {
+      return fightMode
+        ? `${FIGHT_NOTICE} 每個帳號一天最多 ${DAILY_FIGHT_POST_LIMIT} 篇 Fight 發文，請明天再使用。`
+        : `${ANTI_ABUSE_NOTICE} 每個帳號一天最多 ${DAILY_POST_LIMIT} 篇，請明天再發。`;
     }
 
     const accountAgeMs = getAccountAgeMs(user);
+    if (fightMode && accountAgeMs < NEW_ACCOUNT_WINDOW_MS) {
+      const minutesLeft = Math.ceil((NEW_ACCOUNT_WINDOW_MS - accountAgeMs) / 60000);
+      return `Fight 模式涉及高爭議討論，新帳號需再等待約 ${minutesLeft} 分鐘才能使用。這是為了防止洗版、惡意攻擊與法律風險。`;
+    }
+
     if (accountAgeMs < NEW_ACCOUNT_WINDOW_MS && userPosts.length > 0) {
       const minutesLeft = Math.ceil((NEW_ACCOUNT_WINDOW_MS - accountAgeMs) / 60000);
       return `${ANTI_ABUSE_NOTICE} 新帳號前 30 分鐘只能先發一篇，請再等約 ${minutesLeft} 分鐘。`;
@@ -1693,7 +1765,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
         return;
       }
 
-      const rateLimitMessage = getPostRateLimitMessage();
+      const rateLimitMessage = getPostRateLimitMessage(isPostFightMode);
       if (rateLimitMessage) {
         setPostError(rateLimitMessage);
         setIsPosting(false);
@@ -1709,6 +1781,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
         body: JSON.stringify({
           content: rawContent,
           category: newPostCategory,
+          fightMode: isPostFightMode,
         }),
       });
 
@@ -1759,6 +1832,8 @@ const HOT_TOPICS = Object.entries(topicCounts)
         aiTag: moderation.tag || postCategory,
         aiSummary: moderation.summary || '',
         aiAction: moderation.action || 'publish',
+        fightMode: isPostFightMode,
+        userRiskLabel: isPostFightMode ? 'fight' : 'normal',
         likesCount: 0,
         commentsCount: 0,
         reportsCount: 0,
@@ -1785,6 +1860,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
       setTimeout(() => {
         setNewPostContent('');
         setNewPostCategory('在地生活');
+        setIsPostFightMode(false);
         setSelectedImages([]);
         setImagePreviews([]);
         setIsPosting(false);
@@ -3426,7 +3502,34 @@ const HOT_TOPICS = Object.entries(topicCounts)
                       字數 {countChars(newPostContent)}/{POST_CHAR_LIMIT}
                     </span>
                   </div>
-                  
+
+                  <div className={`rounded-2xl border px-4 py-3 transition-all ${
+                    isPostFightMode
+                      ? 'border-amber-500/35 bg-amber-500/10'
+                      : 'border-line bg-mist/30'
+                  }`}>
+                    <button
+                      type="button"
+                      disabled={isPosting}
+                      onClick={() => setIsPostFightMode(previous => !previous)}
+                      className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-black uppercase tracking-widest transition-all disabled:opacity-50 ${
+                        isPostFightMode
+                          ? 'border-amber-400/50 bg-amber-400 text-deep-ocean shadow-lg shadow-amber-500/20'
+                          : 'border-line bg-mist text-text-muted hover:border-amber-400/40 hover:text-amber-300'
+                      }`}
+                    >
+                      <Zap className="w-3.5 h-3.5" />
+                      FIGHT｜挑戰觀點
+                    </button>
+                    <p className={`mt-2 text-[0.6875rem] leading-relaxed ${
+                      isPostFightMode ? 'text-amber-200/80' : 'text-text-muted/45'
+                    }`}>
+                      {isPostFightMode
+                        ? FIGHT_NOTICE
+                        : '一般模式維持較鬆的日常交流限制；要發表尖銳公共議題或反駁時，可切換 Fight 模式。'}
+                    </p>
+                  </div>
+                   
                   {postError && (
                     <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
                       {postError}
@@ -4095,8 +4198,10 @@ function PostCard({
   const [replyReactions, setReplyReactions] = useState<Record<string, string>>({});
   const [replyingToCommentId, setReplyingToCommentId] = useState<string | null>(null);
   const [replyInputs, setReplyInputs] = useState<Record<string, string>>({});
+  const [replyFightModes, setReplyFightModes] = useState<Record<string, boolean>>({});
   const [highlightedDiscussionId, setHighlightedDiscussionId] = useState<string | null>(null);
   const [newComment, setNewComment] = useState('');
+  const [isCommentFightMode, setIsCommentFightMode] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [authorProfile, setAuthorProfile] = useState<any>(null);
@@ -4378,6 +4483,27 @@ function PostCard({
     return () => window.clearTimeout(clearHighlight);
   }, [discussionTarget?.nonce, showComments, comments, post.id]);
 
+  const getCommentRateLimitMessage = (fightMode: boolean, label = '留言') => {
+    if (!user) return null;
+    if (user.uid === STATION_MASTER_UID) return null;
+
+    const accountAgeMs = getAccountAgeMs(user);
+    if (fightMode && accountAgeMs < NEW_ACCOUNT_WINDOW_MS) {
+      const minutesLeft = Math.ceil((NEW_ACCOUNT_WINDOW_MS - accountAgeMs) / 60000);
+      return `Fight ${label}涉及高爭議討論，新帳號需再等待約 ${minutesLeft} 分鐘才能使用。這是為了防止洗版、惡意攻擊與法律風險。`;
+    }
+
+    const usage = readClientUsage(user.uid, 'comment', fightMode);
+    const dailyLimit = fightMode ? DAILY_FIGHT_COMMENT_LIMIT : DAILY_COMMENT_LIMIT;
+    if (usage.length >= dailyLimit) {
+      return fightMode
+        ? `${FIGHT_NOTICE} 每個帳號一天最多 ${DAILY_FIGHT_COMMENT_LIMIT} 則 Fight 留言/回覆，請明天再使用。`
+        : `${ANTI_ABUSE_NOTICE} 每個帳號一天最多 ${DAILY_COMMENT_LIMIT} 則留言/回覆，請明天再發。`;
+    }
+
+    return null;
+  };
+
   const handleAddComment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !newComment.trim()) return;
@@ -4389,6 +4515,12 @@ function PostCard({
         return;
       }
 
+      const rateLimitMessage = getCommentRateLimitMessage(isCommentFightMode, '留言');
+      if (rateLimitMessage) {
+        alert(rateLimitMessage);
+        return;
+      }
+
       const cleanComment = filterContent(newComment);
       const senderName = profile?.displayName || user.displayName || '匿名島民';
       const commentRef = await addDoc(collection(db, 'posts', post.id, 'comments'), {
@@ -4397,6 +4529,8 @@ function PostCard({
         authorPhoto: profile?.photoURL || user.photoURL || DEFAULT_ISLANDER_PHOTO,
         authorRole: user.uid === STATION_MASTER_UID ? 'admin' : 'user',
         content: cleanComment,
+        fightMode: isCommentFightMode,
+        userRiskLabel: isCommentFightMode ? 'fight' : 'normal',
         likesCount: 0,
         repliesCount: 0,
         createdAt: serverTimestamp(),
@@ -4433,6 +4567,8 @@ function PostCard({
       }
 
       setNewComment('');
+      setIsCommentFightMode(false);
+      recordClientUsage(user.uid, 'comment', isCommentFightMode);
     } catch (err) {
       console.error(err);
       handleFirestoreError(err, OperationType.CREATE, commentPath);
@@ -4609,12 +4745,19 @@ function PostCard({
     if (!user) return;
     const replyText = (replyInputs[comment.id] || '').trim();
     if (!replyText) return;
+    const isReplyFightMode = Boolean(replyFightModes[comment.id]);
 
     const replyPath = `posts/${post.id}/comments/${comment.id}/replies`;
 
     try {
       if (countChars(replyText) > COMMENT_CHAR_LIMIT) {
         alert(`回覆最多 ${COMMENT_CHAR_LIMIT} 字。${ANTI_ABUSE_NOTICE}`);
+        return;
+      }
+
+      const rateLimitMessage = getCommentRateLimitMessage(isReplyFightMode, '回覆');
+      if (rateLimitMessage) {
+        alert(rateLimitMessage);
         return;
       }
 
@@ -4627,6 +4770,8 @@ function PostCard({
         authorPhoto: profile?.photoURL || user.photoURL || DEFAULT_ISLANDER_PHOTO,
         authorRole: user.uid === STATION_MASTER_UID ? 'admin' : 'user',
         content: cleanReply,
+        fightMode: isReplyFightMode,
+        userRiskLabel: isReplyFightMode ? 'fight' : 'normal',
         likesCount: 0,
         createdAt: serverTimestamp(),
       });
@@ -4664,7 +4809,9 @@ function PostCard({
       }
 
       setReplyInputs(previous => ({ ...previous, [comment.id]: '' }));
+      setReplyFightModes(previous => ({ ...previous, [comment.id]: false }));
       setReplyingToCommentId(null);
+      recordClientUsage(user.uid, 'comment', isReplyFightMode);
     } catch (err) {
       console.error(err);
       handleFirestoreError(err, OperationType.CREATE, replyPath);
@@ -4811,7 +4958,7 @@ function PostCard({
               <div className="absolute inset-0 rounded-full border border-line group-hover:border-bio-glow transition-colors" />
             </button>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <h3 
                   onClick={() => onOpenProfile(post.authorId)} 
                   className={`font-bold text-sm leading-none cursor-pointer hover:opacity-80 transition-all ${isPostStationMaster ? 'rgb-text' : 'text-text-main/90 hover:text-bio-glow'}`}
@@ -4829,6 +4976,16 @@ function PostCard({
                   </span>
                 )}
                 {post.authorId === user?.uid && <span className="text-[0.625rem] bg-blue-500/20 text-blue-300 px-1.5 rounded-full font-bold border border-blue-500/20">你</span>}
+                {post.fightMode && (
+                  <span className="text-[0.5625rem] rounded-sm border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 font-black uppercase tracking-tight text-amber-300">
+                    {getFightModeLabel(post.fightMode)}
+                  </span>
+                )}
+                {post.aiGovernanceMode && post.aiGovernanceMode !== 'normal' && (
+                  <span className="text-[0.5625rem] rounded-sm border border-bio-glow/20 bg-bio-glow/10 px-1.5 py-0.5 font-bold text-bio-glow">
+                    {getGovernanceModeLabel(post.aiGovernanceMode)}
+                  </span>
+                )}
               </div>
               <p className="text-[0.625rem] text-text-muted font-display mt-1">
                 {post.createdAt?.toDate ? formatDistanceToNow(post.createdAt.toDate(), { addSuffix: true, locale: zhTW }) : '剛剛'}
@@ -4995,6 +5152,23 @@ function PostCard({
                         字數 {countChars(newComment)}/{COMMENT_CHAR_LIMIT}
                       </span>
                     </div>
+                    <div className="flex flex-wrap items-center gap-2 px-1">
+                      <button
+                        type="button"
+                        onClick={() => setIsCommentFightMode(previous => !previous)}
+                        className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[0.625rem] font-black uppercase tracking-widest transition-all ${
+                          isCommentFightMode
+                            ? 'border-amber-400/50 bg-amber-400 text-deep-ocean'
+                            : 'border-line bg-mist/60 text-text-muted hover:text-amber-300'
+                        }`}
+                      >
+                        <Zap className="w-3 h-3" />
+                        FIGHT
+                      </button>
+                      <span className="text-[0.5625rem] text-text-muted/45">
+                        {isCommentFightMode ? '較高容忍度，也會進入更密集巡邏。' : '一般留言只有每日次數限制，不設冷卻。'}
+                      </span>
+                    </div>
                   </div>
                   <button className="self-start bg-mist/50 text-text-main p-2.5 rounded-xl hover:bg-mist transition-all border border-line cursor-pointer active:scale-95">
                     <Send className="w-4 h-4" />
@@ -5031,6 +5205,16 @@ function PostCard({
                             {comment.authorId === STATION_MASTER_UID && (
                               <span className="text-[0.5rem] bg-gradient-to-r from-red-500 via-yellow-500 to-blue-500 text-white px-1 rounded-sm font-bold uppercase shadow-[0_0_5px_rgba(255,255,255,0.2)]">
                                 站長
+                              </span>
+                            )}
+                            {comment.fightMode && (
+                              <span className="text-[0.5rem] rounded-sm border border-amber-400/30 bg-amber-400/10 px-1 font-black uppercase tracking-tight text-amber-300">
+                                FIGHT
+                              </span>
+                            )}
+                            {comment.aiGovernanceMode && comment.aiGovernanceMode !== 'normal' && (
+                              <span className="text-[0.5rem] rounded-sm border border-bio-glow/20 bg-bio-glow/10 px-1 font-bold text-bio-glow">
+                                {getGovernanceModeLabel(comment.aiGovernanceMode)}
                               </span>
                             )}
                           </div>
@@ -5150,6 +5334,16 @@ function PostCard({
                                     站長
                                   </span>
                                 )}
+                                {reply.fightMode && (
+                                  <span className="text-[0.5rem] rounded-sm border border-amber-400/30 bg-amber-400/10 px-1 font-black uppercase tracking-tight text-amber-300">
+                                    FIGHT
+                                  </span>
+                                )}
+                                {reply.aiGovernanceMode && reply.aiGovernanceMode !== 'normal' && (
+                                  <span className="text-[0.5rem] rounded-sm border border-bio-glow/20 bg-bio-glow/10 px-1 font-bold text-bio-glow">
+                                    {getGovernanceModeLabel(reply.aiGovernanceMode)}
+                                  </span>
+                                )}
                               </div>
                               <div className="flex items-center gap-2 shrink-0">
                                 <span className="text-[0.5625rem] text-text-muted font-display">
@@ -5231,6 +5425,18 @@ function PostCard({
                               onChange={(nextValue) => setReplyInputs(previous => ({ ...previous, [comment.id]: limitChars(nextValue, COMMENT_CHAR_LIMIT) }))}
                             />
                             <div className="flex justify-end px-1">
+                              <button
+                                type="button"
+                                onClick={() => setReplyFightModes(previous => ({ ...previous, [comment.id]: !previous[comment.id] }))}
+                                className={`mr-auto inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[0.5625rem] font-black uppercase tracking-widest transition-all ${
+                                  replyFightModes[comment.id]
+                                    ? 'border-amber-400/50 bg-amber-400 text-deep-ocean'
+                                    : 'border-line bg-mist/60 text-text-muted hover:text-amber-300'
+                                }`}
+                              >
+                                <Zap className="w-2.5 h-2.5" />
+                                FIGHT
+                              </button>
                               <span className={`text-[0.625rem] font-mono font-bold ${
                                 countChars(replyInputs[comment.id] || '') >= COMMENT_CHAR_LIMIT ? 'text-amber-400' : 'text-text-muted'
                               }`}>

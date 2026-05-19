@@ -689,6 +689,17 @@ function getRecommendedAction(riskLevel) {
   return "allow";
 }
 
+function getAiGovernanceMode(payload, analysis) {
+  const fightMode = Boolean(payload.fightMode);
+  const riskLevel = analysis?.riskLevel || "low";
+  const elevated = ["medium", "high", "critical"].includes(riskLevel);
+
+  if (fightMode && !elevated) return "downgraded";
+  if (fightMode) return "fight";
+  if (elevated) return "escalated";
+  return "normal";
+}
+
 function stripJsonFence(text) {
   return String(text || "")
     .trim()
@@ -741,7 +752,9 @@ function normalizePatrolAnalysis(rawAnalysis, content) {
   };
 }
 
-function buildPatrolPrompt({ sourceType, content, category }) {
+function buildPatrolPrompt({ sourceType, content, category, fightMode, userRiskLabel }) {
+  const fightEnabled = Boolean(fightMode);
+
   return `
 You are AI Rangers for Matsu Station, a Taiwan local community forum.
 Your job is not censorship. Your job is legal/safety risk triage for a human station master.
@@ -749,6 +762,17 @@ Protect lawful speech under Taiwan's democratic free-expression norms while redu
 
 Analyze this ${sourceType} in Traditional Chinese context.
 Return JSON only. No markdown.
+
+User-selected mode:
+- fightMode: ${fightEnabled ? "true" : "false"}
+- userRiskLabel: ${userRiskLabel || (fightEnabled ? "fight" : "normal")}
+
+Fight mode policy:
+- Fight means the user voluntarily labels the content as a sharper public-issue challenge or rebuttal. It is not a violation by itself.
+- Fight should increase tolerance for political discussion, public-interest disputes, strong criticism, sarcasm, profanity, and heated counterarguments.
+- Fight also increases monitoring density. It must never lower the bottom line for personal data, doxxing, direct threats, targeted harassment, private sexual images, scams, child sexual content, hate incitement, or concrete unverified serious accusations against identifiable natural persons.
+- If fightMode is true but the content is actually low-risk, classify riskLevel as low and explain that it can be downgraded to normal governance.
+- If fightMode is false but the content still carries real legal or safety risk, classify it normally and recommend monitoring/quarantine as needed.
 
 Taiwan legal reference points:
 - Personal Data Protection Act Art. 2: personal data includes name, date of birth, national ID, contact details, medical/health, financial, social activity, criminal record and other data that can identify a natural person.
@@ -852,8 +876,19 @@ async function writePatrolArtifacts(payload, analysis) {
   const sourceKey = getSourceKey(payload.sourcePath);
   const publicCaseId = getPublicCaseId(payload.sourcePath);
   const now = admin.firestore.FieldValue.serverTimestamp();
-  const shouldCreateCase = ["medium", "high", "critical"].includes(analysis.riskLevel);
+  const aiGovernanceMode = getAiGovernanceMode(payload, analysis);
+  const fightMode = Boolean(payload.fightMode);
+  const userRiskLabel = payload.userRiskLabel || (fightMode ? "fight" : "normal");
+  const shouldCreateCase = fightMode || ["medium", "high", "critical"].includes(analysis.riskLevel);
   const shouldQuarantine = ["high", "critical"].includes(analysis.riskLevel);
+  const sourceGovernancePatch = {
+    fightMode,
+    userRiskLabel,
+    aiGovernanceMode,
+    moderationRiskLevel: analysis.riskLevel,
+    moderationRiskScore: analysis.riskScore,
+    moderationUpdatedAt: now,
+  };
 
   const baseRecord = {
     sourceType: payload.sourceType,
@@ -865,6 +900,9 @@ async function writePatrolArtifacts(payload, analysis) {
     authorName: payload.authorName || null,
     category: payload.category || null,
     contentPreview: compactPreview(payload.content),
+    fightMode,
+    userRiskLabel,
+    aiGovernanceMode,
     riskLevel: analysis.riskLevel,
     riskScore: analysis.riskScore,
     categories: analysis.categories,
@@ -883,7 +921,10 @@ async function writePatrolArtifacts(payload, analysis) {
     caseCreated: shouldCreateCase,
   }, { merge: true });
 
-  if (!shouldCreateCase) return;
+  if (!shouldCreateCase) {
+    await db.doc(payload.sourcePath).set(sourceGovernancePatch, { merge: true });
+    return;
+  }
 
   const caseRef = db.collection("moderationCases").doc(sourceKey);
   const existingCase = await caseRef.get();
@@ -892,7 +933,7 @@ async function writePatrolArtifacts(payload, analysis) {
       ...baseRecord,
       contentSnapshot: String(payload.content || "").slice(0, 4000),
       imageUrlsSnapshot: Array.isArray(payload.imageUrls) ? payload.imageUrls.slice(0, 8) : [],
-      status: shouldQuarantine ? "quarantined" : "pending",
+      status: shouldQuarantine ? "quarantined" : aiGovernanceMode === "downgraded" ? "downgraded" : "pending",
       createdAt: now,
       updatedAt: now,
       sourceCreatedAt: payload.createdAt || null,
@@ -906,7 +947,10 @@ async function writePatrolArtifacts(payload, analysis) {
 
   if (shouldQuarantine) {
     await db.doc(payload.sourcePath).set(
-      buildSourcePatchForQuarantine(payload.sourceType, payload.sourceData, publicCaseId, analysis.riskLevel, analysis.riskScore),
+      {
+        ...sourceGovernancePatch,
+        ...buildSourcePatchForQuarantine(payload.sourceType, payload.sourceData, publicCaseId, analysis.riskLevel, analysis.riskScore),
+      },
       { merge: true }
     );
 
@@ -921,6 +965,8 @@ async function writePatrolArtifacts(payload, analysis) {
       createdAt: now,
       moderationCaseId: sourceKey,
     });
+  } else {
+    await db.doc(payload.sourcePath).set(sourceGovernancePatch, { merge: true });
   }
 }
 
@@ -1191,6 +1237,8 @@ exports.patrolPostCreated = onDocumentCreated(
       authorName: data.authorName,
       category: data.category || data.aiTag,
       content: data.content,
+      fightMode: Boolean(data.fightMode),
+      userRiskLabel: data.userRiskLabel || (data.fightMode ? "fight" : "normal"),
       imageUrls: data.imageUrls,
       createdAt: data.createdAt || null,
       sourceData: data,
@@ -1216,6 +1264,8 @@ exports.patrolCommentCreated = onDocumentCreated(
       authorId: data.authorId,
       authorName: data.authorName,
       content: data.content,
+      fightMode: Boolean(data.fightMode),
+      userRiskLabel: data.userRiskLabel || (data.fightMode ? "fight" : "normal"),
       createdAt: data.createdAt || null,
       sourceData: data,
     });
@@ -1241,6 +1291,8 @@ exports.patrolReplyCreated = onDocumentCreated(
       authorId: data.authorId,
       authorName: data.authorName,
       content: data.content,
+      fightMode: Boolean(data.fightMode),
+      userRiskLabel: data.userRiskLabel || (data.fightMode ? "fight" : "normal"),
       createdAt: data.createdAt || null,
       sourceData: data,
     });

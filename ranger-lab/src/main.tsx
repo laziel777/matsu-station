@@ -36,7 +36,7 @@ import './styles.css';
 
 type GraphMode = 'social' | 'topics';
 type RiskLevel = 'low' | 'medium' | 'high' | 'critical';
-type CaseStatusFilter = 'active' | 'all' | 'pending' | 'quarantined' | 'released' | 'removed' | 'dismissed';
+type CaseStatusFilter = 'active' | 'all' | 'fight' | 'escalated' | 'downgraded' | 'pending' | 'quarantined' | 'released' | 'removed' | 'dismissed';
 type RangerAction = 'mark_reviewed' | 'dismiss' | 'release' | 'quarantine' | 'remove';
 
 interface GraphNode {
@@ -96,6 +96,9 @@ interface PatrolCase {
   status?: string;
   contentPreview?: string;
   contentSnapshot?: string;
+  fightMode?: boolean;
+  userRiskLabel?: string;
+  aiGovernanceMode?: string;
   createdAt?: unknown;
   updatedAt?: unknown;
 }
@@ -175,6 +178,7 @@ function getRiskLabel(level?: string) {
 }
 
 function getStatusLabel(status?: string) {
+  if (status === 'downgraded') return 'AI 降級';
   if (status === 'quarantined') return '已隔離';
   if (status === 'released') return '已放行';
   if (status === 'removed') return '已移除';
@@ -188,6 +192,13 @@ function getSourceLabel(sourceType?: string) {
   if (sourceType === 'comment') return '留言';
   if (sourceType === 'reply') return '留言回覆';
   return '內容';
+}
+
+function getGovernanceLabel(mode?: string) {
+  if (mode === 'fight') return 'Fight 監管';
+  if (mode === 'downgraded') return 'AI 降級';
+  if (mode === 'escalated') return 'AI 升級';
+  return '一般巡邏';
 }
 
 function getActionLabel(action: RangerAction) {
@@ -231,6 +242,9 @@ function isActiveCase(item: PatrolCase) {
 function matchesCaseFilter(item: PatrolCase, filter: CaseStatusFilter) {
   if (filter === 'all') return true;
   if (filter === 'active') return isActiveCase(item);
+  if (filter === 'fight') return item.aiGovernanceMode === 'fight';
+  if (filter === 'escalated') return item.aiGovernanceMode === 'escalated';
+  if (filter === 'downgraded') return item.aiGovernanceMode === 'downgraded' || item.status === 'downgraded';
   return (item.status || 'pending') === filter;
 }
 
@@ -951,13 +965,19 @@ function App() {
 
           <div className="case-filter">
             <Filter size={14} />
-            {(['active', 'all', 'pending', 'quarantined', 'released', 'removed'] as CaseStatusFilter[]).map(filter => (
+            {(['active', 'all', 'fight', 'escalated', 'downgraded', 'pending', 'quarantined', 'released', 'removed'] as CaseStatusFilter[]).map(filter => (
               <button
                 key={filter}
                 className={caseFilter === filter ? 'active' : ''}
                 onClick={() => setCaseFilter(filter)}
               >
-                {filter === 'active' ? '處理中' : filter === 'all' ? '全部' : getStatusLabel(filter)}
+                {filter === 'active'
+                  ? '處理中'
+                  : filter === 'all'
+                    ? '全部'
+                    : filter === 'fight' || filter === 'escalated'
+                      ? getGovernanceLabel(filter)
+                      : getStatusLabel(filter)}
               </button>
             ))}
           </div>
@@ -984,7 +1004,10 @@ function App() {
                   <span style={{ color: getRiskTone(item.riskLevel) }}>{getRiskLabel(item.riskLevel)}</span>
                   <em>{item.publicCaseId || item.id.slice(0, 12)}</em>
                 </div>
-                <small>{getSourceLabel(item.sourceType)} / {getStatusLabel(item.status)}</small>
+                <small>
+                  {getSourceLabel(item.sourceType)} / {getStatusLabel(item.status)} / {getGovernanceLabel(item.aiGovernanceMode)}
+                  {item.fightMode ? ' / FIGHT' : ''}
+                </small>
                 <p>{item.summary || item.contentPreview || 'AI 案件尚無摘要'}</p>
               </button>
             )) : (
@@ -1011,6 +1034,8 @@ function App() {
                 </span>
                 <span>{getSourceLabel(selectedCase.sourceType)}</span>
                 <span>{getStatusLabel(selectedCase.status)}</span>
+                <span>{getGovernanceLabel(selectedCase.aiGovernanceMode)}</span>
+                {selectedCase.fightMode && <span>FIGHT</span>}
               </div>
             </div>
 
@@ -1036,6 +1061,7 @@ function App() {
             <div className="case-meta-row">
               <span>作者：{selectedCase.authorName || compactUid(selectedCase.authorId || '')}</span>
               <span>分類：{selectedCase.category || '未分類'}</span>
+              <span>模式：{getGovernanceLabel(selectedCase.aiGovernanceMode)}</span>
               <span>路徑：{selectedCase.sourcePath || 'unknown'}</span>
               {selectedCase.categories?.slice(0, 5).map(label => (
                 <em key={label}>{label}</em>

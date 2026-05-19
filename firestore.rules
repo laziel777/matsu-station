@@ -24,10 +24,26 @@ service cloud.firestore {
              && request.resource.data.content.size() <= maxLength;
     }
 
+    function hasValidFightFields() {
+      return !request.resource.data.keys().hasAny(['fightMode', 'userRiskLabel'])
+             || (
+               request.resource.data.keys().hasAll(['fightMode', 'userRiskLabel'])
+               && request.resource.data.fightMode is bool
+               && request.resource.data.userRiskLabel in ['normal', 'fight']
+               && (
+                 (request.resource.data.fightMode == true
+                  && request.resource.data.userRiskLabel == 'fight')
+                 || (request.resource.data.fightMode == false
+                     && request.resource.data.userRiskLabel == 'normal')
+               )
+             );
+    }
+
     function hasOnlyPostCreateFields() {
       return request.resource.data.keys().hasOnly([
         'authorId', 'authorName', 'authorPhoto', 'content', 'category',
         'aiSafe', 'aiRisk', 'aiTag', 'aiSummary', 'aiAction',
+        'fightMode', 'userRiskLabel',
         'likesCount', 'commentsCount', 'reportsCount', 'imageUrls', 'createdAt'
       ]);
     }
@@ -35,14 +51,14 @@ service cloud.firestore {
     function hasOnlyCommentCreateFields() {
       return request.resource.data.keys().hasOnly([
         'authorId', 'authorName', 'authorPhoto', 'authorRole',
-        'content', 'likesCount', 'repliesCount', 'createdAt'
+        'content', 'fightMode', 'userRiskLabel', 'likesCount', 'repliesCount', 'createdAt'
       ]);
     }
 
     function hasOnlyReplyCreateFields() {
       return request.resource.data.keys().hasOnly([
         'authorId', 'authorName', 'authorPhoto', 'authorRole',
-        'content', 'likesCount', 'createdAt'
+        'content', 'fightMode', 'userRiskLabel', 'likesCount', 'createdAt'
       ]);
     }
 
@@ -163,6 +179,7 @@ service cloud.firestore {
                     && request.resource.data.likesCount == 0
                     && request.resource.data.commentsCount == 0
                     && request.resource.data.reportsCount == 0
+                    && hasValidFightFields()
                     && hasValidContent(500);
       allow update: if false;
       allow delete: if isOwner(resource.data.authorId);
@@ -181,6 +198,7 @@ service cloud.firestore {
                       && hasValidAuthorRole()
                       && request.resource.data.likesCount == 0
                       && request.resource.data.repliesCount == 0
+                      && hasValidFightFields()
                       && hasValidContent(250);
         allow update: if false;
         allow delete: if isOwner(resource.data.authorId);
@@ -198,6 +216,7 @@ service cloud.firestore {
                         && request.resource.data.authorId == request.auth.uid
                         && hasValidAuthorRole()
                         && request.resource.data.likesCount == 0
+                        && hasValidFightFields()
                         && hasValidContent(250);
           allow update: if false;
           allow delete: if isOwner(resource.data.authorId);
