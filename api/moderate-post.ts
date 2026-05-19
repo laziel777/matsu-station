@@ -2,6 +2,125 @@ import { GoogleGenAI, Type } from '@google/genai';
 
 const MAX_POST_LENGTH = 500;
 const ALLOWED_ACTIONS = ['publish', 'review', 'block'] as const;
+type ModerationAction = typeof ALLOWED_ACTIONS[number];
+
+function clampRisk(value: unknown) {
+  const numberValue = Number(value);
+  if (!Number.isFinite(numberValue)) return 0;
+  return Math.max(0, Math.min(10, numberValue));
+}
+
+function hasIdentifiableTarget(text: string) {
+  return /(@\S+|[一-龥A-Za-z0-9]{2,}(先生|小姐|議員|鄉長|村長|校長|主任|老闆|店長|店|公司|民宿|餐廳)|測試人物|測試店|某店|某人)/i.test(text);
+}
+
+function getLocalRiskSignals(text: string, fightMode: boolean) {
+  const normalized = text.replace(/\s+/g, ' ');
+  const target = hasIdentifiableTarget(normalized);
+  const personalData = /(身分證|護照|電話|手機|地址|住址|個資|肉搜|車牌|私人LINE|病歷|銀行帳戶|薪資|家裡|住哪裡|住址是|0\d{1,3}[-\s]?\d{3,4}[-\s]?\d{3,4})/i.test(normalized);
+  const threat = /(殺|打死|弄死|放火|砸店|堵你|找你算帳|讓你出事|威脅|恐嚇|去你家|讓他不能營業)/.test(normalized);
+  const seriousClaim = /(貪污|收賄|收回扣|收錢辦事|詐騙|偷竊|偷了|性侵|強姦|販毒|吸毒|洗錢|黑道|外遇|性病|精神病|偽造|侵占公款|拿好處)/.test(normalized);
+  const rumor = /(聽說|有人說|大家都知道|疑似|好像|爆料|未證實|沒證據|查一下|看起來很怪)/.test(normalized);
+  const harassment = /(大家去|一起去|抵制他|圍剿|出征|肉搜|公布他|讓他紅|不要讓他混|去找他)/.test(normalized);
+  const insult = target && /(垃圾|爛人|騙子|王八|白癡|智障|不要臉|噁心)/.test(normalized);
+  const heated = /(爛|很扯|太誇張|黑箱|有問題|不合理|氣死|離譜|靠北|幹)/.test(normalized);
+
+  let floor = 0;
+  let action: ModerationAction | null = null;
+  let summary = '';
+  let tag = '';
+
+  if (personalData || threat) {
+    floor = 9;
+    action = 'block';
+    tag = personalData ? '#個資風險' : '#安全威脅';
+    summary = personalData
+      ? '內容可能包含可識別個資，請移除電話、住址、車牌或私人識別資訊後再發。'
+      : '內容含有威脅或號召攻擊風險，請改成陳述事實或提出申訴。';
+  } else if (target && seriousClaim) {
+    floor = 8;
+    action = 'block';
+    tag = '#未證實指控';
+    summary = '內容對可識別對象提出重大指控，請改成「希望主管機關查明」並避免指名定罪。';
+  } else if (target && harassment) {
+    floor = 7;
+    action = 'review';
+    tag = '#騷擾風險';
+    summary = '內容可能引導他人針對特定對象行動，已提高站長覆核。';
+  } else if (target && rumor) {
+    floor = fightMode ? 5 : 6;
+    action = 'review';
+    tag = '#傳聞風險';
+    summary = '內容帶有傳聞或影射，雖可討論但需要提高觀察，避免變成未證實指控。';
+  } else if (insult) {
+    floor = 5;
+    action = 'review';
+    tag = '#名譽風險';
+    summary = '內容有針對可識別對象的辱罵風險，建議改成具體事件與意見。';
+  } else if (heated || fightMode) {
+    floor = fightMode ? 4 : 3;
+    action = floor >= 4 ? 'review' : null;
+    tag = fightMode ? '#Fight討論' : '#情緒討論';
+    summary = fightMode
+      ? 'Fight 內容可提高討論容忍度，但會進入較密集觀察。'
+      : '內容語氣較強，但未偵測到明顯個資、威脅或重大指控。';
+  }
+
+  return { floor, action, summary, tag, target };
+}
+
+function isMeaningfulChineseText(text: string) {
+  const normalized = text.replace(/\s+/g, '');
+  const chineseCount = (normalized.match(/[\p{Script=Han}]/gu) || []).length;
+  return normalized.length >= 4 && chineseCount >= 2;
+}
+
+function isGenericAiFalsePositive(result: any) {
+  const combined = `${result?.tag || ''} ${result?.summary || ''}`;
+  return /(內容不明|垃圾訊息|亂碼|無效|無法辨識|不符合平台發文規範)/.test(combined);
+}
+
+function normalizeModerationResult(result: any, text: string, fightMode: boolean) {
+  const local = getLocalRiskSignals(text, fightMode);
+  const aiAction = ALLOWED_ACTIONS.includes(result.action) ? result.action as ModerationAction : 'review';
+  let action = local.action || aiAction;
+  let risk = Math.max(clampRisk(result.risk), local.floor);
+  const meaningfulNormalText = isMeaningfulChineseText(text) && local.floor === 0 && !local.target;
+  const aiLooksGeneric = isGenericAiFalsePositive(result);
+
+  if (meaningfulNormalText && (aiLooksGeneric || aiAction === 'block')) {
+    action = 'publish';
+    risk = Math.min(risk, 2);
+    return {
+      action,
+      risk,
+      tag: '#一般討論',
+      summary: '未偵測到個資、威脅、騷擾或重大未證實指控，可正常發布。',
+    };
+  }
+
+  if (local.floor > 0 && local.floor < 4 && aiLooksGeneric) {
+    action = 'publish';
+    risk = local.floor;
+    return {
+      action,
+      risk,
+      tag: local.tag || '#一般討論',
+      summary: local.summary || '內容語氣較強，但未偵測到明顯個資、威脅或重大指控。',
+    };
+  }
+
+  if (action === 'publish' && risk >= 4) action = 'review';
+  if (action === 'review' && risk < 4) risk = 4;
+  if (action === 'block' && risk < 7) risk = 7;
+
+  return {
+    action,
+    risk,
+    tag: String(local.tag || result.tag || '#內容審查'),
+    summary: String(local.summary || result.summary || '已完成內容安全檢查。'),
+  };
+}
 
 function getGeminiAI() {
   const apiKey = (process.env.GEMINI_API_KEY || '').trim();
@@ -26,6 +145,9 @@ export default async function handler(req: any, res: any) {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
+  const requestText = String(req.body?.content || '').trim();
+  const requestFightMode = Boolean(req.body?.fightMode);
+
   try {
     if (!process.env.GEMINI_API_KEY) {
       return res.status(500).json(fallbackResult);
@@ -33,7 +155,7 @@ export default async function handler(req: any, res: any) {
 
     const { content, category, fightMode } = req.body || {};
     const isFightMode = Boolean(fightMode);
-    const text = String(content || '').trim();
+    const text = requestText;
 
     if (!text) {
       return res.status(400).json({
@@ -135,23 +257,30 @@ ${text}
 
     const raw = response.text || '{}';
     const result = JSON.parse(raw);
-    const action = ALLOWED_ACTIONS.includes(result.action) ? result.action : 'review';
+    const normalized = normalizeModerationResult(result, text, isFightMode);
 
     return res.status(200).json({
-      safe: action === 'block' ? false : true,
-      risk: Number(result.risk ?? 0),
-      tag: String(result.tag || '#內容審查'),
-      summary: String(result.summary || '已完成內容安全檢查。'),
-      action,
+      safe: normalized.action === 'block' ? false : true,
+      risk: normalized.risk,
+      tag: normalized.tag,
+      summary: normalized.summary,
+      action: normalized.action,
     });
   } catch (error: any) {
     console.error('moderate-post error:', error);
-    return res.status(500).json({
-      safe: false,
-      risk: 9,
-      tag: '#系統錯誤',
-      summary: '內容安全檢查暫時失敗，請稍後再試。',
-      action: 'block',
+    const fallback = normalizeModerationResult({
+      action: 'publish',
+      risk: 0,
+      tag: '#本地規則',
+      summary: 'AI 審查暫時忙碌，已用本地規則完成初步安全檢查。',
+    }, requestText, requestFightMode);
+
+    return res.status(200).json({
+      safe: fallback.action === 'block' ? false : true,
+      risk: fallback.risk,
+      tag: fallback.tag,
+      summary: fallback.summary,
+      action: fallback.action,
     });
   }
 }

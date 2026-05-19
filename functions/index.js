@@ -676,6 +676,84 @@ function getPublicCaseId(sourcePath) {
   return `MZ-${hash.slice(0, 4)}-${hash.slice(4, 11)}`;
 }
 
+function hasIdentifiableTarget(text) {
+  return /(@\S+|[一-龥A-Za-z0-9]{2,}(先生|小姐|議員|鄉長|村長|校長|主任|老闆|店長|店|公司|民宿|餐廳)|測試人物|測試店|某店|某人)/i.test(text);
+}
+
+function getDeterministicRiskSignals(content, payload = {}) {
+  const text = String(content || "").replace(/\s+/g, " ");
+  const target = hasIdentifiableTarget(text);
+  const personalData = /(身分證|護照|電話|手機|地址|住址|個資|肉搜|車牌|私人LINE|病歷|銀行帳戶|薪資|家裡|住哪裡|住址是|0\d{1,3}[-\s]?\d{3,4}[-\s]?\d{3,4})/i.test(text);
+  const threat = /(殺|打死|弄死|放火|砸店|堵你|找你算帳|讓你出事|威脅|恐嚇|去你家|讓他不能營業)/.test(text);
+  const seriousClaim = /(貪污|收賄|收回扣|收錢辦事|詐騙|偷竊|偷了|性侵|強姦|販毒|吸毒|洗錢|黑道|外遇|性病|精神病|偽造|侵占公款|拿好處)/.test(text);
+  const rumor = /(聽說|有人說|大家都知道|疑似|好像|爆料|未證實|沒證據|查一下|看起來很怪)/.test(text);
+  const harassment = /(大家去|一起去|抵制他|圍剿|出征|肉搜|公布他|讓他紅|不要讓他混|去找他)/.test(text);
+  const insult = target && /(垃圾|爛人|騙子|王八|白癡|智障|不要臉|噁心)/.test(text);
+  const heated = /(爛|很扯|太誇張|黑箱|有問題|不合理|氣死|離譜|靠北|幹)/.test(text);
+  const preRisk = clampNumber(Number(payload.preModerationRisk || 0) * 10, 0, 100);
+  const preAction = String(payload.preModerationAction || "");
+
+  let scoreFloor = 0;
+  const categories = [];
+  let summary = "";
+  let legalRisk = "";
+  let recommendedAction = "";
+
+  if (personalData || threat) {
+    scoreFloor = 92;
+    categories.push(personalData ? "personal_data" : "threat");
+    summary = personalData ? "疑似公開可識別個資。" : "疑似威脅或攻擊性安全風險。";
+    legalRisk = personalData ? "可能涉及個資揭露與肉搜風險。" : "可能涉及恐嚇、騷擾或人身安全風險。";
+    recommendedAction = "urgent_review";
+  } else if (target && seriousClaim) {
+    scoreFloor = 76;
+    categories.push("unverified_accusation", "defamation");
+    summary = "對可識別對象提出重大未證實指控。";
+    legalRisk = "可能涉及名譽侵害或未證實重大事實指控。";
+    recommendedAction = "quarantine";
+  } else if (target && harassment) {
+    scoreFloor = 72;
+    categories.push("harassment");
+    summary = "內容可能引導他人針對特定對象行動。";
+    legalRisk = "可能涉及騷擾、圍剿或平台安全風險。";
+    recommendedAction = "quarantine";
+  } else if (target && rumor) {
+    scoreFloor = payload.fightMode ? 48 : 55;
+    categories.push("unverified_accusation");
+    summary = "內容帶有傳聞或影射，需要站長觀察。";
+    legalRisk = "若後續演變成具體指控，可能提高名譽風險。";
+    recommendedAction = "monitor";
+  } else if (insult) {
+    scoreFloor = 45;
+    categories.push("insult");
+    summary = "內容有針對可識別對象的辱罵風險。";
+    legalRisk = "可能涉及公然侮辱或人身攻擊爭議。";
+    recommendedAction = "monitor";
+  } else if (heated || payload.fightMode) {
+    scoreFloor = payload.fightMode ? 38 : 28;
+    categories.push(payload.fightMode ? "public_issue" : "insult");
+    summary = payload.fightMode ? "Fight 討論已提高觀察密度。" : "語氣較強但未達高風險。";
+    legalRisk = "目前以言論脈絡觀察，未偵測到明確個資、威脅或重大指控。";
+    recommendedAction = payload.fightMode ? "monitor" : "allow";
+  }
+
+  if (preAction === "review") {
+    scoreFloor = Math.max(scoreFloor, preRisk || 40);
+    if (!categories.includes("public_issue")) categories.push("public_issue");
+    summary ||= "前台內容安全檢查建議站長觀察。";
+    legalRisk ||= "可發布但需要保留治理紀錄與後續觀察。";
+    recommendedAction ||= "monitor";
+  }
+
+  return {
+    scoreFloor,
+    categories,
+    summary,
+    legalRisk,
+    recommendedAction,
+  };
+}
+
 function normalizeRiskLevel(value, score) {
   const normalized = String(value || "").toLowerCase();
   if (["low", "medium", "high", "critical"].includes(normalized)) return normalized;
@@ -756,45 +834,45 @@ function stripJsonFence(text) {
 }
 
 function fallbackPatrolAnalysis(content) {
-  const text = String(content || "");
-  const hasPersonalData = /(身分證|護照|電話|地址|住址|個資|肉搜|家裡|車牌|手機|LINE|病歷|薪資|銀行帳戶)/i.test(text);
-  const hasThreat = /(殺|打死|弄死|放火|威脅|恐嚇|堵你|找你算帳|讓你出事|去你家)/.test(text);
-  const hasCriminalClaim = /(貪污|收賄|收錢辦事|詐騙|偷竊|強姦|性侵|販毒|吸毒|洗錢|黑道|外遇|性病)/.test(text);
-  const hasIdentifiableTarget = /(@\S+|[一-龥]{2,}(先生|小姐|議員|鄉長|主任|老闆|店|公司)|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+)/.test(text);
-  const score = hasThreat || hasPersonalData ? 92 : hasCriminalClaim && hasIdentifiableTarget ? 76 : 18;
+  const signals = getDeterministicRiskSignals(content);
+  const score = signals.scoreFloor || 18;
   const riskLevel = normalizeRiskLevel("", score);
 
   return {
     riskLevel,
     riskScore: score,
-    categories: [
-      ...(hasPersonalData ? ["personal_data"] : []),
-      ...(hasThreat ? ["threat"] : []),
-      ...(hasCriminalClaim && hasIdentifiableTarget ? ["unverified_accusation"] : []),
-    ],
+    categories: signals.categories,
     summary: "內容安全分析暫時無法完整判讀，已使用保守規則巡邏。",
-    legalRisk: hasPersonalData || hasThreat || (hasCriminalClaim && hasIdentifiableTarget)
-      ? "可能涉及個資、恐嚇或未證實重大指控，需人工檢查。"
-      : "保守規則未偵測到明顯法律風險。",
+    legalRisk: signals.legalRisk || "保守規則未偵測到明顯法律風險。",
     publicInterest: "unknown",
-    recommendedAction: getRecommendedAction(riskLevel),
+    recommendedAction: signals.recommendedAction || getRecommendedAction(riskLevel),
     rationale: "Fallback keyword-based analysis with Taiwan local forum safety thresholds.",
   };
 }
 
-function normalizePatrolAnalysis(rawAnalysis, content) {
+function normalizePatrolAnalysis(rawAnalysis, content, payload = {}) {
   const fallback = fallbackPatrolAnalysis(content);
-  const riskScore = clampNumber(rawAnalysis?.riskScore ?? rawAnalysis?.score ?? fallback.riskScore, 0, 100);
+  const signals = getDeterministicRiskSignals(content, payload);
+  const riskScore = Math.max(
+    clampNumber(rawAnalysis?.riskScore ?? rawAnalysis?.score ?? fallback.riskScore, 0, 100),
+    signals.scoreFloor,
+  );
   const riskLevel = normalizeRiskLevel(rawAnalysis?.riskLevel, riskScore);
+  const categories = [
+    ...new Set([
+      ...sanitizeArray(rawAnalysis?.categories || rawAnalysis?.labels || fallback.categories),
+      ...signals.categories,
+    ]),
+  ].slice(0, 8);
 
   return {
     riskLevel,
     riskScore,
-    categories: sanitizeArray(rawAnalysis?.categories || rawAnalysis?.labels || fallback.categories),
-    summary: String(rawAnalysis?.summary || fallback.summary).slice(0, 500),
-    legalRisk: String(rawAnalysis?.legalRisk || fallback.legalRisk).slice(0, 500),
+    categories,
+    summary: String(signals.summary || rawAnalysis?.summary || fallback.summary).slice(0, 500),
+    legalRisk: String(signals.legalRisk || rawAnalysis?.legalRisk || fallback.legalRisk).slice(0, 500),
     publicInterest: String(rawAnalysis?.publicInterest || fallback.publicInterest).slice(0, 80),
-    recommendedAction: String(rawAnalysis?.recommendedAction || getRecommendedAction(riskLevel)).slice(0, 80),
+    recommendedAction: String(signals.recommendedAction || rawAnalysis?.recommendedAction || getRecommendedAction(riskLevel)).slice(0, 80),
     rationale: String(rawAnalysis?.rationale || fallback.rationale).slice(0, 700),
   };
 }
@@ -872,7 +950,7 @@ async function analyzeWithGeminiForPatrol(payload) {
       publicInterest: "low",
       recommendedAction: "allow",
       rationale: "Content is empty.",
-    }, content);
+    }, content, payload);
   }
 
   try {
@@ -886,7 +964,7 @@ async function analyzeWithGeminiForPatrol(payload) {
       },
     });
     const parsed = JSON.parse(stripJsonFence(response.text));
-    return normalizePatrolAnalysis(parsed, content);
+    return normalizePatrolAnalysis(parsed, content, payload);
   } catch (error) {
     console.error("AI Rangers Gemini analysis failed:", {
       message: error?.message,
@@ -1414,6 +1492,8 @@ exports.patrolPostCreated = onDocumentCreated(
       content: data.content,
       fightMode: Boolean(data.fightMode),
       userRiskLabel: data.userRiskLabel || (data.fightMode ? "fight" : "normal"),
+      preModerationRisk: data.aiRisk || 0,
+      preModerationAction: data.aiAction || "",
       imageUrls: data.imageUrls,
       createdAt: data.createdAt || null,
       sourceData: data,

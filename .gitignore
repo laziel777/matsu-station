@@ -3,6 +3,8 @@ build/
 dist/
 coverage/
 dist-ranger-lab/
+.local-runtime/
+.local-logs/
 .DS_Store
 *.log
 .env*

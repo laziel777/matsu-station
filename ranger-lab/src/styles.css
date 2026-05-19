@@ -159,6 +159,12 @@ button:disabled {
   font-weight: 800;
 }
 
+.live-badge {
+  border-color: rgba(48, 242, 162, 0.28);
+  background: rgba(48, 242, 162, 0.08);
+  color: rgba(198, 255, 226, 0.82);
+}
+
 .lab-layout {
   height: clamp(420px, calc(100vh - 326px), 680px);
   min-height: 0;
@@ -391,6 +397,43 @@ button:disabled {
   backdrop-filter: blur(12px);
 }
 
+.graph-legend {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+  z-index: 4;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.graph-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid rgba(232, 252, 255, 0.12);
+  background: rgba(2, 8, 14, 0.68);
+  color: rgba(232, 252, 255, 0.72);
+  border-radius: 999px;
+  padding: 0.42rem 0.58rem;
+  font-size: 0.66rem;
+  font-weight: 900;
+  backdrop-filter: blur(12px);
+}
+
+.graph-legend i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  box-shadow: 0 0 12px currentColor;
+}
+
+.graph-legend .rainbow-dot {
+  background: linear-gradient(135deg, #00d9e8, #a78bfa, #22c55e, #f59e0b);
+}
+
 .graph-shell {
   position: relative;
   width: 100%;
@@ -427,7 +470,7 @@ button:disabled {
 .node-tooltip {
   position: absolute;
   left: 18px;
-  bottom: 18px;
+  bottom: 70px;
   display: grid;
   gap: 2px;
   border: 1px solid rgba(0, 217, 232, 0.28);
@@ -752,6 +795,24 @@ button:disabled {
   justify-content: center;
   gap: 8px;
   color: rgba(232, 252, 255, 0.52);
+}
+
+.runtime-crash {
+  min-height: 100vh;
+  flex-direction: column;
+  padding: 24px;
+  text-align: center;
+}
+
+.runtime-crash code {
+  max-width: min(720px, 100%);
+  overflow-wrap: anywhere;
+  border: 1px solid rgba(255, 45, 85, 0.28);
+  background: rgba(255, 45, 85, 0.08);
+  border-radius: 12px;
+  padding: 10px 12px;
+  color: rgba(255, 228, 233, 0.92);
+  font: 0.78rem/1.45 "Cascadia Code", "SFMono-Regular", Consolas, monospace;
 }
 
 .console-panel {

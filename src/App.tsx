@@ -4543,7 +4543,7 @@ function PostCard({
         
         // Send notification to author
         if (isNewReaction && user.uid !== post.authorId) {
-          await addDoc(collection(db, 'notifications'), {
+          void addDoc(collection(db, 'notifications'), {
             recipientId: post.authorId,
             senderId: user.uid,
             senderName: profile?.displayName || user.displayName,
@@ -4554,6 +4554,8 @@ function PostCard({
             content: `${profile?.displayName || user.displayName} 用 ${reaction} 回應了你的動態。`,
             read: false,
             createdAt: serverTimestamp()
+          }).catch(notificationErr => {
+            console.warn('Post reaction notification failed:', notificationErr);
           });
         }
       }
@@ -4807,21 +4809,29 @@ function PostCard({
         createdAt: serverTimestamp(),
       });
 
+      setNewComment('');
+      setIsCommentFightMode(false);
+      recordClientUsage(user.uid, 'comment', isCommentFightMode);
+
       // Send notification to author
       if (user.uid !== post.authorId) {
-        await addDoc(collection(db, 'notifications'), {
-          recipientId: post.authorId,
-          senderId: user.uid,
-          senderName,
-          type: 'comment',
-          postId: post.id,
-          category: post.category,
-          commentId: commentRef.id,
-          title: '收到新的神秘回覆',
-          content: `${senderName} 在你的動態下留言了。`,
-          read: false,
-          createdAt: serverTimestamp()
-        });
+        try {
+          await addDoc(collection(db, 'notifications'), {
+            recipientId: post.authorId,
+            senderId: user.uid,
+            senderName,
+            type: 'comment',
+            postId: post.id,
+            category: post.category,
+            commentId: commentRef.id,
+            title: '收到新的神秘回覆',
+            content: `${senderName} 在你的動態下留言了。`,
+            read: false,
+            createdAt: serverTimestamp()
+          });
+        } catch (notificationErr) {
+          console.warn('Comment notification failed:', notificationErr);
+        }
       }
       try {
         await sendMentionNotifications({
@@ -4836,10 +4846,6 @@ function PostCard({
       } catch (mentionErr) {
         console.warn('Mention notification failed:', mentionErr);
       }
-
-      setNewComment('');
-      setIsCommentFightMode(false);
-      recordClientUsage(user.uid, 'comment', isCommentFightMode);
     } catch (err) {
       console.error(err);
       handleFirestoreError(err, OperationType.CREATE, commentPath);
@@ -4894,7 +4900,7 @@ function PostCard({
       }
 
       if (isNewReaction && user.uid !== comment.authorId) {
-        await addDoc(collection(db, 'notifications'), {
+        void addDoc(collection(db, 'notifications'), {
           recipientId: comment.authorId,
           senderId: user.uid,
           senderName,
@@ -4906,6 +4912,8 @@ function PostCard({
           content: `${senderName} 用 ${reaction} 回應了你的留言。`,
           read: false,
           createdAt: serverTimestamp(),
+        }).catch(notificationErr => {
+          console.warn('Comment reaction notification failed:', notificationErr);
         });
       }
     } catch (err: any) {
@@ -4981,7 +4989,7 @@ function PostCard({
       }
 
       if (isNewReaction && user.uid !== reply.authorId) {
-        await addDoc(collection(db, 'notifications'), {
+        void addDoc(collection(db, 'notifications'), {
           recipientId: reply.authorId,
           senderId: user.uid,
           senderName,
@@ -4994,6 +5002,8 @@ function PostCard({
           content: `${senderName} 用 ${reaction} 回應了你的回覆。`,
           read: false,
           createdAt: serverTimestamp(),
+        }).catch(notificationErr => {
+          console.warn('Reply reaction notification failed:', notificationErr);
         });
       }
     } catch (err: any) {
@@ -5059,21 +5069,30 @@ function PostCard({
         createdAt: serverTimestamp(),
       });
 
+      setReplyInputs(previous => ({ ...previous, [comment.id]: '' }));
+      setReplyFightModes(previous => ({ ...previous, [comment.id]: false }));
+      setReplyingToCommentId(null);
+      recordClientUsage(user.uid, 'comment', isReplyFightMode);
+
       if (user.uid !== comment.authorId) {
-        await addDoc(collection(db, 'notifications'), {
-          recipientId: comment.authorId,
-          senderId: user.uid,
-          senderName,
-          type: 'comment',
-          postId: post.id,
-          category: post.category,
-          commentId: comment.id,
-          replyId: replyRef.id,
-          title: '你的留言有新回覆',
-          content: `${senderName} 回覆了你的留言。`,
-          read: false,
-          createdAt: serverTimestamp(),
-        });
+        try {
+          await addDoc(collection(db, 'notifications'), {
+            recipientId: comment.authorId,
+            senderId: user.uid,
+            senderName,
+            type: 'comment',
+            postId: post.id,
+            category: post.category,
+            commentId: comment.id,
+            replyId: replyRef.id,
+            title: '你的留言有新回覆',
+            content: `${senderName} 回覆了你的留言。`,
+            read: false,
+            createdAt: serverTimestamp(),
+          });
+        } catch (notificationErr) {
+          console.warn('Reply notification failed:', notificationErr);
+        }
       }
 
       try {
@@ -5090,11 +5109,6 @@ function PostCard({
       } catch (mentionErr) {
         console.warn('Reply mention notification failed:', mentionErr);
       }
-
-      setReplyInputs(previous => ({ ...previous, [comment.id]: '' }));
-      setReplyFightModes(previous => ({ ...previous, [comment.id]: false }));
-      setReplyingToCommentId(null);
-      recordClientUsage(user.uid, 'comment', isReplyFightMode);
     } catch (err) {
       console.error(err);
       handleFirestoreError(err, OperationType.CREATE, replyPath);

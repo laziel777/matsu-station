@@ -8,6 +8,7 @@ import {
   getDocs,
   getFirestore,
   limit as firestoreLimit,
+  onSnapshot,
   orderBy,
   query,
   type DocumentData,
@@ -72,6 +73,8 @@ interface LabData {
   riskCounts: Record<string, number>;
   patrolFeed: PatrolCase[];
   consoleLines: string[];
+  caseReadError?: string;
+  caseReadAuthUid?: string | null;
 }
 
 interface PatrolCase {
@@ -117,6 +120,7 @@ const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 const functions = getFunctions(app, 'asia-east1');
 const provider = new GoogleAuthProvider();
 provider.setCustomParameters({ prompt: 'select_account' });
+const STATION_MASTER_UID = 'gHHxF8p1DnbMkoeVmU5XpB18Elz2';
 
 const EMPTY_DATA: LabData = {
   socialNodes: [],
@@ -179,6 +183,22 @@ function getRiskLabel(level?: string) {
   return '低風險';
 }
 
+function getNodeRiskTone(risk: number, fallbackColor: string) {
+  if (risk >= 90) return getRiskTone('critical');
+  if (risk >= 70) return getRiskTone('high');
+  if (risk >= 35) return getRiskTone('medium');
+  return fallbackColor;
+}
+
+function getStoredRiskScore(data: DocumentData) {
+  const moderationRiskScore = Number(data.moderationRiskScore || 0);
+  if (Number.isFinite(moderationRiskScore) && moderationRiskScore > 0) return moderationRiskScore;
+
+  const aiRisk = Number(data.aiRisk || 0);
+  if (!Number.isFinite(aiRisk) || aiRisk <= 0) return 0;
+  return aiRisk <= 10 ? aiRisk * 10 : aiRisk;
+}
+
 function getStatusLabel(status?: string) {
   if (status === 'downgraded') return 'AI 降級';
   if (status === 'quarantined') return '已隔離';
@@ -237,6 +257,14 @@ function formatAuthError(error: unknown) {
   return `Google 登入失敗：${message || code || '請稍後再試。'}`;
 }
 
+function formatReadError(error: unknown) {
+  const code = getAuthErrorCode(error);
+  const message = typeof error === 'object' && error && 'message' in error
+    ? String((error as { message?: unknown }).message || '')
+    : '';
+  return [code, message].filter(Boolean).join(' / ') || String(error);
+}
+
 function isActiveCase(item: PatrolCase) {
   return !item.status || item.status === 'pending' || item.status === 'quarantined';
 }
@@ -266,6 +294,19 @@ function compactUid(uid: string) {
 
 function safeText(value: unknown) {
   return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+async function withTimeout<T>(task: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: number | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = window.setTimeout(() => reject(new Error(`${label} 讀取逾時`)), ms);
+  });
+
+  try {
+    return await Promise.race([task, timeout]);
+  } finally {
+    if (timer) window.clearTimeout(timer);
+  }
 }
 
 function extractTopics(...parts: Array<unknown>) {
@@ -332,7 +373,7 @@ function getComponentClusters(nodes: GraphNode[], links: GraphLink[]) {
 async function loadUsers() {
   const users = new Map<string, UserMeta>();
   try {
-    const snapshot = await getDocs(collection(db, 'users'));
+    const snapshot = await withTimeout(getDocs(collection(db, 'users')), 8000, 'users');
     snapshot.docs.forEach(userDoc => {
       const data = userDoc.data();
       users.set(userDoc.id, {
@@ -348,20 +389,37 @@ async function loadUsers() {
 }
 
 async function loadPatrolCases() {
+  const authUid = auth.currentUser?.uid || null;
   try {
-    const snapshot = await getDocs(query(collection(db, 'moderationCases'), orderBy('createdAt', 'desc'), firestoreLimit(80)));
-    return snapshot.docs.map(caseDoc => ({ id: caseDoc.id, ...caseDoc.data() } as PatrolCase));
+    const snapshot = await withTimeout(
+      getDocs(query(collection(db, 'moderationCases'), orderBy('createdAt', 'desc'), firestoreLimit(80))),
+      8000,
+      'moderationCases',
+    );
+    return {
+      authUid,
+      cases: snapshot.docs.map(caseDoc => ({ id: caseDoc.id, ...caseDoc.data() } as PatrolCase)),
+    };
   } catch (error) {
     console.warn('Moderation cases read failed:', error);
-    return [];
+    return {
+      authUid,
+      cases: [] as PatrolCase[],
+      error: formatReadError(error),
+    };
   }
 }
 
 async function collectLabData(scanLimit: number): Promise<LabData> {
   const startedAt = Date.now();
   const users = await loadUsers();
-  const postsSnapshot = await getDocs(query(collection(db, 'posts'), orderBy('createdAt', 'desc'), firestoreLimit(scanLimit)));
-  const patrolFeed = (await loadPatrolCases()).sort((a, b) => getCaseSortScore(b) - getCaseSortScore(a));
+  const postsSnapshot = await withTimeout(
+    getDocs(query(collection(db, 'posts'), orderBy('createdAt', 'desc'), firestoreLimit(scanLimit))),
+    10000,
+    'posts',
+  );
+  const patrolCaseResult = await loadPatrolCases();
+  const patrolFeed = patrolCaseResult.cases.sort((a, b) => getCaseSortScore(b) - getCaseSortScore(a));
 
   const userWeights = new Map<string, number>();
   const userRisk = new Map<string, number>();
@@ -378,7 +436,7 @@ async function collectLabData(scanLimit: number): Promise<LabData> {
     const post = postDoc.data();
     const postId = postDoc.id;
     const authorId = safeText(post.authorId);
-    const riskScore = Number(post.moderationRiskScore || post.aiRisk || 0);
+    const riskScore = getStoredRiskScore(post);
     if (authorId) {
       userWeights.set(authorId, (userWeights.get(authorId) || 0) + 4);
       userRisk.set(authorId, Math.max(userRisk.get(authorId) || 0, riskScore));
@@ -396,8 +454,8 @@ async function collectLabData(scanLimit: number): Promise<LabData> {
 
     try {
       const [postLikesSnapshot, commentsSnapshot] = await Promise.all([
-        getDocs(collection(db, 'posts', postId, 'likes')),
-        getDocs(query(collection(db, 'posts', postId, 'comments'), orderBy('createdAt', 'asc'))),
+        withTimeout(getDocs(collection(db, 'posts', postId, 'likes')), 6000, `post likes ${postId}`),
+        withTimeout(getDocs(query(collection(db, 'posts', postId, 'comments'), orderBy('createdAt', 'asc'))), 6000, `post comments ${postId}`),
       ]);
 
       postLikesSnapshot.docs.forEach(likeDoc => {
@@ -409,7 +467,7 @@ async function collectLabData(scanLimit: number): Promise<LabData> {
       for (const commentDoc of commentsSnapshot.docs) {
         const comment = commentDoc.data();
         const commenterId = safeText(comment.authorId);
-        const commentRisk = Number(comment.moderationRiskScore || 0);
+        const commentRisk = getStoredRiskScore(comment);
         interactions += 1;
         userWeights.set(commenterId, (userWeights.get(commenterId) || 0) + 3);
         userRisk.set(commenterId, Math.max(userRisk.get(commenterId) || 0, commentRisk));
@@ -426,8 +484,8 @@ async function collectLabData(scanLimit: number): Promise<LabData> {
         addTopicEdges(topicEdgeMap, commentTopics, 1, 'comment-context');
 
         const [commentLikesSnapshot, repliesSnapshot] = await Promise.all([
-          getDocs(collection(db, 'posts', postId, 'comments', commentDoc.id, 'likes')),
-          getDocs(query(collection(db, 'posts', postId, 'comments', commentDoc.id, 'replies'), orderBy('createdAt', 'asc'))),
+          withTimeout(getDocs(collection(db, 'posts', postId, 'comments', commentDoc.id, 'likes')), 6000, `comment likes ${commentDoc.id}`),
+          withTimeout(getDocs(query(collection(db, 'posts', postId, 'comments', commentDoc.id, 'replies'), orderBy('createdAt', 'asc'))), 6000, `comment replies ${commentDoc.id}`),
         ]);
 
         commentLikesSnapshot.docs.forEach(likeDoc => {
@@ -439,7 +497,7 @@ async function collectLabData(scanLimit: number): Promise<LabData> {
         for (const replyDoc of repliesSnapshot.docs) {
           const reply = replyDoc.data();
           const replyAuthorId = safeText(reply.authorId);
-          const replyRisk = Number(reply.moderationRiskScore || 0);
+          const replyRisk = getStoredRiskScore(reply);
           interactions += 1;
           userWeights.set(replyAuthorId, (userWeights.get(replyAuthorId) || 0) + 2);
           userRisk.set(replyAuthorId, Math.max(userRisk.get(replyAuthorId) || 0, replyRisk));
@@ -527,8 +585,16 @@ async function collectLabData(scanLimit: number): Promise<LabData> {
   consoleLines.push(`已掃描 ${postsSnapshot.size} 篇貼文，耗時 ${Date.now() - startedAt}ms。`);
   consoleLines.push(`已建立 ${socialNodes.length} 個島民節點與 ${socialLinks.length} 條互動連線。`);
   consoleLines.push(`已建立 ${topicNodes.length} 個話題節點與 ${topicLinks.length} 條語意連線。`);
-  if (!patrolFeed.length) {
-    consoleLines.push('目前看不到 AI 案件。請用站長帳號登入以解鎖 moderationCases。');
+  if (patrolCaseResult.error) {
+    consoleLines.push(`AI 案件讀取失敗：${patrolCaseResult.error}`);
+  } else if (!patrolCaseResult.authUid) {
+    consoleLines.push('尚未登入站長帳號，因此只顯示公開掃描資料。');
+  } else if (patrolCaseResult.authUid !== STATION_MASTER_UID) {
+    consoleLines.push(`目前登入 UID ${compactUid(patrolCaseResult.authUid)} 不是站長 UID，無法讀取全部 AI 案件。`);
+  } else if (!patrolFeed.length) {
+    consoleLines.push('站長權限已確認，但目前 moderationCases 沒有可顯示案件。請確認後端巡邏功能已產生案件。');
+  } else {
+    consoleLines.push(`已讀取 ${patrolFeed.length} 筆 AI 案件。`);
   }
 
   return {
@@ -543,6 +609,8 @@ async function collectLabData(scanLimit: number): Promise<LabData> {
     riskCounts,
     patrolFeed,
     consoleLines,
+    caseReadError: patrolCaseResult.error,
+    caseReadAuthUid: patrolCaseResult.authUid,
   };
 }
 
@@ -662,10 +730,11 @@ function ForceGraph({ nodes, links, mode }: { nodes: GraphNode[]; links: GraphLi
       graphNodes.forEach(node => {
         const radius = Math.max(4, Math.min(18, 4 + Math.sqrt(node.weight) * 2.2));
         const pulse = Math.sin(frame / 18 + radius) * 0.8;
+        const nodeTone = getNodeRiskTone(node.risk, node.color);
         ctx.save();
-        ctx.shadowColor = node.risk >= 70 ? getRiskTone(node.risk >= 90 ? 'critical' : 'high') : node.color;
-        ctx.shadowBlur = node.risk >= 70 ? 24 : 14;
-        ctx.fillStyle = node.risk >= 70 ? getRiskTone(node.risk >= 90 ? 'critical' : 'high') : node.color;
+        ctx.shadowColor = nodeTone;
+        ctx.shadowBlur = node.risk >= 35 ? 24 : 14;
+        ctx.fillStyle = nodeTone;
         ctx.beginPath();
         ctx.arc(node.x || 0, node.y || 0, radius + pulse, 0, Math.PI * 2);
         ctx.fill();
@@ -677,7 +746,7 @@ function ForceGraph({ nodes, links, mode }: { nodes: GraphNode[]; links: GraphLi
         ctx.arc(node.x || 0, node.y || 0, radius + 4, 0, Math.PI * 2);
         ctx.stroke();
 
-        if (node.weight >= 6 || node.risk >= 70) {
+        if (node.weight >= 6 || node.risk >= 35) {
           ctx.fillStyle = 'rgba(232, 252, 255, 0.82)';
           ctx.font = '600 11px Inter, system-ui, sans-serif';
           ctx.fillText(node.label.slice(0, 18), (node.x || 0) + radius + 7, (node.y || 0) + 4);
@@ -731,8 +800,37 @@ function ForceGraph({ nodes, links, mode }: { nodes: GraphNode[]; links: GraphLi
   );
 }
 
+class LabErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: string | null }> {
+  state = { error: null };
+
+  static getDerivedStateFromError(error: unknown) {
+    return { error: error instanceof Error ? error.message : String(error) };
+  }
+
+  componentDidCatch(error: unknown) {
+    console.error('Ranger lab runtime error:', error);
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children;
+
+    return (
+      <main className="lab-root">
+        <div className="hud-grid" />
+        <section className="case-empty runtime-crash">
+          <AlertTriangle size={22} />
+          <span>本地後台發生瀏覽器端錯誤，已阻止整頁閃退。</span>
+          <code>{this.state.error}</code>
+          <button onClick={() => window.location.reload()}>重新整理</button>
+        </section>
+      </main>
+    );
+  }
+}
+
 function App() {
   const [user, setUser] = React.useState<User | null>(null);
+  const [authReady, setAuthReady] = React.useState(false);
   const [mode, setMode] = React.useState<GraphMode>('social');
   const [caseFilter, setCaseFilter] = React.useState<CaseStatusFilter>('active');
   const [selectedCaseId, setSelectedCaseId] = React.useState<string | null>(null);
@@ -743,12 +841,33 @@ function App() {
   const [isSigningIn, setIsSigningIn] = React.useState(false);
   const [authMessage, setAuthMessage] = React.useState('');
   const [lastLoadedAt, setLastLoadedAt] = React.useState<Date | null>(null);
+  const [liveStatus, setLiveStatus] = React.useState('即時監看準備中');
+  const isLoadInFlightRef = React.useRef(false);
+  const queuedLoadRef = React.useRef(false);
+  const queuedReasonRef = React.useRef('背景同步');
+  const liveRefreshTimerRef = React.useRef<number | null>(null);
 
   React.useEffect(() => {
-    return onAuthStateChanged(auth, nextUser => {
+    let settled = false;
+    const timer = window.setTimeout(() => {
+      if (settled) return;
+      setAuthReady(true);
+      setAuthMessage('登入狀態確認較久，已先啟動本地後台；若 AI 案件仍未出現，請重新登入站長帳號。');
+    }, 3500);
+
+    const unsubscribe = onAuthStateChanged(auth, nextUser => {
+      settled = true;
+      window.clearTimeout(timer);
       setUser(nextUser);
+      setAuthReady(true);
       if (nextUser) setAuthMessage('');
     });
+
+    return () => {
+      settled = true;
+      window.clearTimeout(timer);
+      unsubscribe();
+    };
   }, []);
 
   React.useEffect(() => {
@@ -757,26 +876,118 @@ function App() {
     });
   }, []);
 
-  const loadData = React.useCallback(async () => {
+  const loadData = React.useCallback(async (reason = '手動刷新') => {
+    if (isLoadInFlightRef.current) {
+      queuedLoadRef.current = true;
+      queuedReasonRef.current = reason;
+      setLiveStatus(`${reason} 已排入下一輪同步`);
+      return;
+    }
+
+    isLoadInFlightRef.current = true;
     setIsLoading(true);
+    setLiveStatus(`${reason}中...`);
     try {
-      const nextData = await collectLabData(scanLimit);
+      const nextData = await withTimeout(collectLabData(scanLimit), 18000, '本地掃描');
       setData(nextData);
       setLastLoadedAt(new Date());
+      setLiveStatus('即時監看中');
     } catch (error) {
       console.error(error);
+      setLiveStatus('同步失敗，等待下一輪更新');
       setData(previous => ({
         ...previous,
         consoleLines: ['掃描失敗，請檢查 Firebase 權限與網路。', String(error)],
       }));
     } finally {
       setIsLoading(false);
+      isLoadInFlightRef.current = false;
+      if (queuedLoadRef.current) {
+        const nextReason = queuedReasonRef.current;
+        queuedLoadRef.current = false;
+        window.setTimeout(() => void loadData(nextReason), 350);
+      }
     }
   }, [scanLimit]);
 
   React.useEffect(() => {
-    void loadData();
-  }, [loadData]);
+    if (!authReady) return;
+    void loadData('初始同步');
+  }, [authReady, user?.uid, loadData]);
+
+  React.useEffect(() => {
+    if (!authReady) return;
+
+    const scheduleLiveRefresh = (reason: string, delay = 900) => {
+      setLiveStatus(`${reason}，等待同步`);
+      if (liveRefreshTimerRef.current) {
+        window.clearTimeout(liveRefreshTimerRef.current);
+      }
+      liveRefreshTimerRef.current = window.setTimeout(() => {
+        liveRefreshTimerRef.current = null;
+        void loadData(reason);
+      }, delay);
+    };
+
+    const unsubscribeList: Array<() => void> = [];
+
+    let skippedInitialPosts = false;
+    unsubscribeList.push(onSnapshot(
+      query(collection(db, 'posts'), orderBy('createdAt', 'desc'), firestoreLimit(scanLimit)),
+      () => {
+        if (!skippedInitialPosts) {
+          skippedInitialPosts = true;
+          setLiveStatus('即時監看中');
+          return;
+        }
+        scheduleLiveRefresh('前台內容更新');
+      },
+      error => {
+        console.warn('Posts live listener failed:', error);
+        setLiveStatus(`前台監看暫停：${formatReadError(error)}`);
+      },
+    ));
+
+    if (user?.uid === STATION_MASTER_UID) {
+      let skippedInitialCases = false;
+      unsubscribeList.push(onSnapshot(
+        query(collection(db, 'moderationCases'), orderBy('createdAt', 'desc'), firestoreLimit(80)),
+        () => {
+          if (!skippedInitialCases) {
+            skippedInitialCases = true;
+            setLiveStatus('站長案件監看中');
+            return;
+          }
+          scheduleLiveRefresh('AI 案件更新');
+        },
+        error => {
+          console.warn('Moderation cases live listener failed:', error);
+          setLiveStatus(`AI 案件監看暫停：${formatReadError(error)}`);
+        },
+      ));
+    }
+
+    const intervalId = window.setInterval(() => {
+      scheduleLiveRefresh('定時同步', 250);
+    }, 30000);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        scheduleLiveRefresh('回到後台', 250);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      unsubscribeList.forEach(unsubscribe => unsubscribe());
+      window.clearInterval(intervalId);
+      if (liveRefreshTimerRef.current) {
+        window.clearTimeout(liveRefreshTimerRef.current);
+        liveRefreshTimerRef.current = null;
+      }
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [authReady, user?.uid, scanLimit, loadData]);
 
   const nodes = mode === 'social' ? data.socialNodes : data.topicNodes;
   const links = mode === 'social' ? data.socialLinks : data.topicLinks;
@@ -839,7 +1050,7 @@ function App() {
           ...previous.consoleLines,
         ].slice(0, 8),
       }));
-      await loadData();
+      await loadData('處置後同步');
     } catch (error) {
       console.error(error);
       setData(previous => ({
@@ -868,6 +1079,7 @@ function App() {
         </div>
         <div className="top-actions">
           <span className="local-badge">本機限定</span>
+          <span className="local-badge live-badge">{liveStatus}</span>
           {user ? (
             <>
               <span className="user-chip"><UserCircle2 size={15} />{user.displayName || user.email}</span>
@@ -899,7 +1111,15 @@ function App() {
             <span>Firebase 連線</span>
             <strong>{firebaseConfig.projectId}</strong>
             <em>{firebaseConfig.firestoreDatabaseId || '(default)'}</em>
-            <p>{user ? '站長登入後可讀 AI 案件與執行處置。' : '目前使用公開讀取掃描；請登入站長帳號解鎖 AI 案件。'}</p>
+            <p>
+              {!authReady
+                ? '正在確認登入狀態...'
+                : !user
+                  ? '目前使用公開讀取掃描；請登入站長帳號解鎖 AI 案件。'
+                  : user.uid === STATION_MASTER_UID
+                    ? '站長帳號已登入；可讀 AI 案件與執行處置。'
+                    : `目前登入的不是站長帳號：${user.email || compactUid(user.uid)}`}
+            </p>
           </div>
 
           <div className="control-block">
@@ -950,6 +1170,13 @@ function App() {
           <div className="graph-status">
             <span><Eye size={15} /> {mode === 'social' ? '力導向島民互動圖' : '話題語意脈絡圖'}</span>
             <span>{nodes.length} 節點 / {links.length} 連線</span>
+          </div>
+          <div className="graph-legend" aria-label="圖例">
+            <span><i style={{ background: '#ff2d55' }} />極高 90+</span>
+            <span><i style={{ background: '#ff7a18' }} />高 70-89</span>
+            <span><i style={{ background: '#facc15' }} />中 35-69</span>
+            <span><i className="rainbow-dot" />低風險：色盤分群</span>
+            <span><i style={{ background: '#ff4d4d' }} />站長節點</span>
           </div>
           <ForceGraph nodes={nodes} links={links} mode={mode} />
         </section>
@@ -1015,7 +1242,17 @@ function App() {
             )) : (
               <div className="empty-feed">
                 <Activity size={22} />
-                <p>尚未讀到 AI 案件。請確認你已用站長帳號登入，且 Firestore Rules 允許讀取 moderationCases。</p>
+                <p>
+                  {!authReady
+                    ? '正在確認登入狀態，稍後會自動讀取 AI 案件。'
+                    : data.caseReadError
+                      ? `AI 案件讀取失敗：${data.caseReadError}`
+                      : !user
+                        ? '請先登入站長帳號以讀取 AI 案件。'
+                        : user.uid !== STATION_MASTER_UID
+                          ? '目前登入的不是站長帳號，無法讀取全部 AI 案件。'
+                          : '站長權限已確認，但目前沒有可顯示的 AI 案件。請確認後端巡邏功能已產生 moderationCases。'}
+                </p>
               </div>
             )}
           </div>
@@ -1119,6 +1356,8 @@ function App() {
 
 createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
-    <App />
+    <LabErrorBoundary>
+      <App />
+    </LabErrorBoundary>
   </React.StrictMode>,
 );
