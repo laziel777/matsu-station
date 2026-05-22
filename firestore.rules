@@ -235,6 +235,11 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /rangerNotifications/{notificationId} {
+      allow read: if isAdmin() || isStationMaster();
+      allow write: if false;
+    }
+
     match /accountRiskProfiles/{userId} {
       allow read: if isAdmin() || isStationMaster();
       allow write: if false;

@@ -448,6 +448,13 @@ const getNotificationRecipientId = (authorId?: string) => {
   return authorId === STATION_MASTER_LEGACY_ID ? STATION_MASTER_UID : (authorId || '');
 };
 
+const isFrontNotification = (notification: any) => {
+  const senderId = String(notification?.senderId || '');
+  if (['ai-rangers', 'safety-sweep', 'report-system'].includes(senderId)) return false;
+  if (notification?.moderationCaseId) return false;
+  return ['like', 'comment', 'mention', 'report', 'follow_request', 'account'].includes(String(notification?.type || ''));
+};
+
 const getSubmissionErrorMessage = (error: any, fallback: string) => {
   const rawMessage = String(error?.message || error?.details || '').trim();
   if (/INTERNAL|functions\/internal|internal/i.test(rawMessage)) {
@@ -1275,6 +1282,7 @@ useEffect(() => {
     const unsubscribe = onSnapshot(q, async (snapshot) => {
       const nextNotifications = snapshot.docs
         .map(doc => ({ id: doc.id, ...doc.data() }))
+        .filter(isFrontNotification)
         .sort((a: any, b: any) => {
           const aTime = a.createdAt?.toMillis?.() || 0;
           const bTime = b.createdAt?.toMillis?.() || 0;

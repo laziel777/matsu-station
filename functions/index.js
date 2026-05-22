@@ -2097,7 +2097,7 @@ async function writePatrolArtifacts(payload, analysis) {
       { merge: true }
     );
 
-    await db.collection("notifications").add({
+    await db.collection("rangerNotifications").add({
       recipientId: STATION_MASTER_UID,
       senderId: "ai-rangers",
       senderName: "小站巡邏系統",
@@ -3260,7 +3260,7 @@ async function buildGovernanceSweep({ manual = false, actorId = "system" } = {})
         sourceCreatedAt: data.createdAt || null,
       }, { merge: true });
 
-      batch.set(db.collection("notifications").doc(), {
+      batch.set(db.collection("rangerNotifications").doc(), {
         recipientId: STATION_MASTER_UID,
         senderId: "safety-sweep",
         senderName: "社群安全系統",
@@ -4852,7 +4852,7 @@ exports.reportCreatedModerationIntake = onDocumentCreated(
     }, { merge: true });
 
     if (shouldAutoMask) {
-      await db.collection("notifications").add({
+      await db.collection("rangerNotifications").add({
         recipientId: STATION_MASTER_UID,
         senderId: "report-system",
         senderName: "小站檢舉系統",
