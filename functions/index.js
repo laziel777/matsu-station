@@ -3942,6 +3942,10 @@ exports.createUserNotification = onCall(
       throw new HttpsError("invalid-argument", "Invalid notification type.");
     }
 
+    if (type === "like") {
+      return { ok: true, skipped: true, reason: "like_notifications_are_triggered_by_server" };
+    }
+
     if (recipientId === senderId) {
       return { ok: true, skipped: true, reason: "same_recipient" };
     }
@@ -4327,6 +4331,47 @@ async function incrementField(path, field, delta) {
   }
 }
 
+async function getNotificationSenderName(uid) {
+  const userSnap = await db.collection("users").doc(uid).get();
+  if (!userSnap.exists) return "匿名島民";
+  const data = userSnap.data() || {};
+  return String(data.displayName || data.islanderId || "匿名島民").trim().slice(0, 60) || "匿名島民";
+}
+
+async function createLikeNotification({
+  sourcePath,
+  postId,
+  category,
+  commentId,
+  replyId,
+  senderId,
+  recipientId,
+  reaction,
+  targetLabel,
+}) {
+  const normalizedRecipientId = normalizeNotificationUid(recipientId);
+  if (!senderId || !normalizedRecipientId || senderId === normalizedRecipientId) return;
+
+  const senderName = await getNotificationSenderName(senderId);
+  const notificationId = getSourceKey(`like/${sourcePath}/${senderId}`);
+  await db.collection("notifications").doc(notificationId).set({
+    recipientId: normalizedRecipientId,
+    senderId,
+    senderName,
+    type: "like",
+    postId,
+    category: String(category || "").slice(0, 40),
+    ...(commentId ? { commentId } : {}),
+    ...(replyId ? { replyId } : {}),
+    title: targetLabel === "貼文" ? "有人也喜歡這則動態" : `有人喜歡你的${targetLabel}`,
+    content: `${senderName} 用 ${reaction || "❤️"} 回應了你的${targetLabel}。`,
+    read: false,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    createdByServer: true,
+    notificationSource: "like_trigger",
+  }, { merge: true });
+}
+
 function getTaipeiDayKey(date = new Date()) {
   return new Date(date.getTime() + TAIPEI_UTC_OFFSET_MS).toISOString().slice(0, 10);
 }
@@ -4428,7 +4473,23 @@ exports.postLikeCreated = onDocumentCreated(
     document: "posts/{postId}/likes/{userId}",
   },
   async (event) => {
-    await incrementField(`posts/${event.params.postId}`, "likesCount", 1);
+    const postRef = db.collection("posts").doc(event.params.postId);
+    const [postSnap] = await Promise.all([
+      postRef.get(),
+      incrementField(`posts/${event.params.postId}`, "likesCount", 1),
+    ]);
+    if (!postSnap.exists) return;
+    const postData = postSnap.data() || {};
+    const likeData = event.data?.data() || {};
+    await createLikeNotification({
+      sourcePath: `posts/${event.params.postId}`,
+      postId: event.params.postId,
+      category: postData.category || postData.aiTag || "",
+      senderId: event.params.userId,
+      recipientId: postData.authorId,
+      reaction: likeData.reaction || DEFAULT_REACTION,
+      targetLabel: "貼文",
+    });
   }
 );
 
@@ -4482,7 +4543,27 @@ exports.commentLikeCreated = onDocumentCreated(
     document: "posts/{postId}/comments/{commentId}/likes/{userId}",
   },
   async (event) => {
-    await incrementField(`posts/${event.params.postId}/comments/${event.params.commentId}`, "likesCount", 1);
+    const postRef = db.collection("posts").doc(event.params.postId);
+    const commentRef = postRef.collection("comments").doc(event.params.commentId);
+    const [postSnap, commentSnap] = await Promise.all([
+      postRef.get(),
+      commentRef.get(),
+      incrementField(`posts/${event.params.postId}/comments/${event.params.commentId}`, "likesCount", 1),
+    ]);
+    if (!commentSnap.exists) return;
+    const postData = postSnap.exists ? postSnap.data() || {} : {};
+    const commentData = commentSnap.data() || {};
+    const likeData = event.data?.data() || {};
+    await createLikeNotification({
+      sourcePath: `posts/${event.params.postId}/comments/${event.params.commentId}`,
+      postId: event.params.postId,
+      category: postData.category || postData.aiTag || "",
+      commentId: event.params.commentId,
+      senderId: event.params.userId,
+      recipientId: commentData.authorId,
+      reaction: likeData.reaction || DEFAULT_REACTION,
+      targetLabel: "留言",
+    });
   }
 );
 
@@ -4540,11 +4621,36 @@ exports.replyLikeCreated = onDocumentCreated(
     document: "posts/{postId}/comments/{commentId}/replies/{replyId}/likes/{userId}",
   },
   async (event) => {
-    await incrementField(
-      `posts/${event.params.postId}/comments/${event.params.commentId}/replies/${event.params.replyId}`,
-      "likesCount",
-      1
-    );
+    const postRef = db.collection("posts").doc(event.params.postId);
+    const replyRef = postRef
+      .collection("comments")
+      .doc(event.params.commentId)
+      .collection("replies")
+      .doc(event.params.replyId);
+    const [postSnap, replySnap] = await Promise.all([
+      postRef.get(),
+      replyRef.get(),
+      incrementField(
+        `posts/${event.params.postId}/comments/${event.params.commentId}/replies/${event.params.replyId}`,
+        "likesCount",
+        1
+      ),
+    ]);
+    if (!replySnap.exists) return;
+    const postData = postSnap.exists ? postSnap.data() || {} : {};
+    const replyData = replySnap.data() || {};
+    const likeData = event.data?.data() || {};
+    await createLikeNotification({
+      sourcePath: `posts/${event.params.postId}/comments/${event.params.commentId}/replies/${event.params.replyId}`,
+      postId: event.params.postId,
+      category: postData.category || postData.aiTag || "",
+      commentId: event.params.commentId,
+      replyId: event.params.replyId,
+      senderId: event.params.userId,
+      recipientId: replyData.authorId,
+      reaction: likeData.reaction || DEFAULT_REACTION,
+      targetLabel: "回覆",
+    });
   }
 );
 

@@ -4786,20 +4786,6 @@ function PostCard({
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         }, { merge: true });
-        
-        // Send notification to author
-        if (isNewReaction && user.uid !== post.authorId) {
-          void submitUserNotification({
-            recipientId: getNotificationRecipientId(post.authorId),
-            type: 'like',
-            postId: post.id,
-            category: post.category,
-            title: '有人也喜歡這則動態',
-            content: `${profile?.displayName || user.displayName} 用 ${reaction} 回應了你的動態。`,
-          }).catch(notificationErr => {
-            console.warn('Post reaction notification failed:', notificationErr);
-          });
-        }
       }
     } catch (err: any) {
       console.error(err);
@@ -5101,7 +5087,6 @@ function PostCard({
     const isNewReaction = !previousReaction;
     const likeChange = isRemovingReaction ? -1 : isNewReaction ? 1 : 0;
     const likeRef = doc(db, 'posts', post.id, 'comments', comment.id, 'likes', user.uid);
-    const senderName = profile?.displayName || user.displayName || '匿名島民';
 
     setCommentReactions(previous => {
       const next = { ...previous };
@@ -5126,20 +5111,6 @@ function PostCard({
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         }, { merge: true });
-      }
-
-      if (isNewReaction && user.uid !== comment.authorId) {
-        void submitUserNotification({
-          recipientId: getNotificationRecipientId(comment.authorId),
-          type: 'like',
-          postId: post.id,
-          category: post.category,
-          commentId: comment.id,
-          title: '有人喜歡你的留言',
-          content: `${senderName} 用 ${reaction} 回應了你的留言。`,
-        }).catch(notificationErr => {
-          console.warn('Comment reaction notification failed:', notificationErr);
-        });
       }
     } catch (err: any) {
       setCommentReactions(previous => {
@@ -5181,7 +5152,6 @@ function PostCard({
     const isNewReaction = !previousReaction;
     const likeChange = isRemovingReaction ? -1 : isNewReaction ? 1 : 0;
     const likeRef = doc(db, 'posts', post.id, 'comments', comment.id, 'replies', reply.id, 'likes', user.uid);
-    const senderName = profile?.displayName || user.displayName || '匿名島民';
 
     setReplyReactions(previous => {
       const next = { ...previous };
@@ -5211,21 +5181,6 @@ function PostCard({
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         }, { merge: true });
-      }
-
-      if (isNewReaction && user.uid !== reply.authorId) {
-        void submitUserNotification({
-          recipientId: getNotificationRecipientId(reply.authorId),
-          type: 'like',
-          postId: post.id,
-          category: post.category,
-          commentId: comment.id,
-          replyId: reply.id,
-          title: '有人喜歡你的回覆',
-          content: `${senderName} 用 ${reaction} 回應了你的回覆。`,
-        }).catch(notificationErr => {
-          console.warn('Reply reaction notification failed:', notificationErr);
-        });
       }
     } catch (err: any) {
       setReplyReactions(previous => {
