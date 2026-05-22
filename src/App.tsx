@@ -893,7 +893,7 @@ const ReactionButton = ({
         onClick={() => setIsOpen(previous => !previous)}
         className={`flex items-center gap-1.5 font-bold transition-all cursor-pointer active:scale-110 ${
           compact ? 'text-[0.6875rem]' : 'text-xs'
-        } ${currentReaction ? 'text-rose-500' : 'text-text-muted hover:text-rose-500'}`}
+        } ${currentReaction ? 'text-bio-glow' : 'text-text-muted hover:text-bio-glow'}`}
         title="選擇表情反應"
       >
         <span className={compact ? 'text-base leading-none' : 'text-lg leading-none'}>
