@@ -12,6 +12,7 @@ import {
 import { signInWithPopup, googleProvider, auth, signOut } from './lib/firebase';
 import { LogIn, LogOut, MessageSquare, Share2, Send, Plus, User, Waves, Search, Flag, Edit2, Calendar, Menu, X, ChevronRight, Palette, Settings, Image as ImageIcon, Facebook, Instagram, Copy, Check, ExternalLink, Trash2, Bell, Shield, TrendingUp, Zap, Star, Compass, Clock, AlertCircle, Cloud, CloudRain, Snowflake, CloudLightning, Sun, Plane, Ship, Info, Wind, Eye, Activity, MapPin, RotateCcw } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { createPortal } from 'react-dom';
 import { formatDistanceToNow, addMonths, isAfter } from 'date-fns';
 import { zhTW } from 'date-fns/locale';
 import { db, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, updateDoc, doc, setDoc, deleteDoc, getDoc, getDocs, where, handleFirestoreError, OperationType, storage, functions, httpsCallable } from './lib/firebase';
@@ -24,23 +25,54 @@ const DEFAULT_FONT_SIZE = 100;
 const POST_CHAR_LIMIT = 500;
 const COMMENT_CHAR_LIMIT = 250;
 const POST_COOLDOWN_MS = 30 * 1000;
-const FIGHT_POST_COOLDOWN_MS = 5 * 60 * 1000;
+const COMMENT_BURST_WINDOW_MS = 60 * 1000;
+const COMMENT_BURST_LIMIT = 6;
 const NEW_ACCOUNT_WINDOW_MS = 30 * 60 * 1000;
 const DAILY_POST_LIMIT = 20;
-const DAILY_FIGHT_POST_LIMIT = 5;
 const DAILY_COMMENT_LIMIT = 120;
-const DAILY_FIGHT_COMMENT_LIMIT = 30;
-const ANTI_ABUSE_NOTICE = '為了防止惡意攻擊、複製垃圾文、洗文與攻擊性內容，馬祖小站會限制發文頻率。';
-const FIGHT_NOTICE = 'Fight 模式會提高討論容忍度，也會保留較完整脈絡，必要時由站長覆核。請避免個資、威脅、肉搜與未證實重大指控。';
+const ANTI_ABUSE_NOTICE = '為了防止洗文、機器濫用與大量複製垃圾文，馬祖小站會限制發文頻率。';
 const LINE_OFFICIAL_URL = 'https://lin.ee/nn0RaOc';
 const REACTION_OPTIONS = ['❤️', '😂', '😭', '🔥', '👍', '👎', '😡', '😍', '🤔', '😮'];
 const DEFAULT_REACTION = '❤️';
+const REPORT_REASON_OPTIONS = ['人身攻擊', '誹謗/不實指控', '個資/肉搜', '威脅/暴力', '騷擾/圍剿', '詐騙', '色情/私密影像', '垃圾訊息/洗版', '其他'];
 const PROFILE_TABS = [
   { id: 'posts', label: '歷史發文' },
   { id: 'liked', label: '按讚內容' },
 ] as const;
 
 type ProfileTabId = typeof PROFILE_TABS[number]['id'];
+type ModerationStatus =
+  | 'normal'
+  | 'flagged'
+  | 'masked'
+  | 'pending_review'
+  | 'approved'
+  | 'hidden'
+  | 'deleted'
+  | 'appealed'
+  | 'quarantined'
+  | 'removed'
+  | 'released'
+  | string;
+type ModerationContentType = 'post' | 'comment' | 'reply' | 'content';
+type ReportTargetType = 'post' | 'comment' | 'reply';
+
+interface ReportDraft {
+  targetId: string;
+  targetType: ReportTargetType;
+  commentId?: string;
+  replyId?: string;
+  preview: string;
+}
+
+interface RiskProfile {
+  legalRisk?: number;
+  communityRisk?: number;
+  credibility?: number;
+  spreadRisk?: number;
+  coordinationRisk?: number;
+  velocityRisk?: number;
+}
 
 interface ProfileStats {
   postCount: number;
@@ -112,8 +144,11 @@ interface Post {
   authorName: string;
   authorPhoto: string;
   content: string;
-  moderationStatus?: 'quarantined' | 'removed' | 'released' | string;
+  moderationStatus?: ModerationStatus;
   moderationReason?: string;
+  moderationPublicNotice?: string;
+  moderationMaskNotice?: string;
+  moderationReviewNotice?: string;
   moderationPublicCaseId?: string;
   moderationRiskLevel?: 'low' | 'medium' | 'high' | 'critical' | string;
   moderationRiskScore?: number;
@@ -123,11 +158,15 @@ interface Post {
   aiTag?: string;
   aiSummary?: string;
   aiAction?: string;
-  fightMode?: boolean;
-  userRiskLabel?: 'normal' | 'fight' | string;
-  aiGovernanceMode?: 'normal' | 'fight' | 'downgraded' | 'escalated' | string;
   likesCount: number;
   commentsCount: number;
+  reportsCount?: number;
+  recommendationScore?: number;
+  recommendationSafetyWeight?: number;
+  recommendationBucket?: 'normal' | 'downrank' | 'no_recommend' | string;
+  recommendationRiskProfile?: RiskProfile;
+  moderationRiskProfile?: RiskProfile;
+  recommendationUpdatedAt?: any;
   imageUrls?: string[];
   createdAt: any;
 }
@@ -139,14 +178,14 @@ interface Comment {
   authorPhoto: string;
   authorRole?: 'user' | 'admin';
   content: string;
-  moderationStatus?: 'quarantined' | 'removed' | 'released' | string;
+  moderationStatus?: ModerationStatus;
   moderationReason?: string;
+  moderationPublicNotice?: string;
+  moderationMaskNotice?: string;
+  moderationReviewNotice?: string;
   moderationPublicCaseId?: string;
   moderationRiskLevel?: 'low' | 'medium' | 'high' | 'critical' | string;
   moderationRiskScore?: number;
-  fightMode?: boolean;
-  userRiskLabel?: 'normal' | 'fight' | string;
-  aiGovernanceMode?: 'normal' | 'fight' | 'downgraded' | 'escalated' | string;
   likesCount?: number;
   repliesCount?: number;
   replies?: CommentReply[];
@@ -160,14 +199,14 @@ interface CommentReply {
   authorPhoto: string;
   authorRole?: 'user' | 'admin';
   content: string;
-  moderationStatus?: 'quarantined' | 'removed' | 'released' | string;
+  moderationStatus?: ModerationStatus;
   moderationReason?: string;
+  moderationPublicNotice?: string;
+  moderationMaskNotice?: string;
+  moderationReviewNotice?: string;
   moderationPublicCaseId?: string;
   moderationRiskLevel?: 'low' | 'medium' | 'high' | 'critical' | string;
   moderationRiskScore?: number;
-  fightMode?: boolean;
-  userRiskLabel?: 'normal' | 'fight' | string;
-  aiGovernanceMode?: 'normal' | 'fight' | 'downgraded' | 'escalated' | string;
   likesCount?: number;
   createdAt: any;
 }
@@ -204,77 +243,256 @@ interface GovernanceRecord {
   updatedAt?: any;
 }
 
-const isModerationHidden = (status?: string) => {
-  return status === 'quarantined' || status === 'removed';
+const MEDIUM_MASK_COPY = '此內容可能涉及高爭議、攻擊性或未經證實資訊，請自行斟酌是否閱讀。';
+const LEGACY_HIGH_REVIEW_COPY = '此內容因可能違反社群規範，已由站方暫時隱藏，待確認後再處理。';
+const HIGH_REVIEW_COPY = '此內容可能涉及風險資訊或使用政策爭議，已暫時進入站長審核中，原文暫不公開。';
+const HIDDEN_PUBLIC_COPY = '此內容因違反社群規範，已被站方處理。';
+const AUTHOR_DELETED_COPY = '此內容已由作者刪除。';
+
+const INTERNAL_MODERATION_TERMS =
+  /\b(AI|Gemini|Regex|regex|Ranger|queue|precheck|lightguard|moderation|spam|fallback)\b|語意|本地防呆|防呆|輕量|巡邏|模型|演算法|第一人稱|優先送|候選|命中|底線|技術|敏感格式|完整判讀|無法完整判讀|LR\d|CR\d|SR\d|風險分數/i;
+
+const isModerationMasked = (status?: string) => status === 'masked';
+
+const isModerationRestricted = (status?: string) => {
+  return ['pending_review', 'hidden', 'deleted', 'quarantined', 'removed'].includes(String(status || ''));
 };
 
-const getModerationTombstoneText = (status?: string, reason?: string) => {
-  const cleanReason = String(reason || '').trim();
-  if (status === 'removed') {
-    return cleanReason
-      ? `此內容已依使用者條款或社群守則移除。原因：${cleanReason}`
-      : '此內容已依使用者條款或社群守則移除。';
+const isModerationHidden = isModerationRestricted;
+
+const normalizeModerationReviewNotice = (notice?: string) => {
+  const cleanNotice = String(notice || '').trim();
+  if (!cleanNotice || cleanNotice === LEGACY_HIGH_REVIEW_COPY || INTERNAL_MODERATION_TERMS.test(cleanNotice)) return HIGH_REVIEW_COPY;
+  return cleanNotice;
+};
+
+const getPublicModerationNotice = (status?: string, notice?: string) => {
+  const cleanNotice = String(notice || '').trim();
+  if (!cleanNotice || INTERNAL_MODERATION_TERMS.test(cleanNotice)) {
+    if (status === 'masked') return MEDIUM_MASK_COPY;
+    if (status === 'pending_review' || status === 'quarantined') return HIGH_REVIEW_COPY;
+    if (status === 'hidden' || status === 'deleted' || status === 'removed') return HIDDEN_PUBLIC_COPY;
+    return '';
   }
-  return '此內容因涉及高爭議或安全風險，目前依社群守則審核中。';
+  return cleanNotice;
 };
 
-// --- Profanity Filter Utility ---
-const VULGAR_PHRASES = [
-  '幹你娘', '操你媽', '去你的', '機掰', '白癡', '智障', '雜種', '三小', '欠扁', '靠北',
-  'fuck', 'bitch', 'nigger', 'shit', 'asshole', 'bastard', 'pussy', 'dick'
-];
-const SINGLE_VULGAR = ['幹', '操', '屁', '死'];
-const EXCEPTIONS = [
-  '幹嘛', '幹事', '幹勁', '骨幹', '實幹', '相幹', '才幹', '幹啥', 
-  '屁股', '屁話', '死守', '死心', '死對頭', '生死', '救死扶傷'
-];
-const GENERAL_VULGAR = ['垃圾', '廢物', '禽獸'];
-const DESSERT_EMOJIS = ['🍰', '🍦', '🍩', '🍪', '🧁', '🍭', '🍮', '🥞', '🍧', '🍨'];
+const getPublicModerationReason = (reason?: string) => {
+  const cleanReason = String(reason || '').trim();
+  if (!cleanReason || INTERNAL_MODERATION_TERMS.test(cleanReason)) return '';
+  return cleanReason.slice(0, 160);
+};
 
-const filterContent = (text: string) => {
-  let filteredText = text;
-  
-  // 1. 保護例外詞 (暫時替換成佔位符)
-  const placeholders: string[] = [];
-  EXCEPTIONS.forEach((exc, index) => {
-    const placeholder = `__EXC_${index}__`;
-    placeholders.push(exc);
-    const regex = new RegExp(exc, 'g');
-    filteredText = filteredText.replace(regex, placeholder);
-  });
+const getPublicGovernanceSummary = (record: GovernanceRecord) => {
+  const cleanSummary = String(record.summary || '').trim();
+  if (cleanSummary && !INTERNAL_MODERATION_TERMS.test(cleanSummary)) return cleanSummary;
+  const status = String(record.status || '');
+  if (status === 'approved' || status === 'released') return '站方已完成查看，此內容目前可正常公開。';
+  if (status === 'masked') return MEDIUM_MASK_COPY;
+  if (status === 'pending_review' || status === 'quarantined') return HIGH_REVIEW_COPY;
+  if (status === 'hidden' || status === 'removed' || status === 'deleted') return HIDDEN_PUBLIC_COPY;
+  return '此紀錄保留供你查詢站務處理狀態。';
+};
 
-  // 2. 過濾長片語 (包含英文，故使用 gi)
-  VULGAR_PHRASES.forEach(word => {
-    const regex = new RegExp(word, 'gi');
-    filteredText = filteredText.replace(regex, () => 
-      DESSERT_EMOJIS[Math.floor(Math.random() * DESSERT_EMOJIS.length)]
-    );
-  });
-  
-  // 3. 過濾一般髒詞 (使用 gi)
-  GENERAL_VULGAR.forEach(word => {
-    const regex = new RegExp(word, 'gi');
-    filteredText = filteredText.replace(regex, () => 
-      DESSERT_EMOJIS[Math.floor(Math.random() * DESSERT_EMOJIS.length)]
-    );
-  });
+const getPublicGovernanceExplanation = (record: GovernanceRecord) => {
+  const raw = String(record.legalRisk || record.recommendedAction || '').trim();
+  if (raw && !INTERNAL_MODERATION_TERMS.test(raw)) return raw;
+  if (record.policyRefs?.length) return '處理依據請參考下方社群規範條款。';
+  return '站方依社群規範與平台安全需要處理，完整內部判斷不公開。';
+};
 
-  // 4. 過濾單字髒話 (使用 gi)
-  SINGLE_VULGAR.forEach(word => {
-    const regex = new RegExp(word, 'gi');
-    filteredText = filteredText.replace(regex, () => 
-      DESSERT_EMOJIS[Math.floor(Math.random() * DESSERT_EMOJIS.length)]
-    );
-  });
+const getModerationTombstoneText = (
+  status?: string,
+  reason?: string,
+  contentType: ModerationContentType = 'content',
+  notice?: string,
+) => {
+  const cleanReason = getPublicModerationReason(reason);
+  const cleanNotice = getPublicModerationNotice(status, notice);
+  if (status === 'masked') return cleanNotice || MEDIUM_MASK_COPY;
+  if (status === 'pending_review' || status === 'quarantined') return normalizeModerationReviewNotice(notice);
+  if (status === 'hidden' || status === 'deleted' || status === 'removed') {
+    const label = contentType === 'post' ? '此貼文' : '此留言';
+    const rawReason = String(reason || '').trim();
+    if (rawReason === 'author_deleted' || rawReason.includes('作者自行刪除') || cleanNotice === AUTHOR_DELETED_COPY) {
+      return `${label}已由作者刪除。`;
+    }
+    return cleanReason
+      ? `${label}因違反社群規範，已被站方處理。原因：${cleanReason}`
+      : `${label}因違反社群規範，已被站方處理。`;
+  }
+  return '這則內容暫時由站長查看中。';
+};
 
-  // 5. 還原例外詞
-  placeholders.forEach((exc, index) => {
-    const placeholder = `__EXC_${index}__`;
-    const regex = new RegExp(placeholder, 'g');
-    filteredText = filteredText.replace(regex, exc);
-  });
+const getModerationTombstoneTitle = (status?: string) => {
+  if (status === 'pending_review' || status === 'quarantined') return '站長審核中';
+  if (status === 'hidden' || status === 'deleted' || status === 'removed') return '內容已由站方處理';
+  if (status === 'masked') return '內容已遮罩';
+  return '站務處理中';
+};
 
-  return filteredText;
+function ModerationMaskNotice({
+  compact = false,
+  onExpand,
+  notice,
+}: {
+  compact?: boolean;
+  onExpand: () => void;
+  notice?: string;
+}) {
+  const publicNotice = getPublicModerationNotice('masked', notice);
+  return (
+    <div className={`${compact ? 'rounded-xl px-3 py-2' : 'rounded-2xl px-4 py-3'} border border-amber-500/20 bg-amber-500/10`}>
+      <p className={`${compact ? 'text-xs' : 'text-sm'} font-bold text-amber-300`}>{publicNotice || MEDIUM_MASK_COPY}</p>
+      <button
+        type="button"
+        onClick={onExpand}
+        className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-amber-300/30 bg-amber-300/10 px-2.5 py-1 text-[0.6875rem] font-bold text-amber-100 hover:bg-amber-300/20 transition-colors"
+      >
+        <Eye className="w-3.5 h-3.5" />
+        展開閱讀
+      </button>
+    </div>
+  );
+}
+
+function ModerationTombstoneNotice({
+  status,
+  reason,
+  notice,
+  contentType,
+  isAuthor = false,
+  compact = false,
+}: {
+  status?: string;
+  reason?: string;
+  notice?: string;
+  contentType: ModerationContentType;
+  isAuthor?: boolean;
+  compact?: boolean;
+}) {
+  return (
+    <div className={`${compact ? 'rounded-xl px-3 py-2' : 'rounded-2xl px-4 py-3'} border border-amber-500/20 bg-amber-500/10`}>
+      <div className="flex items-center gap-2 text-amber-300">
+        <Shield className={compact ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
+        <p className={`${compact ? 'text-xs' : 'text-sm'} font-black`}>{getModerationTombstoneTitle(status)}</p>
+      </div>
+      <p className={`${compact ? 'mt-1 text-xs' : 'mt-1.5 text-sm'} font-bold text-amber-200/95`}>
+        {getModerationTombstoneText(status, reason, contentType, notice)}
+      </p>
+      {isAuthor && (
+        <p className={`${compact ? 'mt-1 text-[0.5625rem]' : 'mt-2 text-[0.625rem]'} text-amber-200/80`}>
+          可到功能選單的「站務紀錄」查詢依據條款與處理狀態。
+        </p>
+      )}
+    </div>
+  );
+}
+
+const prepareUserContent = (text: string) => text.trim();
+
+type CreateCommunityContentPayload = {
+  sourceType: 'post' | 'comment' | 'reply';
+  content: string;
+  category?: string;
+  imageUrls?: string[];
+  postId?: string;
+  commentId?: string;
+};
+
+type CreateCommunityContentResult = {
+  id?: string;
+  sourcePath?: string;
+  status?: string;
+  protected?: boolean;
+  publicCaseId?: string | null;
+};
+
+type RemoveCommunityContentPayload = {
+  sourceType: 'post' | 'comment' | 'reply';
+  postId: string;
+  commentId?: string;
+  replyId?: string;
+};
+
+const createCommunityContent = httpsCallable(functions, 'createCommunityContent');
+const removeCommunityContent = httpsCallable(functions, 'removeCommunityContent');
+const createUserNotification = httpsCallable(functions, 'createUserNotification');
+
+const submitCommunityContent = async (payload: CreateCommunityContentPayload) => {
+  const result = await createCommunityContent(payload);
+  return (result.data || {}) as CreateCommunityContentResult;
+};
+
+const submitRemoveCommunityContent = async (payload: RemoveCommunityContentPayload) => {
+  await removeCommunityContent(payload);
+};
+
+type CreateUserNotificationPayload = {
+  recipientId: string;
+  type: 'like' | 'comment' | 'mention' | 'report' | 'follow_request';
+  postId?: string;
+  category?: string;
+  commentId?: string;
+  replyId?: string;
+  title: string;
+  content: string;
+};
+
+const submitUserNotification = async (payload: CreateUserNotificationPayload) => {
+  await createUserNotification(payload);
+};
+
+const getSubmissionErrorMessage = (error: any, fallback: string) => {
+  const rawMessage = String(error?.message || error?.details || '').trim();
+  if (/INTERNAL|functions\/internal|internal/i.test(rawMessage)) {
+    return '系統剛剛處理失敗，請稍後再送一次。';
+  }
+  return rawMessage
+    .replace(/^FirebaseError:\s*/i, '')
+    .replace(/^functions\/[a-z-]+:\s*/i, '')
+    || fallback;
+};
+
+const getLoginErrorMessage = (error: any) => {
+  const code = String(error?.code || '');
+  const message = String(error?.message || '');
+  if (code === 'auth/user-disabled' || /user-disabled/i.test(message)) {
+    return '這個帳號目前無法使用馬祖小站。若你認為是誤判，請透過官方 LINE 聯絡站方確認。';
+  }
+  if (code === 'auth/popup-closed-by-user') {
+    return '登入視窗已關閉，尚未完成登入。';
+  }
+  if (code === 'auth/popup-blocked') {
+    return '瀏覽器阻擋了登入視窗，請允許彈出視窗後再試一次。';
+  }
+  return '登入失敗，請稍後再試，或透過官方 LINE 回報給站長。';
+};
+
+const getAccountRestrictionNotice = (profile: any) => {
+  if (!profile) return null;
+  if (profile.isBanned || profile.accountStatus === 'banned') {
+    return {
+      tone: 'danger',
+      title: '帳號目前無法使用',
+      body: '你的帳號因站務治理需要暫停使用。若你認為是誤判，請透過官方 LINE 聯絡站方確認。',
+    };
+  }
+  if (profile.accountStatus === 'posting_suspended') {
+    return {
+      tone: 'warning',
+      title: '發布權限已暫停',
+      body: '你目前可以瀏覽網站，但暫時不能發布貼文、留言或回覆。請查看小站通知中的站務原因。',
+    };
+  }
+  if (profile.accountStatus === 'watch') {
+    return {
+      tone: 'info',
+      title: '站務提醒',
+      body: '你的帳號目前列入站務觀察，仍可正常使用。請留意近期發言是否符合社群規範。',
+    };
+  }
+  return null;
 };
 
 const cleanMentionName = (mention: string) => {
@@ -350,10 +568,8 @@ const sendMentionNotifications = async ({
     if (!recipientId || recipientId === senderId || notifiedRecipients.has(recipientId)) continue;
     notifiedRecipients.add(recipientId);
 
-    await addDoc(collection(db, 'notifications'), {
+    await submitUserNotification({
       recipientId,
-      senderId,
-      senderName,
       type: 'mention',
       postId,
       category,
@@ -361,8 +577,6 @@ const sendMentionNotifications = async ({
       ...(replyId ? { replyId } : {}),
       title: '有人標註了你',
       content: `${senderName} 在${sourceLabel}標註了你。`,
-      read: false,
-      createdAt: serverTimestamp(),
     });
   }
 };
@@ -405,6 +619,41 @@ const getTimestampMillis = (value: any) => {
   return 0;
 };
 
+const getHomePostScore = (post: Post) => {
+  if (isModerationHidden(post.moderationStatus)) {
+    const ageHours = Math.max(0, (Date.now() - getTimestampMillis(post.createdAt)) / 3600000);
+    return Math.round(-18 - Math.min(96, ageHours * 0.5));
+  }
+  if (post.recommendationBucket === 'no_recommend') return -100000;
+
+  const storedScore = Number(post.recommendationScore);
+  if (Number.isFinite(storedScore)) return storedScore;
+
+  const profile = post.recommendationRiskProfile || post.moderationRiskProfile || {};
+  const ageHours = Math.max(0, (Date.now() - getTimestampMillis(post.createdAt)) / 3600000);
+  const freshness = Math.max(0, 120 - ageHours * 4);
+  const interaction = Math.min(80, Number(post.likesCount || 0) * 2 + Number(post.commentsCount || 0) * 3);
+  const risk = Math.max(Number(post.moderationRiskScore || post.aiRisk || 0), 0);
+  const dimensionPenalty =
+    Number(profile.legalRisk || 0) * 24 +
+    Number(profile.communityRisk || 0) * 14 +
+    Number(profile.spreadRisk || 0) * 22 +
+    (1 - Number(profile.credibility ?? 0.68)) * 32 +
+    Number(profile.coordinationRisk || 0) * 12 +
+    Number(profile.velocityRisk || 0) * 8;
+  const reports = Math.max(Number(post.reportsCount || 0), 0);
+  const maskPenalty = isModerationMasked(post.moderationStatus) ? 35 : 0;
+  return Math.round(freshness + interaction - Math.max(risk * 1.1, dimensionPenalty) - reports * 15 - maskPenalty);
+};
+
+const sortPostsForHome = (items: Post[]) => {
+  return [...items].sort((a, b) => {
+    const scoreDiff = getHomePostScore(b) - getHomePostScore(a);
+    if (scoreDiff !== 0) return scoreDiff;
+    return getTimestampMillis(b.createdAt) - getTimestampMillis(a.createdAt);
+  });
+};
+
 const getAccountAgeMs = (user: any) => {
   const createdAt = user?.metadata?.creationTime ? Date.parse(user.metadata.creationTime) : 0;
   return createdAt ? Date.now() - createdAt : Number.POSITIVE_INFINITY;
@@ -416,14 +665,14 @@ const getTodayStartMs = () => {
   return todayStart.getTime();
 };
 
-const getClientUsageKey = (uid: string, kind: 'comment', fightMode: boolean) => {
-  return `matsu-usage:${uid}:${kind}:${fightMode ? 'fight' : 'normal'}`;
+const getClientUsageKey = (uid: string, kind: 'comment') => {
+  return `matsu-usage:${uid}:${kind}`;
 };
 
-const readClientUsage = (uid: string, kind: 'comment', fightMode: boolean) => {
+const readClientUsage = (uid: string, kind: 'comment') => {
   if (typeof window === 'undefined') return [];
   try {
-    const raw = window.localStorage.getItem(getClientUsageKey(uid, kind, fightMode));
+    const raw = window.localStorage.getItem(getClientUsageKey(uid, kind));
     const values = raw ? JSON.parse(raw) : [];
     const todayStartMs = getTodayStartMs();
     return Array.isArray(values)
@@ -434,27 +683,28 @@ const readClientUsage = (uid: string, kind: 'comment', fightMode: boolean) => {
   }
 };
 
-const writeClientUsage = (uid: string, kind: 'comment', fightMode: boolean, values: number[]) => {
+const writeClientUsage = (uid: string, kind: 'comment', values: number[]) => {
   if (typeof window === 'undefined') return;
-  window.localStorage.setItem(getClientUsageKey(uid, kind, fightMode), JSON.stringify(values.slice(-180)));
+  window.localStorage.setItem(getClientUsageKey(uid, kind), JSON.stringify(values.slice(-180)));
 };
 
-const recordClientUsage = (uid: string, kind: 'comment', fightMode: boolean) => {
-  const values = readClientUsage(uid, kind, fightMode);
+const recordClientUsage = (uid: string, kind: 'comment') => {
+  const values = readClientUsage(uid, kind);
   values.push(Date.now());
-  writeClientUsage(uid, kind, fightMode, values);
-};
-
-const getFightModeLabel = (fightMode?: boolean) => {
-  return fightMode ? 'FIGHT｜挑戰觀點' : '一般討論';
+  writeClientUsage(uid, kind, values);
 };
 
 const getGovernanceStatusLabel = (status?: string) => {
-  if (status === 'quarantined') return '審核隔離';
+  if (status === 'masked') return '已遮罩';
+  if (status === 'pending_review') return '待站長裁決';
+  if (status === 'hidden') return '已隱藏';
+  if (status === 'deleted') return '已刪除';
+  if (status === 'approved') return '已恢復';
+  if (status === 'quarantined') return '站長查看中';
   if (status === 'removed') return '已移除';
-  if (status === 'released') return '已放行';
-  if (status === 'dismissed') return '已駁回';
-  if (status === 'reviewed') return '已審核';
+  if (status === 'released') return '已恢復';
+  if (status === 'dismissed') return '已結束';
+  if (status === 'reviewed') return '已查看';
   if (status === 'downgraded') return '已轉一般處理';
   return '待處理';
 };
@@ -467,10 +717,10 @@ const getSourceTypeLabel = (sourceType?: string) => {
 };
 
 const getRiskLevelLabel = (riskLevel?: string) => {
-  if (riskLevel === 'critical') return '極高風險';
-  if (riskLevel === 'high') return '高風險';
-  if (riskLevel === 'medium') return '中風險';
-  return '低風險';
+  if (riskLevel === 'critical') return '需要立即留意';
+  if (riskLevel === 'high') return '需要站長查看';
+  if (riskLevel === 'medium') return '建議留意';
+  return '一般紀錄';
 };
 
 const isTrustedPostImageUrl = (url: string) => {
@@ -843,7 +1093,6 @@ export default function App() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [newPostContent, setNewPostContent] = useState('');
   const [newPostCategory, setNewPostCategory] = useState('在地生活');
-  const [isPostFightMode, setIsPostFightMode] = useState(false);
   const [isPosting, setIsPosting] = useState(false);
   const [postingMessage, setPostingMessage] = useState('');
   const [postError, setPostError] = useState<string | null>(null);
@@ -1066,13 +1315,16 @@ posts.forEach((post) => {
   topicCounts[category]++;
 });
 
-const HOT_TOPICS = Object.entries(topicCounts)
-  .sort((a, b) => b[1] - a[1])
+const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
+  posts
+    .map(post => normalizeCategoryName(post.category) || normalizeCategoryName(post.aiTag))
+    .filter((label): label is string => Boolean(label))
+))
   .slice(0, 5)
- .map(([label, count]) => ({
-   label,
-   count
- }));
+  .map(label => ({
+    label,
+    count: topicCounts[label] || 0,
+  }));
 
   useEffect(() => {
     const accent = ACCENT_COLORS.find(t => t.id === activeAccentId) || ACCENT_COLORS[0];
@@ -1119,7 +1371,6 @@ const HOT_TOPICS = Object.entries(topicCounts)
 
   const CATEGORIES = [
     { id: 'all', name: '全部', icon: <Waves className="w-4 h-4" /> },
-    { id: 'hot', name: '熱門話題', icon: '🔥' },
     { id: 'chat', name: '閒聊', icon: '💬' },
     { id: 'tears', name: '藍眼淚', icon: '💧' },
     { id: 'life', name: '在地生活', icon: '🏠' },
@@ -1130,7 +1381,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
     { id: 'ufo', name: '馬祖UFO', icon: '🛸' },
   ];
 
-  const POST_TAGS = CATEGORIES.filter(cat => cat.id !== 'all' && cat.id !== 'hot');
+  const POST_TAGS = CATEGORIES.filter(cat => cat.id !== 'all');
 
   // Check if logged in user needs to agree to the latest policies or setup profile.
   React.useEffect(() => {
@@ -1169,9 +1420,9 @@ const HOT_TOPICS = Object.entries(topicCounts)
     } catch (error: any) {
       console.error('Login failed', error);
       if (error.message === "FIREBASE_NOT_CONFIGURED") {
-        alert("網站資料服務尚未完成設定。請聯繫站長協助。");
+        alert("小站服務尚未完成設定。請聯繫站長協助。");
       } else {
-        alert("登錄失敗，請稍後再試，或透過官方 LINE 回報給站長。");
+        alert(getLoginErrorMessage(error));
       }
     }
   };
@@ -1312,7 +1563,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
 
   const openGovernanceCenter = async () => {
     if (!user) {
-      alert('請先登入後再查看治理紀錄。');
+      alert('請先登入後再查看站務紀錄。');
       return;
     }
 
@@ -1337,7 +1588,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
       setGovernanceRecords(records);
     } catch (err: any) {
       console.error('Load governance records failed:', err);
-      alert('治理紀錄讀取失敗，請稍後再試。');
+      alert('站務紀錄讀取失敗，請稍後再試。');
     } finally {
       setIsLoadingGovernanceRecords(false);
     }
@@ -1377,7 +1628,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
     } catch (err: any) {
       console.error(err);
       if (err.message.includes('offline')) {
-        alert("連線失敗：目前無法讀取資料服務，請稍後再試。");
+        alert("連線失敗：目前無法讀取小站資料，請稍後再試。");
       } else {
         alert("無法讀取個人檔案，請稍後再試。");
       }
@@ -1556,15 +1807,11 @@ const HOT_TOPICS = Object.entries(topicCounts)
         setHasPendingFollowRequest(true);
         setFriendActionMessage('追蹤申請已送出，等待對方同意。');
         try {
-          await addDoc(collection(db, 'notifications'), {
+          await submitUserNotification({
             recipientId: viewingProfile.uid,
-            senderId: user.uid,
-            senderName: profile.displayName || user.displayName || '匿名島民',
             type: 'follow_request',
             title: '收到新的追蹤申請',
             content: `${profile.displayName || profile.islanderId || '匿名島民'} 想追蹤你的個人主頁。`,
-            read: false,
-            createdAt: serverTimestamp(),
           });
         } catch (notificationErr) {
           console.warn('Follow request notification failed:', notificationErr);
@@ -1572,7 +1819,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
       }
     } catch (err: any) {
       console.error('Follow failed:', err);
-      setFriendActionMessage(err.message?.includes('permission-denied') ? '追蹤申請失敗，系統權限尚未開放。' : '追蹤申請失敗，請稍後再試。');
+      setFriendActionMessage(err.message?.includes('permission-denied') ? '追蹤申請失敗，功能權限尚未開放。' : '追蹤申請失敗，請稍後再試。');
     } finally {
       setIsSavingRelationship(false);
     }
@@ -1615,7 +1862,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
       setFollowRequests(previous => previous.filter(item => item.requesterId !== request.requesterId));
     } catch (err: any) {
       console.error('Follow request action failed:', err);
-      setFriendActionMessage(err.message?.includes('permission-denied') ? '處理追蹤申請失敗，系統權限尚未開放。' : '處理追蹤申請失敗，請稍後再試。');
+      setFriendActionMessage(err.message?.includes('permission-denied') ? '處理追蹤申請失敗，功能權限尚未開放。' : '處理追蹤申請失敗，請稍後再試。');
     } finally {
       setIsSavingRelationship(false);
     }
@@ -1798,38 +2045,25 @@ const HOT_TOPICS = Object.entries(topicCounts)
     setImagePreviews(newPreviews);
   };
 
-  const getPostRateLimitMessage = (fightMode: boolean) => {
+  const getPostRateLimitMessage = () => {
     if (!user) return null;
     if (user.uid === STATION_MASTER_UID) return null;
 
     const now = Date.now();
     const userPosts = posts.filter(post => post.authorId === user.uid);
-    const modePosts = userPosts.filter(post => Boolean(post.fightMode) === fightMode);
-    const latestPostTime = Math.max(0, ...modePosts.map(post => getTimestampMillis(post.createdAt)));
-    const cooldownMs = fightMode ? FIGHT_POST_COOLDOWN_MS : POST_COOLDOWN_MS;
+    const latestPostTime = Math.max(0, ...userPosts.map(post => getTimestampMillis(post.createdAt)));
 
-    if (latestPostTime && now - latestPostTime < cooldownMs) {
-      const secondsLeft = Math.ceil((cooldownMs - (now - latestPostTime)) / 1000);
-      return fightMode
-        ? `${FIGHT_NOTICE} Fight 發文請再等 ${secondsLeft} 秒。`
-        : `${ANTI_ABUSE_NOTICE} 請再等 ${secondsLeft} 秒後再發文。`;
+    if (latestPostTime && now - latestPostTime < POST_COOLDOWN_MS) {
+      const secondsLeft = Math.ceil((POST_COOLDOWN_MS - (now - latestPostTime)) / 1000);
+      return `${ANTI_ABUSE_NOTICE} 請再等 ${secondsLeft} 秒後再發文。`;
     }
 
-    const todayPostCount = modePosts.filter(post => getTimestampMillis(post.createdAt) >= getTodayStartMs()).length;
-    const dailyLimit = fightMode ? DAILY_FIGHT_POST_LIMIT : DAILY_POST_LIMIT;
-
-    if (todayPostCount >= dailyLimit) {
-      return fightMode
-        ? `${FIGHT_NOTICE} 每個帳號一天最多 ${DAILY_FIGHT_POST_LIMIT} 篇 Fight 發文，請明天再使用。`
-        : `${ANTI_ABUSE_NOTICE} 每個帳號一天最多 ${DAILY_POST_LIMIT} 篇，請明天再發。`;
+    const todayPostCount = userPosts.filter(post => getTimestampMillis(post.createdAt) >= getTodayStartMs()).length;
+    if (todayPostCount >= DAILY_POST_LIMIT) {
+      return `${ANTI_ABUSE_NOTICE} 每個帳號一天最多 ${DAILY_POST_LIMIT} 篇，請明天再發。`;
     }
 
     const accountAgeMs = getAccountAgeMs(user);
-    if (fightMode && accountAgeMs < NEW_ACCOUNT_WINDOW_MS) {
-      const minutesLeft = Math.ceil((NEW_ACCOUNT_WINDOW_MS - accountAgeMs) / 60000);
-      return `Fight 模式涉及高爭議討論，新帳號需再等待約 ${minutesLeft} 分鐘才能使用。這是為了防止洗版、惡意攻擊與法律風險。`;
-    }
-
     if (accountAgeMs < NEW_ACCOUNT_WINDOW_MS && userPosts.length > 0) {
       const minutesLeft = Math.ceil((NEW_ACCOUNT_WINDOW_MS - accountAgeMs) / 60000);
       return `${ANTI_ABUSE_NOTICE} 新帳號前 30 分鐘只能先發一篇，請再等約 ${minutesLeft} 分鐘。`;
@@ -1849,10 +2083,8 @@ const HOT_TOPICS = Object.entries(topicCounts)
 
     setIsPosting(true);
     setPostError(null);
-    setPostingMessage('正在幫你檢查內容安全...');
+    setPostingMessage('正在發布到馬祖小站...');
     setUploadProgress(8);
-
-    const postsPath = 'posts';
 
     try {
       const rawContent = newPostContent.trim();
@@ -1866,7 +2098,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
         return;
       }
 
-      const rateLimitMessage = getPostRateLimitMessage(isPostFightMode);
+      const rateLimitMessage = getPostRateLimitMessage();
       if (rateLimitMessage) {
         setPostError(rateLimitMessage);
         setIsPosting(false);
@@ -1875,35 +2107,10 @@ const HOT_TOPICS = Object.entries(topicCounts)
         return;
       }
 
-      // 1) 先呼叫後端 AI 審核。注意：Gemini API Key 只能放在後端 /api/moderate-post，不能放前端。
-      const moderationRes = await fetch('/api/moderate-post', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          content: rawContent,
-          category: newPostCategory,
-          fightMode: isPostFightMode,
-        }),
-      });
-
-      const moderation = await moderationRes.json().catch(() => null);
-
-      if (!moderationRes.ok || !moderation) {
-        throw new Error(moderation?.summary || moderation?.error || '內容安全檢查暫時失敗，請稍後再試。');
-      }
-
-      if (moderation.action === 'block' || moderation.safe === false) {
-        setPostError(moderation.summary || '這篇內容可能有法律或個資風險，請改得更模糊一點再發。');
-        setIsPosting(false);
-        setUploadProgress(0);
-        setPostingMessage('');
-        return;
-      }
-
-      setPostingMessage('內容安全檢查通過，正在上傳圖片...');
+      setPostingMessage(selectedImages.length > 0 ? '正在上傳圖片...' : '正在發布到馬祖小站...');
       setUploadProgress(25);
 
-      // 2) 上傳圖片
+      // 1) 上傳圖片
       const uploadedUrls: string[] = [];
       for (let i = 0; i < selectedImages.length; i++) {
         const file = selectedImages[i];
@@ -1918,50 +2125,38 @@ const HOT_TOPICS = Object.entries(topicCounts)
       setPostingMessage('正在發布到馬祖小站...');
       setUploadProgress(82);
 
-      // 3) 寫入 Firestore
-      const cleanContent = filterContent(rawContent);
+      // 2) 由伺服器建立內容；明顯高風險會先進入站務審核，不直接公開原文。
+      const cleanContent = prepareUserContent(rawContent);
       const senderName = profile?.displayName || user.displayName || '匿名島民';
       const postCategory = newPostCategory;
-      const postRef = await addDoc(collection(db, 'posts'), {
-        authorId: user.uid,
-        authorName: senderName,
-        authorPhoto: profile?.photoURL || user.photoURL || DEFAULT_ISLANDER_PHOTO,
+      const createdPost = await submitCommunityContent({
+        sourceType: 'post',
         content: cleanContent,
         category: postCategory,
-        aiSafe: Boolean(moderation.safe),
-        aiRisk: Number(moderation.risk ?? 0),
-        aiTag: moderation.tag || postCategory,
-        aiSummary: moderation.summary || '',
-        aiAction: moderation.action || 'publish',
-        fightMode: isPostFightMode,
-        userRiskLabel: isPostFightMode ? 'fight' : 'normal',
-        likesCount: 0,
-        commentsCount: 0,
-        reportsCount: 0,
         imageUrls: uploadedUrls,
-        createdAt: serverTimestamp(),
       });
 
-      try {
-        await sendMentionNotifications({
-          text: cleanContent,
-          senderId: user.uid,
-          senderName,
-          postId: postRef.id,
-          category: postCategory,
-          sourceLabel: '貼文中',
-        });
-      } catch (mentionErr) {
-        console.warn('Post mention notification failed:', mentionErr);
+      if (createdPost.status === 'normal' && createdPost.id) {
+        try {
+          await sendMentionNotifications({
+            text: cleanContent,
+            senderId: user.uid,
+            senderName,
+            postId: createdPost.id,
+            category: postCategory,
+            sourceLabel: '貼文中',
+          });
+        } catch (mentionErr) {
+          console.warn('Post mention notification failed:', mentionErr);
+        }
       }
 
       setUploadProgress(100);
-      setPostingMessage('發布成功！');
+      setPostingMessage(createdPost.protected ? '已送出，內容先交由站務審核。' : '發布成功！');
 
       setTimeout(() => {
         setNewPostContent('');
         setNewPostCategory('在地生活');
-        setIsPostFightMode(false);
         setSelectedImages([]);
         setImagePreviews([]);
         setIsPosting(false);
@@ -1971,7 +2166,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
       }, 500);
     } catch (error: any) {
       console.error('Failed to post', error);
-      setPostError(error?.message || '發文失敗，請稍後再試。');
+      setPostError(getSubmissionErrorMessage(error, '發文失敗，請稍後再試。'));
       setIsPosting(false);
       setUploadProgress(0);
       setPostingMessage('');
@@ -2031,20 +2226,10 @@ const HOT_TOPICS = Object.entries(topicCounts)
   const filteredPosts = posts
     .filter(post => {
       const matchesSearch = postMatchesSearch(post);
-      
-      if (activeCategory === '熱門話題') {
-        return matchesSearch && (post.likesCount >= 3);
-      }
-      
       const matchesCategory = postMatchesCategory(post, activeCategory);
       return matchesSearch && matchesCategory;
-    })
-    .sort((a, b) => {
-      if (activeCategory === '熱門話題') {
-        return (b.likesCount || 0) - (a.likesCount || 0);
-      }
-      return 0; // Keep Firestore order (desc ending)
     });
+  const visibleFeedPosts = sortPostsForHome(filteredPosts);
   const searchCategoryShortcuts = POST_TAGS.slice(0, 8);
   const searchPreviewPosts = normalizedSearchQuery ? posts.filter(postMatchesSearch).slice(0, 3) : [];
   const viewingProfilePosts = viewingProfile ? posts.filter(post => post.authorId === viewingProfile.uid) : [];
@@ -2052,6 +2237,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
   const isViewingOwnProfile = Boolean(user && viewingProfile && user.uid === viewingProfile.uid);
   const canViewProfileSocialLists = Boolean(viewingProfile && (isViewingOwnProfile || isFollowingProfile));
   const isViewingStationMaster = viewingProfile?.uid === STATION_MASTER_UID;
+  const accountRestrictionNotice = getAccountRestrictionNotice(profile);
 
   if (loading) {
     return (
@@ -2076,7 +2262,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
                 <div className="space-y-2 mt-4 p-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl">
                   <p className="text-[0.625rem] text-amber-400 font-bold uppercase">連線疑難排解</p>
                   <p className="text-[0.625rem] text-amber-200/70 leading-relaxed text-left">
-                    目前資料服務暫時無法連線。請稍後再試，或透過官方 LINE 回報站長。
+                    目前小站服務暫時無法連線。請稍後再試，或透過官方 LINE 回報站長。
                   </p>
                 </div>
               )}
@@ -2090,7 +2276,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
           ) : (
             <div className="space-y-2">
               <p className="text-text-muted text-xs font-bold uppercase tracking-widest animate-pulse">正在與群島同步...</p>
-              <p className="text-[0.5625rem] text-text-muted opacity-60 leading-relaxed">如果這花費太長時間，可能是網路不穩定或資料服務暫時忙碌。</p>
+              <p className="text-[0.5625rem] text-text-muted opacity-60 leading-relaxed">如果這花費太長時間，可能是網路不穩定或小站服務暫時忙碌。</p>
               <button 
                 onClick={() => window.location.reload()}
                 className="text-[0.625rem] text-bio-glow/50 hover:text-bio-glow underline underline-offset-4"
@@ -2106,6 +2292,32 @@ const HOT_TOPICS = Object.entries(topicCounts)
 
   return (
     <div className="min-h-screen bg-deep-ocean text-text-main font-sans">
+      {accountRestrictionNotice && (
+        <div className={`fixed left-3 right-3 top-3 z-[120] rounded-2xl border p-4 shadow-2xl backdrop-blur-xl sm:left-1/2 sm:right-auto sm:w-[min(560px,calc(100vw-2rem))] sm:-translate-x-1/2 ${
+          accountRestrictionNotice.tone === 'danger'
+            ? 'border-rose-500/30 bg-rose-950/85'
+            : accountRestrictionNotice.tone === 'warning'
+              ? 'border-amber-500/30 bg-amber-950/85'
+              : 'border-sky-500/30 bg-sky-950/85'
+        }`}>
+          <div className="flex items-start gap-3">
+            <Shield className="mt-0.5 h-5 w-5 flex-none text-bio-glow" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-bold text-text-main">{accountRestrictionNotice.title}</p>
+              <p className="mt-1 text-xs leading-relaxed text-text-main/75">{accountRestrictionNotice.body}</p>
+            </div>
+            {accountRestrictionNotice.tone === 'danger' && (
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="rounded-xl border border-white/10 px-3 py-2 text-xs font-bold text-text-main transition-colors hover:bg-white/10"
+              >
+                登出
+              </button>
+            )}
+          </div>
+        </div>
+      )}
       {/* Terms Overlay */}
       <AnimatePresence>
         {showTerms && (
@@ -2126,7 +2338,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
                     使用者條款、隱私權政策與社群守則
                   </h2>
                   <p className="mt-1 text-[0.625rem] leading-relaxed text-text-muted/60">
-                    這份說明是為了告知資料使用方式、平台治理規則與安全處理流程，不會要求你放棄法律上的基本權利。
+                    這份說明是為了告知資料使用方式、平台管理規則與安全處理流程，不會要求你放棄法律上的基本權利。
                   </p>
                 </div>
                 <div className="bg-blue-500/10 p-1.5 rounded-lg border border-blue-500/20">
@@ -2253,21 +2465,21 @@ const HOT_TOPICS = Object.entries(topicCounts)
                         <span className="w-1 h-4 bg-bio-glow rounded-full"></span>
                         1. 使用者條款
                       </h3>
-                      <p>「馬祖小站」是馬祖在地社群平台，目標是保障公共討論、生活分享與合理批評，同時保護使用者、被討論者與平台安全。使用者發布內容時，需自行確保內容合法、真實、未侵害他人權益，並同意平台可依本條款、隱私權政策與社群守則進行必要治理。</p>
-                      <p>若內容涉及個資、恐嚇、騷擾、肉搜、詐騙、私密影像、未證實重大指控、惡意洗版或其他高風險行為，平台可採取標記、降觸及、審核、隔離、移除、限制功能或保留紀錄等處置。</p>
+                      <p>「馬祖小站」是馬祖在地社群平台，目標是保障公共討論、生活分享與合理批評，同時保護使用者、被討論者與平台安全。使用者發布內容時，需自行確保內容合法、真實、未侵害他人權益，並同意平台可依本條款、隱私權政策與社群守則進行必要管理。</p>
+                      <p>若內容涉及個資、恐嚇、騷擾、肉搜、詐騙、私密影像、未證實重大指控、惡意洗版或其他高風險行為，平台可採取提醒、暫時隱藏、移除、限制功能或保留處理紀錄等處置。</p>
                     </section>
                     
                     <section className="space-y-3 bg-white/5 p-4 rounded-2xl border border-white/5">
-                      <h3 className="font-bold text-text-main text-base flex items-center gap-2 uppercase tracking-wider text-[0.6875rem] opacity-70">2. 內容責任與平台治理</h3>
+                      <h3 className="font-bold text-text-main text-base flex items-center gap-2 uppercase tracking-wider text-[0.6875rem] opacity-70">2. 內容責任與平台管理</h3>
                       <p>使用者上傳的貼文、留言、圖片與反應，原則上代表發表者個人立場。本平台提供資訊儲存與社群互動服務，不保證使用者內容完整、正確或即時。</p>
-                      <p>為降低法律風險與保護大家的安全，平台會使用輔助安全檢查與站長人工覆核進行必要處理。系統只提供標記、分類與建議；最終裁量仍由站長保留。</p>
-                      <p>平台不鼓勵違法內容，也不承諾「完全免責」。若平台透過檢舉、安全檢查或站長確認得知明顯違法或高風險內容，會依規範採取合理處理。</p>
-                      <p className="text-[0.6875rem] opacity-70">若您的內容被處置，通知或治理紀錄會盡可能標示「疑似違反哪一條規範」與目前狀態。</p>
+                      <p>為降低法律爭議與保護大家的安全，平台會依檢舉、使用者回報與站長查看結果進行必要處理。相關提示只協助站長判斷；最終裁量仍由站長保留。</p>
+                      <p>平台不鼓勵違法內容，也不承諾「完全免責」。若平台透過檢舉、回報或站長確認得知明顯違法或高爭議內容，會依規範採取合理處理。</p>
+                      <p className="text-[0.6875rem] opacity-70">若您的內容被處置，通知或站務紀錄會盡可能標示「疑似違反哪一條規範」與目前狀態。</p>
                     </section>
 
                     <section className="space-y-3 text-emerald-300 bg-emerald-500/10 p-4 rounded-2xl border border-emerald-500/10">
                       <h3 className="font-bold text-emerald-200 text-base flex items-center gap-2">3. 隱私權政策</h3>
-                      <p>平台會處理登入識別、島內 ID、暱稱、頭像、發文留言、互動紀錄、檢舉紀錄、通知與治理紀錄，以維持服務、防止洗版攻擊、保護使用者安全與處理爭議。</p>
+                      <p>平台會處理登入識別、島內 ID、暱稱、頭像、發文留言、互動紀錄、檢舉紀錄、通知與站務紀錄，以維持服務、防止洗版攻擊、保護使用者安全與處理爭議。</p>
                       <p>平台使用可信賴的第三方基礎服務來提供登入、資料保存、網站託管、內容安全輔助分析與客服回報。平台不販售使用者個資，也不會把個資用於與服務無關的商業轉售。</p>
                       <p>平台不公開內部識別碼、私人電子郵件或非公開識別資訊。若因法律程序、平台安全、濫用調查、檢舉處理或必要的申訴處理需要，站長可能在合理範圍內查閱相關紀錄。</p>
                       <p>使用者可透過官方 LINE 請求查詢、更正、停止利用或刪除可刪除的個人資料；但依法、資安、爭議處理或防止濫用所需的紀錄，可能在合理期間內保留。</p>
@@ -2276,15 +2488,15 @@ const HOT_TOPICS = Object.entries(topicCounts)
 
                     <section className="space-y-3">
                       <h3 className="font-bold text-text-main text-base flex items-center gap-2">4. 社群守則</h3>
-                      <p>允許：在地生活、交通船班航班、天氣、公共政策、政治討論、公共人物與公共事務評論、消費經驗、合理抱怨、反方觀點與 Fight 模式中的尖銳反駁。</p>
+                      <p>允許：在地生活、交通船班航班、天氣、公共政策、政治討論、公共人物與公共事務評論、消費經驗、合理抱怨、反方觀點與尖銳反駁。</p>
                       <p>禁止：個資曝光、肉搜、威脅恐嚇、持續騷擾、煽動圍剿、詐騙、惡意洗版、仇恨煽動、私密影像、兒少性內容、侵權內容，以及對可識別自然人的未證實重大犯罪或私生活指控。</p>
-                      <p>Fight 模式代表您主動標記高爭議討論，平台會提高言論容忍度，也會保留較完整脈絡，必要時由站長覆核；Fight 不代表可以違反安全底線。</p>
+                      <p>平台會尊重尖銳、情緒化或高爭議的公共討論；但仍不代表可以違反個資、威脅、肉搜、詐騙、私密影像或其他安全底線。</p>
                     </section>
 
                     <section className="space-y-3 pt-6 border-t border-white/5">
-                      <h3 className="font-bold text-text-main text-base flex items-center gap-2">5. 治理紀錄與查詢</h3>
-                      <p>若您的貼文、留言或回覆被安全檢查或站長處理，系統會建立紀錄。您可以到「功能選單 → 治理紀錄」查詢自己的問題發言、處置狀態、風險摘要與依據條款。</p>
-                      <p>其他使用者無法查看您的個人治理紀錄。公開案例若日後開放，只會顯示遮罩內容、處理原因與案例編號，不公開真實身份或內部識別碼。</p>
+                      <h3 className="font-bold text-text-main text-base flex items-center gap-2">5. 站務紀錄與查詢</h3>
+                      <p>若您的貼文、留言或回覆經站長處理，平台會建立紀錄。您可以到「功能選單 → 站務紀錄」查詢自己的內容狀態、處理說明與依據條款。</p>
+                      <p>其他使用者無法查看您的個人站務紀錄。日後若開放公開處理案例，只會顯示遮罩內容、處理原因與案例編號，不公開真實身份或內部識別碼。</p>
                     </section>
 
  <section className="space-y-4 bg-bio-glow/5 p-4 rounded-2xl border border-bio-glow/10">
@@ -2546,7 +2758,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
                     <Shield className="h-5 w-5 text-bio-glow" />
                   </div>
                   <div>
-                    <h2 className="text-lg font-bold text-text-main">我的治理紀錄</h2>
+                    <h2 className="text-lg font-bold text-text-main">我的站務紀錄</h2>
                     <p className="text-[0.625rem] font-bold uppercase tracking-widest text-text-muted">
                       只顯示你自己的貼文、留言與回覆處置紀錄
                     </p>
@@ -2564,12 +2776,12 @@ const HOT_TOPICS = Object.entries(topicCounts)
                 <div className="mb-4 rounded-2xl border border-bio-glow/10 bg-bio-glow/5 p-4">
                   <p className="text-sm font-bold text-text-main">這裡用來保障你的安全與查詢權。</p>
                   <p className="mt-2 text-xs leading-relaxed text-text-muted">
-                    若內容被審核、隔離、移除或放行，系統會盡量列出案件狀態與依據條款。這不是公開黑名單，也不是懲罰頁；它是讓處置有紀錄可查，其他島民看不到你的治理紀錄。
+                    若內容經站長查看、暫時隱藏、移除或恢復，這裡會盡量列出處理狀態與依據條款。這不是公開黑名單，也不是懲罰頁；它是讓處理有紀錄可查，其他島民看不到你的站務紀錄。
                   </p>
                 </div>
 
                 {isLoadingGovernanceRecords ? (
-                  <div className="py-12 text-center text-sm font-bold text-text-muted">正在讀取治理紀錄...</div>
+                  <div className="py-12 text-center text-sm font-bold text-text-muted">正在讀取站務紀錄...</div>
                 ) : governanceRecords.length > 0 ? (
                   <div className="space-y-3">
                     {governanceRecords.map(record => (
@@ -2583,7 +2795,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
                           </div>
                           <div className="flex flex-wrap items-center gap-2 text-[0.625rem] font-bold">
                             <span className="rounded-full border border-line bg-deep-ocean/40 px-2 py-1 text-text-muted">
-                              {getRiskLevelLabel(record.riskLevel)} {Math.round(Number(record.riskScore || 0))}/100
+                              {getRiskLevelLabel(record.riskLevel)}
                             </span>
                             {record.policyVersion && (
                               <span className="rounded-full border border-line bg-deep-ocean/40 px-2 py-1 text-text-muted">
@@ -2599,12 +2811,12 @@ const HOT_TOPICS = Object.entries(topicCounts)
 
                         <div className="mt-3 grid gap-3 sm:grid-cols-2">
                           <div>
-                            <p className="text-[0.625rem] font-bold uppercase tracking-widest text-text-muted">處置摘要</p>
-                            <p className="mt-1 text-xs leading-relaxed text-text-muted">{record.summary || '尚無摘要。'}</p>
+                            <p className="text-[0.625rem] font-bold uppercase tracking-widest text-text-muted">處理摘要</p>
+                            <p className="mt-1 text-xs leading-relaxed text-text-muted">{getPublicGovernanceSummary(record)}</p>
                           </div>
                           <div>
-                            <p className="text-[0.625rem] font-bold uppercase tracking-widest text-text-muted">法律/安全風險</p>
-                            <p className="mt-1 text-xs leading-relaxed text-text-muted">{record.legalRisk || record.recommendedAction || '尚無補充。'}</p>
+                            <p className="text-[0.625rem] font-bold uppercase tracking-widest text-text-muted">站長說明</p>
+                            <p className="mt-1 text-xs leading-relaxed text-text-muted">{getPublicGovernanceExplanation(record)}</p>
                           </div>
                         </div>
 
@@ -2623,8 +2835,8 @@ const HOT_TOPICS = Object.entries(topicCounts)
                 ) : (
                   <div className="rounded-2xl border border-line bg-mist/40 px-4 py-12 text-center">
                     <Shield className="mx-auto h-8 w-8 text-bio-glow/70" />
-                    <p className="mt-3 text-sm font-bold text-text-main">目前沒有治理紀錄</p>
-                    <p className="mt-2 text-xs text-text-muted">如果未來有內容被標記、審核或處置，會在這裡顯示。</p>
+                    <p className="mt-3 text-sm font-bold text-text-main">目前沒有站務紀錄</p>
+                    <p className="mt-2 text-xs text-text-muted">如果未來有內容經站長查看或處理，會在這裡顯示。</p>
                   </div>
                 )}
               </div>
@@ -2679,7 +2891,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
                           className="fixed left-3 right-3 top-20 z-50 max-h-[calc(100dvh-6rem)] dropdown-panel rounded-2xl shadow-2xl overflow-hidden"
                         >
                            <div className="p-4 border-b border-white/5 flex items-center justify-between">
-                              <span className="text-xs text-text-main font-bold uppercase tracking-widest">系統通知</span>
+                              <span className="text-xs text-text-main font-bold uppercase tracking-widest">小站通知</span>
                               <button onClick={markAllAsRead} className="text-xs text-bio-glow font-bold uppercase">標記已讀</button>
                             </div>
                             <div className="max-h-[calc(100dvh-11rem)] overflow-y-auto custom-scrollbar">
@@ -2746,7 +2958,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
                                   <Edit2 className="w-3.5 h-3.5 text-text-muted" /> 編輯個人資料
                                 </button>
                                 <button onClick={() => { void openGovernanceCenter(); }} className="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium text-text-main hover:bg-mist-light rounded-lg transition-colors">
-                                  <Shield className="w-3.5 h-3.5 text-text-muted" /> 治理紀錄
+                                  <Shield className="w-3.5 h-3.5 text-text-muted" /> 站務紀錄
                                 </button>
                               </>
                             )}
@@ -2877,7 +3089,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
                        )}
                      </div>
                      <p className="text-[0.6875rem] text-text-muted leading-relaxed mt-2">
-                       會比對貼文內容、作者名稱、分類與系統標籤。
+                       會比對貼文內容、作者名稱、分類與分類提示。
                      </p>
                    </div>
 
@@ -2905,7 +3117,16 @@ const HOT_TOPICS = Object.entries(topicCounts)
                                <span className="text-xs font-bold text-text-main truncate">{post.authorName}</span>
                                <span className="text-[0.625rem] text-bio-glow shrink-0">{normalizeCategoryName(post.category) || post.aiTag || '未分類'}</span>
                              </div>
-                             <p className="text-[0.6875rem] text-text-muted line-clamp-2 mt-1 leading-relaxed">{post.content || '圖片貼文'}</p>
+                             <p className="text-[0.6875rem] text-text-muted line-clamp-2 mt-1 leading-relaxed">
+                                {isModerationHidden(post.moderationStatus) || isModerationMasked(post.moderationStatus)
+                                  ? getModerationTombstoneText(
+                                    post.moderationStatus,
+                                    post.moderationReason,
+                                    'post',
+                                    post.moderationPublicNotice || post.moderationReviewNotice || post.moderationMaskNotice,
+                                  )
+                                  : post.content || '圖片貼文'}
+                             </p>
                            </button>
                          ))}
                        </div>
@@ -2943,11 +3164,11 @@ const HOT_TOPICS = Object.entries(topicCounts)
                    </div>
 
                    <div className="flex items-center justify-between mb-3 px-1">
-                     <span className="text-[0.625rem] text-text-muted font-bold uppercase tracking-widest">熱門地圖話題</span>
-                     <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                     <span className="text-[0.625rem] text-text-muted font-bold uppercase tracking-widest">在地話題</span>
+                     <MapPin className="w-3.5 h-3.5 text-text-muted" />
                    </div>
                    <div className="space-y-1">
-                     {HOT_TOPICS.map((topic, index) => (
+                     {LOCAL_TOPIC_SHORTCUTS.map((topic) => (
                        <button
                          key={topic.label}
                          onClick={() => {
@@ -2957,10 +3178,10 @@ const HOT_TOPICS = Object.entries(topicCounts)
                          className="w-full flex items-center justify-between p-2.5 rounded-xl hover:bg-mist-light group/topic transition-all text-left cursor-pointer"
                        >
                          <div className="flex items-center gap-3">
-                           <span className="text-xs font-mono text-bio-glow opacity-60">#{index + 1}</span>
+                           <span className="text-xs font-mono text-bio-glow opacity-60">#</span>
                            <span className="text-sm text-text-muted group-hover/topic:text-text-main transition-colors">{topic.label}</span>
                          </div>
-                         <span className="text-[0.625rem] text-text-muted font-mono">{topic.count}</span>
+                         <span className="text-[0.625rem] text-text-muted font-mono">近期</span>
                        </button>
                      ))}
                    </div>
@@ -2999,7 +3220,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
                       className="absolute top-full right-0 mt-2 w-80 max-w-[calc(100vw-2rem)] dropdown-panel rounded-2xl z-50 shadow-2xl overflow-hidden"
                     >
                       <div className="p-4 border-b border-line flex items-center justify-between">
-                        <span className="text-xs text-text-main font-bold uppercase tracking-widest">系統通知</span>
+                        <span className="text-xs text-text-main font-bold uppercase tracking-widest">小站通知</span>
                         <button onClick={markAllAsRead} className="text-xs text-bio-glow font-bold hover:underline">全部標為已讀</button>
                       </div>
                       <div className="max-h-[300px] overflow-y-auto custom-scrollbar">
@@ -3101,13 +3322,13 @@ const HOT_TOPICS = Object.entries(topicCounts)
                             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-text-main hover:bg-white/10 transition-all text-sm font-medium group"
                           >
                             <Shield className="w-4 h-4 text-text-muted group-hover:text-bio-glow" />
-                            治理紀錄
+                            站務紀錄
                           </button>
                         )}
                         <div className="border-t border-line my-1" />
                         
                         <div className="px-3 py-2">
-                          <span className="text-xs text-text-muted font-bold uppercase tracking-widest">系統</span>
+                          <span className="text-xs text-text-muted font-bold uppercase tracking-widest">其他</span>
                         </div>
                         <button 
                           onClick={() => { setShowTerms(true); setShowSettingsMenu(false); }}
@@ -3535,7 +3756,16 @@ const HOT_TOPICS = Object.entries(topicCounts)
                                     {profilePost.createdAt?.toDate ? formatDistanceToNow(profilePost.createdAt.toDate(), { addSuffix: true, locale: zhTW }) : '剛剛'}
                                   </span>
                                 </div>
-                                <p className="mt-2 line-clamp-2 text-sm text-text-main/90 leading-relaxed">{profilePost.content || '圖片貼文'}</p>
+                                <p className="mt-2 line-clamp-2 text-sm text-text-main/90 leading-relaxed">
+                                  {isModerationHidden(profilePost.moderationStatus) || isModerationMasked(profilePost.moderationStatus)
+                                    ? getModerationTombstoneText(
+                                      profilePost.moderationStatus,
+                                      profilePost.moderationReason,
+                                      'post',
+                                      profilePost.moderationPublicNotice || profilePost.moderationReviewNotice || profilePost.moderationMaskNotice,
+                                    )
+                                    : profilePost.content || '圖片貼文'}
+                                </p>
                                 <div className="mt-3 flex items-center gap-4 text-[0.6875rem] text-text-muted">
                                   <span>{profilePost.likesCount || 0} 個反應</span>
                                   <span>{profilePost.commentsCount || 0} 則留言</span>
@@ -3615,14 +3845,14 @@ const HOT_TOPICS = Object.entries(topicCounts)
             </div>
 
             <div className="pt-4 border-t border-line space-y-2">
-              <p className="text-[0.5625rem] text-text-muted font-bold uppercase tracking-widest px-2">系統狀態</p>
+              <p className="text-[0.5625rem] text-text-muted font-bold uppercase tracking-widest px-2">小站狀態</p>
               <div className="flex items-center gap-2 px-2">
                 <div className={`w-1.5 h-1.5 rounded-full ${db ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-red-500'}`} />
-                <span className="text-[0.625rem] text-text-muted">資料服務 {db ? '已連線' : '中斷'}</span>
+                <span className="text-[0.625rem] text-text-muted">小站 {db ? '已連線' : '連線中斷'}</span>
               </div>
               <div className="flex items-center gap-2 px-2">
                 <div className={`w-1.5 h-1.5 rounded-full ${user ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-stone-700'}`} />
-                <span className="text-[0.625rem] text-text-muted">Auth {user ? 'Login' : 'Guest'}</span>
+                <span className="text-[0.625rem] text-text-muted">身份 {user ? '已登入' : '訪客'}</span>
               </div>
             </div>
           </div>
@@ -3675,14 +3905,14 @@ const HOT_TOPICS = Object.entries(topicCounts)
                 </div>
 
                 <div className="pt-4 border-t border-white/5 space-y-2">
-                  <p className="text-[0.5625rem] text-text-muted/70 font-bold uppercase tracking-widest px-2">系統狀態</p>
+                  <p className="text-[0.5625rem] text-text-muted/70 font-bold uppercase tracking-widest px-2">小站狀態</p>
                   <div className="flex items-center gap-2 px-2">
                     <div className={`w-1.5 h-1.5 rounded-full ${db ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-red-500'}`} />
-                    <span className="text-[0.625rem] text-text-muted">資料服務 {db ? '已連線' : '中斷'}</span>
+                    <span className="text-[0.625rem] text-text-muted">小站 {db ? '已連線' : '連線中斷'}</span>
                   </div>
                   <div className="flex items-center gap-2 px-2">
                     <div className={`w-1.5 h-1.5 rounded-full ${user ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-stone-700'}`} />
-                    <span className="text-[0.625rem] text-text-muted">Auth {user ? 'Login' : 'Guest'}</span>
+                    <span className="text-[0.625rem] text-text-muted">身份 {user ? '已登入' : '訪客'}</span>
                   </div>
                 </div>
               </div>
@@ -3695,10 +3925,10 @@ const HOT_TOPICS = Object.entries(topicCounts)
           <div className="overflow-hidden bg-mist/30 border-y border-white/5 py-2 -mx-4 rounded-xl flex">
             <div className="marquee-track flex gap-12 whitespace-nowrap text-[0.625rem] text-bio-glow uppercase tracking-[0.3em] font-bold opacity-60">
               <div className="flex gap-12 shrink-0">
-                <span>馬祖小站目前為 Beta 測試版，歡迎馬祖鄉親協助測試。請勿發布個資、未查證爆料或攻擊性內容。若遇到問題，請截圖回報馬祖小站 LINE 官方帳號。感謝大家一起讓馬祖小站變得更好。</span>
+                <span>馬祖小站目前為 Beta 測試版，歡迎馬祖鄉親協助測試。發言由使用者自行負責；若有檢舉或需要協助查看的內容，站長會依規範處理並留下站務紀錄。若遇到問題，請截圖回報馬祖小站 LINE 官方帳號。</span>
               </div>
               <div className="flex gap-12 shrink-0">
-                <span>馬祖小站目前為 Beta 測試版，歡迎馬祖鄉親協助測試。請勿發布個資、未查證爆料或攻擊性內容。若遇到問題，請截圖回報馬祖小站 LINE 官方帳號。感謝大家一起讓馬祖小站變得更好。</span>
+                <span>馬祖小站目前為 Beta 測試版，歡迎馬祖鄉親協助測試。發言由使用者自行負責；若有檢舉或需要協助查看的內容，站長會依規範處理並留下站務紀錄。若遇到問題，請截圖回報馬祖小站 LINE 官方帳號。</span>
               </div>
             </div>
           </div>
@@ -3713,7 +3943,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
               <div className="relative z-10">
                 <h2 className="text-3xl font-bold font-display opacity-90">歡迎來到馬祖小站</h2>
                 <p className="text-stone-300 max-w-md text-sm leading-relaxed">
-                   馬祖小站目前為 Beta 測試版，歡迎馬祖鄉親協助測試。<br />請勿發布個資、未查證爆料或攻擊性內容。<br />若遇到問題，請截圖回報馬祖小站 LINE 官方帳號。<br />感謝大家一起讓馬祖小站變得更好。
+                   馬祖小站目前為 Beta 測試版，歡迎馬祖鄉親協助測試。<br />發言由使用者自行負責；若有檢舉或需要協助查看的內容，站長會依規範處理並留下站務紀錄。<br />若遇到問題，請截圖回報馬祖小站 LINE 官方帳號。
                 </p>
                 <button 
                   onClick={handleLogin}
@@ -3754,7 +3984,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
                         {ANTI_ABUSE_NOTICE}
                       </p>
                       <p className="text-[0.5625rem] text-text-muted/35 leading-relaxed">
-                        若內容被處理，會優先以治理紀錄說明狀態與依據，不做黑箱消失。
+                        若內容被處理，會優先以站務紀錄說明狀態與依據，不做黑箱消失。
                       </p>
                     </div>
                     <span className={`text-[0.625rem] font-mono font-bold shrink-0 ${
@@ -3764,36 +3994,6 @@ const HOT_TOPICS = Object.entries(topicCounts)
                     </span>
                   </div>
 
-                  <div className={`rounded-2xl border px-4 py-3 transition-all ${
-                    isPostFightMode
-                      ? 'border-amber-500/35 bg-amber-500/10'
-                      : 'border-line bg-mist/30'
-                  }`}>
-                    <button
-                      type="button"
-                      disabled={isPosting}
-                      onClick={() => setIsPostFightMode(previous => !previous)}
-                      className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-black uppercase tracking-widest transition-all disabled:opacity-50 ${
-                        isPostFightMode
-                          ? 'border-amber-400/50 bg-amber-400 text-deep-ocean shadow-lg shadow-amber-500/20'
-                          : 'border-line bg-mist text-text-muted hover:border-amber-400/40 hover:text-amber-300'
-                      }`}
-                    >
-                      <Zap className="w-3.5 h-3.5" />
-                      FIGHT｜挑戰觀點
-                    </button>
-                    <p className={`mt-2 text-[0.6875rem] leading-relaxed ${
-                      isPostFightMode ? 'text-amber-200/80' : 'text-text-muted/45'
-                    }`}>
-                      {isPostFightMode
-                        ? FIGHT_NOTICE
-                        : '一般模式維持較鬆的日常交流限制；要發表尖銳公共議題或反駁時，可切換 Fight 模式。'}
-                    </p>
-                    <p className="mt-1 text-[0.5625rem] leading-relaxed text-text-muted/35">
-                      Fight 只代表提高爭議討論容忍度，不代表允許個資、威脅、肉搜或未證實重大指控。
-                    </p>
-                  </div>
-                   
                   {postError && (
                     <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
                       {postError}
@@ -3937,8 +4137,15 @@ const HOT_TOPICS = Object.entries(topicCounts)
 
           {/* Feed */}
           <div className="space-y-8">
+            <div className="flex items-center justify-between rounded-2xl border border-white/5 bg-mist/20 px-4 py-3">
+              <div>
+                <p className="text-sm font-bold text-text-main">為你推薦</p>
+                <p className="text-[0.625rem] text-text-muted">新的內容會優先出現；站務處理中的內容會保留提示，不公開原文。</p>
+              </div>
+              <Compass className="w-5 h-5 text-bio-glow/70" />
+            </div>
             <AnimatePresence>
-              {filteredPosts.map(post => (
+              {visibleFeedPosts.map(post => (
                 <PostCard
                   key={post.id}
                   post={post}
@@ -3949,7 +4156,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
               ))}
             </AnimatePresence>
             
-            {filteredPosts.length === 0 && (
+            {visibleFeedPosts.length === 0 && (
               <div className="text-center py-24 text-text-muted/70 space-y-4">
                 <div className="relative inline-block">
                   <Search className="w-16 h-16 mx-auto opacity-10" />
@@ -3987,21 +4194,21 @@ const HOT_TOPICS = Object.entries(topicCounts)
               </div>
             </div>
 
-            {/* Trending Topics */}
+            {/* Local Topics */}
             <div className="glass-card rounded-3xl p-6 border-line">
-              <h3 className="text-xs font-bold text-text-muted uppercase tracking-widest mb-4">熱門話題排行</h3>
+              <h3 className="text-xs font-bold text-text-muted uppercase tracking-widest mb-4">在地話題</h3>
               <div className="space-y-3">
-                {HOT_TOPICS.slice(0, 5).map((topic, index) => (
+                {LOCAL_TOPIC_SHORTCUTS.slice(0, 5).map((topic) => (
                   <button
                     key={topic.label}
                    onClick={() => setActiveCategory(topic.label)}
                     className="w-full flex items-center justify-between group cursor-pointer"
                   >
                     <div className="flex items-center gap-3">
-                      <span className="text-xs font-mono text-bio-glow/40 group-hover:text-bio-glow transition-colors italic">0{index + 1}</span>
+                      <MapPin className="w-3.5 h-3.5 text-bio-glow/50 group-hover:text-bio-glow transition-colors" />
                       <div className="flex flex-col items-start translate-y-0.5">
                         <span className="text-sm text-text-muted font-bold group-hover:text-text-main transition-colors">{topic.label}</span>
-                        <span className="text-[0.5625rem] text-text-muted uppercase tracking-widest mt-0.5">#{topic.count} 則動態</span>
+                        <span className="text-[0.5625rem] text-text-muted uppercase tracking-widest mt-0.5">近期討論</span>
                       </div>
                     </div>
                     <ChevronRight className="w-4 h-4 text-text-muted/40 group-hover:text-bio-glow transform group-hover:translate-x-1 transition-all" />
@@ -4305,7 +4512,7 @@ const HOT_TOPICS = Object.entries(topicCounts)
 
               <div className="mt-8 text-center">
                 <p className="text-[0.625rem] text-text-muted opacity-60 font-mono italic">
-                  資料來源：中央氣象署與天氣資料服務 • 每 10 分鐘自動更新
+                  資料來源：中央氣象署與天氣服務 • 每 10 分鐘自動更新
                 </p>
               </div>
             </motion.div>
@@ -4462,16 +4669,23 @@ function PostCard({
   const [replyReactions, setReplyReactions] = useState<Record<string, string>>({});
   const [replyingToCommentId, setReplyingToCommentId] = useState<string | null>(null);
   const [replyInputs, setReplyInputs] = useState<Record<string, string>>({});
-  const [replyFightModes, setReplyFightModes] = useState<Record<string, boolean>>({});
+  const [postMaskExpanded, setPostMaskExpanded] = useState(false);
+  const [expandedMaskedComments, setExpandedMaskedComments] = useState<Record<string, boolean>>({});
+  const [expandedMaskedReplies, setExpandedMaskedReplies] = useState<Record<string, boolean>>({});
   const [highlightedDiscussionId, setHighlightedDiscussionId] = useState<string | null>(null);
   const [newComment, setNewComment] = useState('');
-  const [isCommentFightMode, setIsCommentFightMode] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [reportDraft, setReportDraft] = useState<ReportDraft | null>(null);
+  const [reportReasonCategory, setReportReasonCategory] = useState(REPORT_REASON_OPTIONS[0]);
+  const [reportReasonDetail, setReportReasonDetail] = useState('');
+  const [isSubmittingReport, setIsSubmittingReport] = useState(false);
   const [authorProfile, setAuthorProfile] = useState<any>(null);
   const commentsUnsubscribeRef = React.useRef<(() => void) | null>(null);
   const repliesUnsubscribeRef = React.useRef<Record<string, () => void>>({});
   const postIsModerationHidden = isModerationHidden(post.moderationStatus);
+  const postIsModerationMasked = isModerationMasked(post.moderationStatus);
+  const postContentVisible = !postIsModerationHidden && (!postIsModerationMasked || postMaskExpanded);
 
   React.useEffect(() => {
     if (user && !post.id.startsWith('sample-')) {
@@ -4544,17 +4758,13 @@ function PostCard({
         
         // Send notification to author
         if (isNewReaction && user.uid !== post.authorId) {
-          void addDoc(collection(db, 'notifications'), {
+          void submitUserNotification({
             recipientId: post.authorId,
-            senderId: user.uid,
-            senderName: profile?.displayName || user.displayName,
             type: 'like',
             postId: post.id,
             category: post.category,
             title: '有人也喜歡這則動態',
             content: `${profile?.displayName || user.displayName} 用 ${reaction} 回應了你的動態。`,
-            read: false,
-            createdAt: serverTimestamp()
           }).catch(notificationErr => {
             console.warn('Post reaction notification failed:', notificationErr);
           });
@@ -4571,9 +4781,9 @@ function PostCard({
       }
       
       if (err.message.includes('permission-denied') || err.message.includes('insufficient permissions')) {
-        alert("操作失敗：目前系統權限尚未開放，請稍後再試或回報站長。");
+        alert("操作失敗：目前功能權限尚未開放，請稍後再試或回報站長。");
       } else {
-        alert("操作失敗，可能是網路連線問題或資料服務暫時不可用。");
+        alert("操作失敗，可能是網路連線問題或小站服務暫時不可用。");
       }
       handleFirestoreError(err, OperationType.WRITE, likePath);
     }
@@ -4753,22 +4963,21 @@ function PostCard({
     return () => window.clearTimeout(clearHighlight);
   }, [discussionTarget?.nonce, showComments, comments, post.id]);
 
-  const getCommentRateLimitMessage = (fightMode: boolean, label = '留言') => {
+  const getCommentRateLimitMessage = (label = '留言') => {
     if (!user) return null;
     if (user.uid === STATION_MASTER_UID) return null;
 
-    const accountAgeMs = getAccountAgeMs(user);
-    if (fightMode && accountAgeMs < NEW_ACCOUNT_WINDOW_MS) {
-      const minutesLeft = Math.ceil((NEW_ACCOUNT_WINDOW_MS - accountAgeMs) / 60000);
-      return `Fight ${label}涉及高爭議討論，新帳號需再等待約 ${minutesLeft} 分鐘才能使用。這是為了防止洗版、惡意攻擊與法律風險。`;
+    const now = Date.now();
+    const usage = readClientUsage(user.uid, 'comment');
+    const actionLabel = label === '回覆' ? '回覆' : '留言';
+
+    const burstCount = usage.filter(value => value >= now - COMMENT_BURST_WINDOW_MS).length;
+    if (burstCount >= COMMENT_BURST_LIMIT) {
+      return `${ANTI_ABUSE_NOTICE} 短時間內留言太多，請稍後再${actionLabel}。`;
     }
 
-    const usage = readClientUsage(user.uid, 'comment', fightMode);
-    const dailyLimit = fightMode ? DAILY_FIGHT_COMMENT_LIMIT : DAILY_COMMENT_LIMIT;
-    if (usage.length >= dailyLimit) {
-      return fightMode
-        ? `${FIGHT_NOTICE} 每個帳號一天最多 ${DAILY_FIGHT_COMMENT_LIMIT} 則 Fight 留言/回覆，請明天再使用。`
-        : `${ANTI_ABUSE_NOTICE} 每個帳號一天最多 ${DAILY_COMMENT_LIMIT} 則留言/回覆，請明天再發。`;
+    if (usage.length >= DAILY_COMMENT_LIMIT) {
+      return `${ANTI_ABUSE_NOTICE} 每個帳號一天最多 ${DAILY_COMMENT_LIMIT} 則留言/回覆，請明天再發。`;
     }
 
     return null;
@@ -4781,75 +4990,63 @@ function PostCard({
       alert('請先閱讀並同意最新版使用者條款、隱私權政策與社群守則，才能留言。');
       return;
     }
-    const commentPath = `posts/${post.id}/comments`;
-
     try {
       if (countChars(newComment.trim()) > COMMENT_CHAR_LIMIT) {
         alert(`留言最多 ${COMMENT_CHAR_LIMIT} 字。${ANTI_ABUSE_NOTICE}`);
         return;
       }
 
-      const rateLimitMessage = getCommentRateLimitMessage(isCommentFightMode, '留言');
+      const rateLimitMessage = getCommentRateLimitMessage('留言');
       if (rateLimitMessage) {
         alert(rateLimitMessage);
         return;
       }
 
-      const cleanComment = filterContent(newComment);
+      const cleanComment = prepareUserContent(newComment);
       const senderName = profile?.displayName || user.displayName || '匿名島民';
-      const commentRef = await addDoc(collection(db, 'posts', post.id, 'comments'), {
-        authorId: user.uid,
-        authorName: senderName,
-        authorPhoto: profile?.photoURL || user.photoURL || DEFAULT_ISLANDER_PHOTO,
-        authorRole: user.uid === STATION_MASTER_UID ? 'admin' : 'user',
+      const createdComment = await submitCommunityContent({
+        sourceType: 'comment',
+        postId: post.id,
         content: cleanComment,
-        fightMode: isCommentFightMode,
-        userRiskLabel: isCommentFightMode ? 'fight' : 'normal',
-        likesCount: 0,
-        repliesCount: 0,
-        createdAt: serverTimestamp(),
       });
 
       setNewComment('');
-      setIsCommentFightMode(false);
-      recordClientUsage(user.uid, 'comment', isCommentFightMode);
+      recordClientUsage(user.uid, 'comment');
 
       // Send notification to author
-      if (user.uid !== post.authorId) {
+      if (createdComment.status === 'normal' && createdComment.id && user.uid !== post.authorId) {
         try {
-          await addDoc(collection(db, 'notifications'), {
+          await submitUserNotification({
             recipientId: post.authorId,
-            senderId: user.uid,
-            senderName,
             type: 'comment',
             postId: post.id,
             category: post.category,
-            commentId: commentRef.id,
+            commentId: createdComment.id,
             title: '收到新的神秘回覆',
             content: `${senderName} 在你的動態下留言了。`,
-            read: false,
-            createdAt: serverTimestamp()
           });
         } catch (notificationErr) {
           console.warn('Comment notification failed:', notificationErr);
         }
       }
-      try {
-        await sendMentionNotifications({
-          text: cleanComment,
-          senderId: user.uid,
-          senderName,
-          postId: post.id,
-          category: post.category,
-          commentId: commentRef.id,
-          sourceLabel: '留言中',
-        });
-      } catch (mentionErr) {
-        console.warn('Mention notification failed:', mentionErr);
+      if (createdComment.status === 'normal' && createdComment.id) {
+        try {
+          await sendMentionNotifications({
+            text: cleanComment,
+            senderId: user.uid,
+            senderName,
+            postId: post.id,
+            category: post.category,
+            commentId: createdComment.id,
+            sourceLabel: '留言中',
+          });
+        } catch (mentionErr) {
+          console.warn('Mention notification failed:', mentionErr);
+        }
       }
     } catch (err) {
       console.error(err);
-      handleFirestoreError(err, OperationType.CREATE, commentPath);
+      alert(getSubmissionErrorMessage(err, '留言失敗，請稍後再試。'));
     }
   };
 
@@ -4901,18 +5098,14 @@ function PostCard({
       }
 
       if (isNewReaction && user.uid !== comment.authorId) {
-        void addDoc(collection(db, 'notifications'), {
+        void submitUserNotification({
           recipientId: comment.authorId,
-          senderId: user.uid,
-          senderName,
           type: 'like',
           postId: post.id,
           category: post.category,
           commentId: comment.id,
           title: '有人喜歡你的留言',
           content: `${senderName} 用 ${reaction} 回應了你的留言。`,
-          read: false,
-          createdAt: serverTimestamp(),
         }).catch(notificationErr => {
           console.warn('Comment reaction notification failed:', notificationErr);
         });
@@ -4990,10 +5183,8 @@ function PostCard({
       }
 
       if (isNewReaction && user.uid !== reply.authorId) {
-        void addDoc(collection(db, 'notifications'), {
+        void submitUserNotification({
           recipientId: reply.authorId,
-          senderId: user.uid,
-          senderName,
           type: 'like',
           postId: post.id,
           category: post.category,
@@ -5001,8 +5192,6 @@ function PostCard({
           replyId: reply.id,
           title: '有人喜歡你的回覆',
           content: `${senderName} 用 ${reaction} 回應了你的回覆。`,
-          read: false,
-          createdAt: serverTimestamp(),
         }).catch(notificationErr => {
           console.warn('Reply reaction notification failed:', notificationErr);
         });
@@ -5039,9 +5228,6 @@ function PostCard({
     }
     const replyText = (replyInputs[comment.id] || '').trim();
     if (!replyText) return;
-    const isReplyFightMode = Boolean(replyFightModes[comment.id]);
-
-    const replyPath = `posts/${post.id}/comments/${comment.id}/replies`;
 
     try {
       if (countChars(replyText) > COMMENT_CHAR_LIMIT) {
@@ -5049,70 +5235,62 @@ function PostCard({
         return;
       }
 
-      const rateLimitMessage = getCommentRateLimitMessage(isReplyFightMode, '回覆');
+      const rateLimitMessage = getCommentRateLimitMessage('回覆');
       if (rateLimitMessage) {
         alert(rateLimitMessage);
         return;
       }
 
-      const cleanReply = filterContent(replyText);
+      const cleanReply = prepareUserContent(replyText);
       const senderName = profile?.displayName || user.displayName || '匿名島民';
 
-      const replyRef = await addDoc(collection(db, 'posts', post.id, 'comments', comment.id, 'replies'), {
-        authorId: user.uid,
-        authorName: senderName,
-        authorPhoto: profile?.photoURL || user.photoURL || DEFAULT_ISLANDER_PHOTO,
-        authorRole: user.uid === STATION_MASTER_UID ? 'admin' : 'user',
+      const createdReply = await submitCommunityContent({
+        sourceType: 'reply',
+        postId: post.id,
+        commentId: comment.id,
         content: cleanReply,
-        fightMode: isReplyFightMode,
-        userRiskLabel: isReplyFightMode ? 'fight' : 'normal',
-        likesCount: 0,
-        createdAt: serverTimestamp(),
       });
 
       setReplyInputs(previous => ({ ...previous, [comment.id]: '' }));
-      setReplyFightModes(previous => ({ ...previous, [comment.id]: false }));
       setReplyingToCommentId(null);
-      recordClientUsage(user.uid, 'comment', isReplyFightMode);
+      recordClientUsage(user.uid, 'comment');
 
-      if (user.uid !== comment.authorId) {
+      if (createdReply.status === 'normal' && createdReply.id && user.uid !== comment.authorId) {
         try {
-          await addDoc(collection(db, 'notifications'), {
+          await submitUserNotification({
             recipientId: comment.authorId,
-            senderId: user.uid,
-            senderName,
             type: 'comment',
             postId: post.id,
             category: post.category,
             commentId: comment.id,
-            replyId: replyRef.id,
+            replyId: createdReply.id,
             title: '你的留言有新回覆',
             content: `${senderName} 回覆了你的留言。`,
-            read: false,
-            createdAt: serverTimestamp(),
           });
         } catch (notificationErr) {
           console.warn('Reply notification failed:', notificationErr);
         }
       }
 
-      try {
-        await sendMentionNotifications({
-          text: cleanReply,
-          senderId: user.uid,
-          senderName,
-          postId: post.id,
-          category: post.category,
-          commentId: comment.id,
-          replyId: replyRef.id,
-          sourceLabel: '留言回覆中',
-        });
-      } catch (mentionErr) {
-        console.warn('Reply mention notification failed:', mentionErr);
+      if (createdReply.status === 'normal' && createdReply.id) {
+        try {
+          await sendMentionNotifications({
+            text: cleanReply,
+            senderId: user.uid,
+            senderName,
+            postId: post.id,
+            category: post.category,
+            commentId: comment.id,
+            replyId: createdReply.id,
+            sourceLabel: '留言回覆中',
+          });
+        } catch (mentionErr) {
+          console.warn('Reply mention notification failed:', mentionErr);
+        }
       }
     } catch (err) {
       console.error(err);
-      handleFirestoreError(err, OperationType.CREATE, replyPath);
+      alert(getSubmissionErrorMessage(err, '回覆失敗，請稍後再試。'));
     }
   };
 
@@ -5121,10 +5299,15 @@ function PostCard({
     if (!window.confirm('確定要刪除這則回覆嗎？')) return;
 
     try {
-      await deleteDoc(doc(db, 'posts', post.id, 'comments', comment.id, 'replies', reply.id));
+      await submitRemoveCommunityContent({
+        sourceType: 'reply',
+        postId: post.id,
+        commentId: comment.id,
+        replyId: reply.id,
+      });
     } catch (err: any) {
       console.error('Delete reply error:', err);
-      alert('刪除回覆失敗：' + (err.message.includes('permission-denied') ? '權限不足。' : err.message));
+      alert('刪除回覆失敗：' + getSubmissionErrorMessage(err, '請稍後再試。'));
     }
   };
 
@@ -5132,16 +5315,17 @@ function PostCard({
     console.log('Final deletion call for:', post.id);
     setIsDeleting(true);
     setShowDeleteConfirm(false);
-    const postPath = `posts/${post.id}`;
     try {
-      await deleteDoc(doc(db, 'posts', post.id));
+      await submitRemoveCommunityContent({
+        sourceType: 'post',
+        postId: post.id,
+      });
       console.log('Post deleted successfully');
     } catch (err: any) {
       console.error('Delete post error:', err);
       setIsDeleting(false);
-      const errorMessage = err.message || String(err);
+      const errorMessage = getSubmissionErrorMessage(err, '請稍後再試。');
       alert('刪除失敗：' + (errorMessage.includes('permission-denied') ? '您沒有權限刪除此貼文。' : errorMessage));
-      handleFirestoreError(err, OperationType.DELETE, postPath);
     }
   };
 
@@ -5153,7 +5337,7 @@ function PostCard({
     preview,
   }: {
     targetId: string;
-    targetType: 'post' | 'comment' | 'reply';
+    targetType: ReportTargetType;
     commentId?: string;
     replyId?: string;
     preview: string;
@@ -5167,56 +5351,73 @@ function PostCard({
       return;
     }
 
-    const reason = window.prompt('請輸入檢舉理由 (內容不實、騷擾、謾罵等)：');
-    if (!reason || !reason.trim()) return;
+    setReportDraft({ targetId, targetType, commentId, replyId, preview });
+    setReportReasonCategory(REPORT_REASON_OPTIONS[0]);
+    setReportReasonDetail('');
+  };
+
+  const submitReport = async () => {
+    if (!reportDraft || isSubmittingReport) return;
+    if (!user) {
+      alert('請先登入後再進行檢舉。');
+      return;
+    }
+
+    const cleanCategory = reportReasonCategory.trim() || '其他';
+    const cleanDetail = reportReasonDetail.trim().slice(0, 240);
+    const reason = cleanDetail ? `${cleanCategory}：${cleanDetail}` : cleanCategory;
+    setIsSubmittingReport(true);
 
     try {
       await addDoc(collection(db, 'reports'), {
-        targetId,
-        targetType,
+        targetId: reportDraft.targetId,
+        targetType: reportDraft.targetType,
         postId: post.id,
-        ...(commentId ? { commentId } : {}),
-        ...(replyId ? { replyId } : {}),
-        targetPreview: preview.slice(0, 160),
+        ...(reportDraft.commentId ? { commentId: reportDraft.commentId } : {}),
+        ...(reportDraft.replyId ? { replyId: reportDraft.replyId } : {}),
+        targetPreview: reportDraft.preview.slice(0, 160),
         reporterId: user.uid,
         reporterName: profile?.displayName || user.displayName || '匿名島民',
-        reason: reason.trim(),
+        reason,
+        reasonCategory: cleanCategory,
+        reasonDetail: cleanDetail,
         status: 'pending',
         createdAt: serverTimestamp(),
       });
 
       try {
-        await addDoc(collection(db, 'notifications'), {
+        await submitUserNotification({
           recipientId: STATION_MASTER_UID,
-          senderId: user.uid,
-          senderName: profile?.displayName || user.displayName || '匿名島民',
           type: 'report',
           postId: post.id,
           category: post.category || '未分類',
-          ...(commentId ? { commentId } : {}),
-          ...(replyId ? { replyId } : {}),
+          ...(reportDraft.commentId ? { commentId: reportDraft.commentId } : {}),
+          ...(reportDraft.replyId ? { replyId: reportDraft.replyId } : {}),
           title: '⚠ 收到新的檢舉',
-          content: `有人檢舉了一則${targetType === 'post' ? '貼文' : targetType === 'comment' ? '留言' : '留言回覆'}：${reason.trim()}`,
-          read: false,
-          createdAt: serverTimestamp()
+          content: `有人檢舉了一則${reportDraft.targetType === 'post' ? '貼文' : reportDraft.targetType === 'comment' ? '留言' : '留言回覆'}：${reason}`,
         });
       } catch (notificationErr) {
         console.warn('Report was created, but notification failed:', notificationErr);
         alert('檢舉已送出，但站長通知建立失敗。請透過官方 LINE 補充截圖回報。');
+        setReportDraft(null);
         return;
       }
 
+      setReportDraft(null);
+      setReportReasonDetail('');
       alert('感謝檢舉！站長已收到通知。');
     } catch (err: any) {
       console.error(err);
 
       if (err.message.includes('permission-denied') || err.message.includes('insufficient permissions')) {
-        alert("檢舉失敗：目前系統權限暫時限制寫入，請稍後再試或透過官方 LINE 回報。");
+        alert("檢舉失敗：目前功能權限暫時限制寫入，請稍後再試或透過官方 LINE 回報。");
       } else {
         alert('檢舉失敗，請稍後再試。');
       }
 
       handleFirestoreError(err, OperationType.CREATE, 'reports');
+    } finally {
+      setIsSubmittingReport(false);
     }
   };
 
@@ -5231,6 +5432,8 @@ function PostCard({
   const canModerate = user && post.authorId === user.uid;
   const isPostStationMaster = post.authorId === STATION_MASTER_UID;
   const trustedImageUrls = (post.imageUrls || []).filter(isTrustedPostImageUrl);
+  const reportNeedsDetail = reportReasonCategory === '其他';
+  const canSubmitReport = Boolean(reportReasonCategory.trim()) && (!reportNeedsDetail || Boolean(reportReasonDetail.trim()));
 
   return (
     <motion.div 
@@ -5278,11 +5481,6 @@ function PostCard({
                   </span>
                 )}
                 {post.authorId === user?.uid && <span className="text-[0.625rem] bg-blue-500/20 text-blue-300 px-1.5 rounded-full font-bold border border-blue-500/20">你</span>}
-                {post.fightMode && (
-                  <span className="text-[0.5625rem] rounded-sm border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 font-black uppercase tracking-tight text-amber-300">
-                    {getFightModeLabel(post.fightMode)}
-                  </span>
-                )}
               </div>
               <p className="text-[0.625rem] text-text-muted font-display mt-1">
                 {post.createdAt?.toDate ? formatDistanceToNow(post.createdAt.toDate(), { addSuffix: true, locale: zhTW }) : '剛剛'}
@@ -5365,19 +5563,27 @@ function PostCard({
         </div>
 
         {postIsModerationHidden ? (
-          <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3">
-            <p className="text-sm font-bold text-amber-300">{getModerationTombstoneText(post.moderationStatus, post.moderationReason)}</p>
-            {user?.uid === post.authorId && (
-              <p className="mt-2 text-[0.625rem] text-amber-200/80">可到功能選單的「治理紀錄」查詢依據條款與處置狀態。</p>
-            )}
-          </div>
+          <ModerationTombstoneNotice
+            status={post.moderationStatus}
+            reason={post.moderationReason}
+            notice={post.moderationPublicNotice || post.moderationReviewNotice}
+            contentType="post"
+            isAuthor={user?.uid === post.authorId}
+          />
         ) : (
-          <div className="user-content-text text-text-main/90 leading-relaxed whitespace-pre-wrap selection:bg-blue-500/30">
-            {renderContentWithMentions(post.content)}
-          </div>
+          <>
+            {postIsModerationMasked && !postMaskExpanded && (
+              <ModerationMaskNotice notice={post.moderationPublicNotice || post.moderationMaskNotice} onExpand={() => setPostMaskExpanded(true)} />
+            )}
+            {postContentVisible && (
+              <div className="user-content-text text-text-main/90 leading-relaxed whitespace-pre-wrap selection:bg-blue-500/30">
+                {renderContentWithMentions(post.content)}
+              </div>
+            )}
+          </>
         )}
 
-        {!postIsModerationHidden && trustedImageUrls.length > 0 && (
+        {postContentVisible && trustedImageUrls.length > 0 && (
           <div className={`grid gap-2 ${
             trustedImageUrls.length === 1 ? 'grid-cols-1' : 
             trustedImageUrls.length === 2 ? 'grid-cols-2' : 
@@ -5403,7 +5609,7 @@ function PostCard({
           </div>
         )}
 
-        {!postIsModerationHidden && (
+        {postContentVisible && (
         <div className="flex items-center gap-6 pt-5 border-t border-line">
           <ReactionButton
             currentReaction={selectedReaction}
@@ -5423,7 +5629,7 @@ function PostCard({
       </div>
 
       <AnimatePresence>
-        {showComments && !postIsModerationHidden && (
+        {showComments && postContentVisible && (
           <motion.div 
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
@@ -5447,23 +5653,6 @@ function PostCard({
                         countChars(newComment) >= COMMENT_CHAR_LIMIT ? 'text-amber-400' : 'text-text-muted'
                       }`}>
                         字數 {countChars(newComment)}/{COMMENT_CHAR_LIMIT}
-                      </span>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2 px-1">
-                      <button
-                        type="button"
-                        onClick={() => setIsCommentFightMode(previous => !previous)}
-                        className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[0.625rem] font-black uppercase tracking-widest transition-all ${
-                          isCommentFightMode
-                            ? 'border-amber-400/50 bg-amber-400 text-deep-ocean'
-                            : 'border-line bg-mist/60 text-text-muted hover:text-amber-300'
-                        }`}
-                      >
-                        <Zap className="w-3 h-3" />
-                        FIGHT
-                      </button>
-                      <span className="text-[0.5625rem] text-text-muted/45">
-                        {isCommentFightMode ? '較高容忍度，並保留較完整討論脈絡。' : '一般留言只有每日次數限制，不設冷卻。'}
                       </span>
                     </div>
                   </div>
@@ -5504,11 +5693,6 @@ function PostCard({
                                 站長
                               </span>
                             )}
-                            {comment.fightMode && (
-                              <span className="text-[0.5rem] rounded-sm border border-amber-400/30 bg-amber-400/10 px-1 font-black uppercase tracking-tight text-amber-300">
-                                FIGHT
-                              </span>
-                            )}
                           </div>
                           <div className="flex items-center gap-3 shrink-0">
                             <span className="text-[0.5625rem] text-text-muted font-display">
@@ -5544,10 +5728,14 @@ function PostCard({
                                    }
                                    if(window.confirm('確定要刪除這則留言嗎？')){
                                      try {
-                                       await deleteDoc(doc(db, 'posts', post.id, 'comments', comment.id));
+                                       await submitRemoveCommunityContent({
+                                         sourceType: 'comment',
+                                         postId: post.id,
+                                         commentId: comment.id,
+                                       });
                                      } catch (err: any) {
                                        console.error('Delete comment error:', err);
-                                       alert('刪除留言失敗：' + (err.message.includes('permission-denied') ? '權限不足。' : err.message));
+                                       alert('刪除留言失敗：' + getSubmissionErrorMessage(err, '請稍後再試。'));
                                      }
                                    }
                                  }} 
@@ -5560,18 +5748,26 @@ function PostCard({
                           </div>
                         </div>
                         {isModerationHidden(comment.moderationStatus) ? (
-                          <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2">
-                            <p className="text-xs font-bold text-amber-300">{getModerationTombstoneText(comment.moderationStatus, comment.moderationReason)}</p>
-                            {user?.uid === comment.authorId && (
-                              <p className="mt-1 text-[0.5625rem] text-amber-200/80">可到功能選單的「治理紀錄」查詢依據條款與處置狀態。</p>
-                            )}
-                          </div>
+                          <ModerationTombstoneNotice
+                            compact
+                            status={comment.moderationStatus}
+                            reason={comment.moderationReason}
+                            notice={comment.moderationPublicNotice || comment.moderationReviewNotice}
+                            contentType="comment"
+                            isAuthor={user?.uid === comment.authorId}
+                          />
+                        ) : isModerationMasked(comment.moderationStatus) && !expandedMaskedComments[comment.id] ? (
+                          <ModerationMaskNotice
+                            compact
+                            notice={comment.moderationPublicNotice || comment.moderationMaskNotice}
+                            onExpand={() => setExpandedMaskedComments(previous => ({ ...previous, [comment.id]: true }))}
+                          />
                         ) : (
                           <p className="user-content-text-sm text-text-main/90 leading-relaxed whitespace-pre-wrap">
                             {renderContentWithMentions(comment.content)}
                           </p>
                         )}
-                        {!isModerationHidden(comment.moderationStatus) && (
+                        {!isModerationHidden(comment.moderationStatus) && (!isModerationMasked(comment.moderationStatus) || expandedMaskedComments[comment.id]) && (
                         <div className="flex items-center gap-4 pt-3">
                           <ReactionButton
                             compact
@@ -5595,7 +5791,7 @@ function PostCard({
                       </div>
                     </div>
 
-                    {!isModerationHidden(comment.moderationStatus) && (
+                    {!isModerationHidden(comment.moderationStatus) && (!isModerationMasked(comment.moderationStatus) || expandedMaskedComments[comment.id]) && (
                     <div className="ml-10 space-y-3 border-l border-line/80 pl-4">
                       {(comment.replies || []).map(reply => (
                         <div key={reply.id} id={`reply-${reply.id}`} className="flex gap-2.5 scroll-mt-24">
@@ -5624,11 +5820,6 @@ function PostCard({
                                 {reply.authorId === STATION_MASTER_UID && (
                                   <span className="text-[0.5rem] bg-gradient-to-r from-red-500 via-yellow-500 to-blue-500 text-white px-1 rounded-sm font-bold uppercase">
                                     站長
-                                  </span>
-                                )}
-                                {reply.fightMode && (
-                                  <span className="text-[0.5rem] rounded-sm border border-amber-400/30 bg-amber-400/10 px-1 font-black uppercase tracking-tight text-amber-300">
-                                    FIGHT
                                   </span>
                                 )}
                               </div>
@@ -5669,18 +5860,26 @@ function PostCard({
                               </div>
                             </div>
                             {isModerationHidden(reply.moderationStatus) ? (
-                              <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2">
-                                <p className="text-xs font-bold text-amber-300">{getModerationTombstoneText(reply.moderationStatus, reply.moderationReason)}</p>
-                                {user?.uid === reply.authorId && (
-                                  <p className="mt-1 text-[0.5625rem] text-amber-200/80">可到功能選單的「治理紀錄」查詢依據條款與處置狀態。</p>
-                                )}
-                              </div>
+                              <ModerationTombstoneNotice
+                                compact
+                                status={reply.moderationStatus}
+                                reason={reply.moderationReason}
+                                notice={reply.moderationPublicNotice || reply.moderationReviewNotice}
+                                contentType="reply"
+                                isAuthor={user?.uid === reply.authorId}
+                              />
+                            ) : isModerationMasked(reply.moderationStatus) && !expandedMaskedReplies[reply.id] ? (
+                              <ModerationMaskNotice
+                                compact
+                                notice={reply.moderationPublicNotice || reply.moderationMaskNotice}
+                                onExpand={() => setExpandedMaskedReplies(previous => ({ ...previous, [reply.id]: true }))}
+                              />
                             ) : (
                               <p className="user-content-text-xs text-text-main/90 leading-relaxed whitespace-pre-wrap">
                                 {renderContentWithMentions(reply.content)}
                               </p>
                             )}
-                            {!isModerationHidden(reply.moderationStatus) && (
+                            {!isModerationHidden(reply.moderationStatus) && (!isModerationMasked(reply.moderationStatus) || expandedMaskedReplies[reply.id]) && (
                             <div className="flex items-center gap-3 pt-2">
                               <ReactionButton
                                 compact
@@ -5712,18 +5911,6 @@ function PostCard({
                               onChange={(nextValue) => setReplyInputs(previous => ({ ...previous, [comment.id]: limitChars(nextValue, COMMENT_CHAR_LIMIT) }))}
                             />
                             <div className="flex justify-end px-1">
-                              <button
-                                type="button"
-                                onClick={() => setReplyFightModes(previous => ({ ...previous, [comment.id]: !previous[comment.id] }))}
-                                className={`mr-auto inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[0.5625rem] font-black uppercase tracking-widest transition-all ${
-                                  replyFightModes[comment.id]
-                                    ? 'border-amber-400/50 bg-amber-400 text-deep-ocean'
-                                    : 'border-line bg-mist/60 text-text-muted hover:text-amber-300'
-                                }`}
-                              >
-                                <Zap className="w-2.5 h-2.5" />
-                                FIGHT
-                              </button>
                               <span className={`text-[0.625rem] font-mono font-bold ${
                                 countChars(replyInputs[comment.id] || '') >= COMMENT_CHAR_LIMIT ? 'text-amber-400' : 'text-text-muted'
                               }`}>
@@ -5745,6 +5932,105 @@ function PostCard({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {typeof document !== 'undefined' && createPortal((
+      <AnimatePresence>
+        {reportDraft && (
+          <motion.div
+            className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/60 px-3 py-4 backdrop-blur-sm sm:items-center"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => {
+              if (!isSubmittingReport) setReportDraft(null);
+            }}
+          >
+            <motion.div
+              className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-[1.5rem] border border-line bg-deep-ocean p-5 shadow-2xl"
+              initial={{ opacity: 0, y: 24, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 24, scale: 0.96 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="mb-4 flex items-start justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-amber-500/20 bg-amber-500/10 text-amber-300">
+                    <Flag className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-black text-text-main">檢舉內容</h3>
+                    <p className="mt-1 text-[0.6875rem] leading-relaxed text-text-muted">選擇最接近的原因，站長會依規範查看。</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={isSubmittingReport}
+                  onClick={() => setReportDraft(null)}
+                  className="rounded-full p-2 text-text-muted hover:bg-white/5 hover:text-text-main disabled:opacity-50"
+                  title="關閉"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                {REPORT_REASON_OPTIONS.map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => setReportReasonCategory(option)}
+                    className={`rounded-xl border px-3 py-2 text-left text-xs font-bold transition-all ${
+                      reportReasonCategory === option
+                        ? 'border-amber-400/50 bg-amber-500/15 text-amber-200'
+                        : 'border-line bg-mist/50 text-text-muted hover:border-amber-500/30 hover:text-text-main'
+                    }`}
+                  >
+                    {option}
+                  </button>
+                ))}
+              </div>
+
+              <div className="mt-4 space-y-2">
+                <label className="text-[0.625rem] font-bold uppercase tracking-widest text-text-muted">
+                  補充說明{reportNeedsDetail ? '（必填）' : '（選填）'}
+                </label>
+                <textarea
+                  value={reportReasonDetail}
+                  onChange={(e) => setReportReasonDetail(limitChars(e.target.value, 240))}
+                  maxLength={240}
+                  rows={3}
+                  className="w-full resize-none rounded-2xl border border-line bg-mist px-3 py-2 text-sm text-text-main outline-none placeholder:text-text-muted/40 focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/30"
+                  placeholder="例如：疑似公開個資、威脅特定人物、重複洗版..."
+                />
+                <div className="flex items-center justify-between text-[0.625rem] text-text-muted">
+                  <span>檢舉後會建立站務紀錄</span>
+                  <span className="font-mono">{countChars(reportReasonDetail)}/240</span>
+                </div>
+              </div>
+
+              <div className="mt-5 flex gap-2">
+                <button
+                  type="button"
+                  disabled={isSubmittingReport}
+                  onClick={() => setReportDraft(null)}
+                  className="flex-1 rounded-xl border border-line bg-mist/40 px-4 py-3 text-xs font-bold text-text-muted transition-colors hover:bg-mist hover:text-text-main disabled:opacity-50"
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  disabled={!canSubmitReport || isSubmittingReport}
+                  onClick={submitReport}
+                  className="flex-1 rounded-xl bg-amber-500 px-4 py-3 text-xs font-black text-black transition-colors hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {isSubmittingReport ? '送出中...' : '送出檢舉'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      ), document.body)}
     </motion.div>
   );
 }

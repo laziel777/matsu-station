@@ -1,0 +1,95 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Start local website",
+      "type": "shell",
+      "command": "cmd",
+      "args": [
+        "/d",
+        "/c",
+        "set \"PATH=C:\\Program Files\\nodejs;C:\\Program Files\\Git\\cmd;%APPDATA%\\npm;%PATH%\" && powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\desktop-launcher.ps1"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": "build"
+    },
+    {
+      "label": "Stop local website",
+      "type": "shell",
+      "command": "cmd",
+      "args": [
+        "/d",
+        "/c",
+        "set \"PATH=C:\\Program Files\\nodejs;C:\\Program Files\\Git\\cmd;%APPDATA%\\npm;%PATH%\" && powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\stop-matsu-station.ps1"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Check TypeScript",
+      "type": "shell",
+      "command": "cmd",
+      "args": [
+        "/d",
+        "/c",
+        "set \"PATH=C:\\Program Files\\nodejs;C:\\Program Files\\Git\\cmd;%APPDATA%\\npm;%PATH%\" && npm run lint"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": "$tsc",
+      "group": "test"
+    },
+    {
+      "label": "Build website",
+      "type": "shell",
+      "command": "cmd",
+      "args": [
+        "/d",
+        "/c",
+        "set \"PATH=C:\\Program Files\\nodejs;C:\\Program Files\\Git\\cmd;%APPDATA%\\npm;%PATH%\" && npm run ranger:build"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "Deploy website",
+      "type": "shell",
+      "command": "cmd",
+      "args": [
+        "/d",
+        "/c",
+        "set \"PATH=C:\\Program Files\\nodejs;C:\\Program Files\\Git\\cmd;%APPDATA%\\npm;%PATH%\" && npm run ranger:deploy"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Firebase login",
+      "type": "shell",
+      "command": "cmd",
+      "args": [
+        "/d",
+        "/c",
+        "set \"PATH=C:\\Program Files\\nodejs;C:\\Program Files\\Git\\cmd;%APPDATA%\\npm;%PATH%\" && firebase login"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    }
+  ]
+}

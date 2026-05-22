@@ -19,6 +19,14 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == 'gHHxF8p1DnbMkoeVmU5XpB18Elz2';
     }
 
+    match /{path=**}/comments/{commentId} {
+      allow read: if true;
+    }
+
+    match /{path=**}/replies/{replyId} {
+      allow read: if true;
+    }
+
     function hasAcceptedCurrentPolicies() {
       return isSignedIn()
              && exists(/databases/$(database)/documents/users/$(request.auth.uid))
@@ -29,62 +37,11 @@ service cloud.firestore {
              && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.acceptedCommunityRulesVersion == '2026-05-19';
     }
 
-    function hasValidContent(maxLength) {
-      return request.resource.data.content is string
-             && request.resource.data.content.size() <= maxLength;
-    }
-
-    function hasValidFightFields() {
-      return !request.resource.data.keys().hasAny(['fightMode', 'userRiskLabel'])
-             || (
-               request.resource.data.keys().hasAll(['fightMode', 'userRiskLabel'])
-               && request.resource.data.fightMode is bool
-               && request.resource.data.userRiskLabel in ['normal', 'fight']
-               && (
-                 (request.resource.data.fightMode == true
-                  && request.resource.data.userRiskLabel == 'fight')
-                 || (request.resource.data.fightMode == false
-                     && request.resource.data.userRiskLabel == 'normal')
-               )
-             );
-    }
-
-    function hasOnlyPostCreateFields() {
-      return request.resource.data.keys().hasOnly([
-        'authorId', 'authorName', 'authorPhoto', 'content', 'category',
-        'aiSafe', 'aiRisk', 'aiTag', 'aiSummary', 'aiAction',
-        'fightMode', 'userRiskLabel',
-        'likesCount', 'commentsCount', 'reportsCount', 'imageUrls', 'createdAt'
-      ]);
-    }
-
-    function hasOnlyCommentCreateFields() {
-      return request.resource.data.keys().hasOnly([
-        'authorId', 'authorName', 'authorPhoto', 'authorRole',
-        'content', 'fightMode', 'userRiskLabel', 'likesCount', 'repliesCount', 'createdAt'
-      ]);
-    }
-
-    function hasOnlyReplyCreateFields() {
-      return request.resource.data.keys().hasOnly([
-        'authorId', 'authorName', 'authorPhoto', 'authorRole',
-        'content', 'fightMode', 'userRiskLabel', 'likesCount', 'createdAt'
-      ]);
-    }
-
     function hasOnlyReportCreateFields() {
       return request.resource.data.keys().hasOnly([
         'targetId', 'targetType', 'postId', 'commentId', 'replyId',
         'targetPreview', 'reporterId', 'reporterName',
-        'reason', 'status', 'createdAt'
-      ]);
-    }
-
-    function hasOnlyNotificationCreateFields() {
-      return request.resource.data.keys().hasOnly([
-        'recipientId', 'senderId', 'senderName', 'type',
-        'postId', 'category', 'commentId', 'replyId',
-        'title', 'content', 'read', 'createdAt'
+        'reason', 'reasonCategory', 'reasonDetail', 'status', 'createdAt'
       ]);
     }
 
@@ -114,11 +71,6 @@ service cloud.firestore {
                    && request.resource.data.role == 'user'
                    && request.resource.data.islanderId != 'L')
              );
-    }
-
-    function hasValidAuthorRole() {
-      return (isStationMaster() && request.resource.data.authorRole == 'admin')
-             || (!isStationMaster() && request.resource.data.authorRole == 'user');
     }
 
     function hasValidFollowingFields(targetUserId) {
@@ -191,17 +143,9 @@ service cloud.firestore {
 
     match /posts/{postId} {
       allow read: if true;
-      allow create: if isSignedIn()
-                    && hasAcceptedCurrentPolicies()
-                    && hasOnlyPostCreateFields()
-                    && request.resource.data.authorId == request.auth.uid
-                    && request.resource.data.likesCount == 0
-                    && request.resource.data.commentsCount == 0
-                    && request.resource.data.reportsCount == 0
-                    && hasValidFightFields()
-                    && hasValidContent(500);
+      allow create: if false;
       allow update: if false;
-      allow delete: if isOwner(resource.data.authorId);
+      allow delete: if false;
 
       match /likes/{userId} {
         allow read: if true;
@@ -211,17 +155,9 @@ service cloud.firestore {
 
       match /comments/{commentId} {
         allow read: if true;
-        allow create: if isSignedIn()
-                      && hasAcceptedCurrentPolicies()
-                      && hasOnlyCommentCreateFields()
-                      && request.resource.data.authorId == request.auth.uid
-                      && hasValidAuthorRole()
-                      && request.resource.data.likesCount == 0
-                      && request.resource.data.repliesCount == 0
-                      && hasValidFightFields()
-                      && hasValidContent(250);
+        allow create: if false;
         allow update: if false;
-        allow delete: if isOwner(resource.data.authorId);
+        allow delete: if false;
 
         match /likes/{userId} {
           allow read: if true;
@@ -231,16 +167,9 @@ service cloud.firestore {
 
         match /replies/{replyId} {
           allow read: if true;
-          allow create: if isSignedIn()
-                        && hasAcceptedCurrentPolicies()
-                        && hasOnlyReplyCreateFields()
-                        && request.resource.data.authorId == request.auth.uid
-                        && hasValidAuthorRole()
-                        && request.resource.data.likesCount == 0
-                        && hasValidFightFields()
-                        && hasValidContent(250);
+          allow create: if false;
           allow update: if false;
-          allow delete: if isOwner(resource.data.authorId);
+          allow delete: if false;
 
           match /likes/{userId} {
             allow read: if true;
@@ -260,11 +189,37 @@ service cloud.firestore {
                     && request.resource.data.targetType in ['post', 'comment', 'reply']
                     && request.resource.data.reason is string
                     && request.resource.data.reason.size() <= 500
+                    && request.resource.data.reasonCategory is string
+                    && request.resource.data.reasonCategory.size() <= 40
+                    && (!('reasonDetail' in request.resource.data)
+                        || (request.resource.data.reasonDetail is string
+                            && request.resource.data.reasonDetail.size() <= 240))
                     && request.resource.data.status == 'pending';
-      allow read, update, delete: if false;
+      allow read: if isAdmin() || isStationMaster();
+      allow update, delete: if false;
     }
 
     match /aiPatrolLogs/{logId} {
+      allow read: if isAdmin() || isStationMaster();
+      allow write: if false;
+    }
+
+    match /aiPatrolQueue/{jobId} {
+      allow read: if isAdmin() || isStationMaster();
+      allow write: if false;
+    }
+
+    match /aiPatrolQueueRuns/{runId} {
+      allow read: if isAdmin() || isStationMaster();
+      allow write: if false;
+    }
+
+    match /aiSitePatrolRuns/{runId} {
+      allow read: if isAdmin() || isStationMaster();
+      allow write: if false;
+    }
+
+    match /rangerSiteSheetJobs/{jobId} {
       allow read: if isAdmin() || isStationMaster();
       allow write: if false;
     }
@@ -275,18 +230,43 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /governanceReports/{reportId} {
+      allow read: if isAdmin() || isStationMaster();
+      allow write: if false;
+    }
+
+    match /accountRiskProfiles/{userId} {
+      allow read: if isAdmin() || isStationMaster();
+      allow write: if false;
+    }
+
+    match /accountControlProfiles/{userId} {
+      allow read: if isAdmin() || isStationMaster();
+      allow write: if false;
+    }
+
+    match /blockedIps/{ipKey} {
+      allow read: if isAdmin() || isStationMaster();
+      allow write: if false;
+    }
+
+    match /accountControlLogs/{logId} {
+      allow read: if isAdmin() || isStationMaster();
+      allow write: if false;
+    }
+
+    match /contentAccessLogs/{logId} {
+      allow read: if isAdmin() || isStationMaster();
+      allow write: if false;
+    }
+
+    match /siteRuntime/{runtimeId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
     match /notifications/{notificationId} {
-      allow create: if isSignedIn()
-                    && hasAcceptedCurrentPolicies()
-                    && hasOnlyNotificationCreateFields()
-                    && request.resource.data.senderId == request.auth.uid
-                    && request.resource.data.recipientId is string
-                    && request.resource.data.type in ['like', 'comment', 'mention', 'report', 'follow_request']
-                    && request.resource.data.read == false
-                    && (
-                      request.resource.data.type != 'report'
-                      || request.resource.data.recipientId == 'gHHxF8p1DnbMkoeVmU5XpB18Elz2'
-                    );
+      allow create: if false;
       allow read: if isSignedIn()
                   && resource.data.recipientId == request.auth.uid;
       allow update: if isSignedIn()
