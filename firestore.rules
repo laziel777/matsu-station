@@ -37,14 +37,6 @@ service cloud.firestore {
              && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.acceptedCommunityRulesVersion == '2026-05-19';
     }
 
-    function hasOnlyReportCreateFields() {
-      return request.resource.data.keys().hasOnly([
-        'targetId', 'targetType', 'postId', 'commentId', 'replyId',
-        'targetPreview', 'reporterId', 'reporterName',
-        'reason', 'reasonCategory', 'reasonDetail', 'status', 'createdAt'
-      ]);
-    }
-
     function hasValidReactionFields() {
       return request.resource.data.keys().hasOnly(['reaction', 'createdAt', 'updatedAt'])
              && request.resource.data.reaction is string
@@ -181,20 +173,7 @@ service cloud.firestore {
     }
 
     match /reports/{reportId} {
-      allow create: if isSignedIn()
-                    && hasAcceptedCurrentPolicies()
-                    && hasOnlyReportCreateFields()
-                    && request.resource.data.reporterId == request.auth.uid
-                    && request.resource.data.targetId is string
-                    && request.resource.data.targetType in ['post', 'comment', 'reply']
-                    && request.resource.data.reason is string
-                    && request.resource.data.reason.size() <= 500
-                    && request.resource.data.reasonCategory is string
-                    && request.resource.data.reasonCategory.size() <= 40
-                    && (!('reasonDetail' in request.resource.data)
-                        || (request.resource.data.reasonDetail is string
-                            && request.resource.data.reasonDetail.size() <= 240))
-                    && request.resource.data.status == 'pending';
+      allow create: if false;
       allow read: if isAdmin() || isStationMaster();
       allow update, delete: if false;
     }

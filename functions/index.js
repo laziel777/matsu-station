@@ -41,6 +41,7 @@ const SERVER_POST_COOLDOWN_MS = 30 * 1000;
 const SERVER_NEW_ACCOUNT_WINDOW_MS = 30 * 60 * 1000;
 const SERVER_DAILY_POST_LIMIT = 20;
 const SERVER_DAILY_COMMENT_LIMIT = DAILY_COMMENT_LIMIT;
+const SERVER_DAILY_REPORT_LIMIT = 30;
 const SERVER_MAX_POST_IMAGES = 8;
 const ACCOUNT_CONTROL_VERSION = "account-control-v1-2026-05-22";
 const AI_PATROL_QUEUE_REVIEW_COPY = "此內容可能涉及高風險資訊，目前正在由站長審核中。";
@@ -4773,6 +4774,128 @@ function getReportSourcePath(reportData) {
 
   return "";
 }
+
+async function assertDailyReportQuota(uid, dayKey) {
+  if (!uid || uid === STATION_MASTER_UID) return;
+
+  const usageRef = db.doc(`userUsage/${uid}/days/${dayKey}`);
+  const now = admin.firestore.FieldValue.serverTimestamp();
+
+  await db.runTransaction(async (transaction) => {
+    const usageSnap = await transaction.get(usageRef);
+    const usage = usageSnap.exists ? usageSnap.data() || {} : {};
+    const reportCount = Math.max(0, Number(usage.reportCount || 0));
+
+    if (reportCount >= SERVER_DAILY_REPORT_LIMIT) {
+      throw new HttpsError("resource-exhausted", `今天檢舉次數已達 ${SERVER_DAILY_REPORT_LIMIT} 次，請稍後再試或透過 LINE 回報站長。`);
+    }
+
+    transaction.set(usageRef, {
+      uid,
+      dayKey,
+      reportCount: admin.firestore.FieldValue.increment(1),
+      updatedAt: now,
+      ...(usageSnap.exists ? {} : { createdAt: now }),
+    }, { merge: true });
+  });
+}
+
+exports.createReport = onCall(
+  {
+    region: REGION,
+    timeoutSeconds: 30,
+  },
+  async (request) => {
+    const uid = requireSignedIn(request);
+    const profile = await assertPublishingProfile(uid);
+    const targetType = String(request.data?.targetType || "").trim();
+    if (!["post", "comment", "reply"].includes(targetType)) {
+      throw new HttpsError("invalid-argument", "Invalid report target type.");
+    }
+
+    const postId = sanitizeSubmittedId(request.data?.postId || request.data?.targetId, "post");
+    const commentId = targetType === "comment" || targetType === "reply"
+      ? sanitizeSubmittedId(request.data?.commentId || request.data?.targetId, "comment")
+      : "";
+    const replyId = targetType === "reply"
+      ? sanitizeSubmittedId(request.data?.replyId || request.data?.targetId, "reply")
+      : "";
+    const targetId = targetType === "post" ? postId : targetType === "comment" ? commentId : replyId;
+    const sourcePath = getReportSourcePath({ targetType, postId, commentId, replyId, targetId });
+    if (!sourcePath) {
+      throw new HttpsError("invalid-argument", "Invalid report source path.");
+    }
+
+    const sourceSnap = await db.doc(sourcePath).get();
+    if (!sourceSnap.exists) {
+      throw new HttpsError("not-found", "Reported content does not exist.");
+    }
+
+    const sourceData = sourceSnap.data() || {};
+    const cleanCategory = String(request.data?.reasonCategory || "其他").trim().slice(0, 40) || "其他";
+    const cleanDetail = String(request.data?.reasonDetail || "").trim().slice(0, 240);
+    const reason = (cleanDetail ? `${cleanCategory}：${cleanDetail}` : cleanCategory).slice(0, 500);
+    const dayKey = getTaipeiDayKey();
+    const reportId = getSourceKey(`${sourcePath}/${uid}/${dayKey}`);
+    const reportRef = db.collection("reports").doc(reportId);
+    const now = admin.firestore.FieldValue.serverTimestamp();
+
+    const existingReport = await reportRef.get();
+    if (existingReport.exists) {
+      return { ok: true, duplicate: true, id: reportRef.id };
+    }
+
+    await assertDailyReportQuota(uid, dayKey);
+
+    const targetPreview = compactPreview(
+      pickAdminContentText(
+        sourceData.content,
+        sourceData.contentSnapshot,
+        sourceData.quarantinedContentPreview,
+        request.data?.targetPreview,
+      ),
+      160
+    );
+
+    await reportRef.set({
+      targetId,
+      targetType,
+      postId,
+      ...(commentId ? { commentId } : {}),
+      ...(replyId ? { replyId } : {}),
+      sourcePath,
+      targetPreview,
+      reporterId: uid,
+      reporterName: profile.displayName,
+      reason,
+      reasonCategory: cleanCategory,
+      reasonDetail: cleanDetail,
+      status: "pending",
+      createdAt: now,
+      createdByServer: true,
+    });
+
+    await db.collection("notifications").doc(`report_${reportRef.id}`).set({
+      recipientId: STATION_MASTER_UID,
+      senderId: uid,
+      senderName: profile.displayName,
+      type: "report",
+      postId,
+      ...(commentId ? { commentId } : {}),
+      ...(replyId ? { replyId } : {}),
+      title: "收到新的檢舉",
+      content: `有人檢舉了一則${targetType === "post" ? "貼文" : targetType === "comment" ? "留言" : "留言回覆"}：${reason}`,
+      read: false,
+      createdAt: now,
+      createdByServer: true,
+      reportId: reportRef.id,
+    }, { merge: true });
+
+    await recordAccountAccess(uid, request, { source: "create_report" });
+
+    return { ok: true, id: reportRef.id };
+  }
+);
 
 exports.reportCreatedModerationIntake = onDocumentCreated(
   {

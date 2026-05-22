@@ -15,7 +15,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { createPortal } from 'react-dom';
 import { formatDistanceToNow, addMonths, isAfter } from 'date-fns';
 import { zhTW } from 'date-fns/locale';
-import { db, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, updateDoc, doc, setDoc, deleteDoc, getDoc, getDocs, where, handleFirestoreError, OperationType, storage, functions, httpsCallable } from './lib/firebase';
+import { db, collection, query, orderBy, onSnapshot, serverTimestamp, updateDoc, doc, setDoc, deleteDoc, getDoc, getDocs, where, handleFirestoreError, OperationType, storage, functions, httpsCallable } from './lib/firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 const STATION_MASTER_UID = 'gHHxF8p1DnbMkoeVmU5XpB18Elz2';
@@ -419,6 +419,7 @@ type RemoveCommunityContentPayload = {
 const createCommunityContent = httpsCallable(functions, 'createCommunityContent');
 const removeCommunityContent = httpsCallable(functions, 'removeCommunityContent');
 const createUserNotification = httpsCallable(functions, 'createUserNotification');
+const createReport = httpsCallable(functions, 'createReport');
 
 const submitCommunityContent = async (payload: CreateCommunityContentPayload) => {
   const result = await createCommunityContent(payload);
@@ -442,6 +443,19 @@ type CreateUserNotificationPayload = {
 
 const submitUserNotification = async (payload: CreateUserNotificationPayload) => {
   await createUserNotification(payload);
+};
+
+const submitContentReport = async (payload: {
+  targetId: string;
+  targetType: 'post' | 'comment' | 'reply';
+  postId: string;
+  commentId?: string;
+  replyId?: string;
+  targetPreview?: string;
+  reasonCategory: string;
+  reasonDetail: string;
+}) => {
+  await createReport(payload);
 };
 
 const getNotificationRecipientId = (authorId?: string) => {
@@ -5351,43 +5365,19 @@ function PostCard({
 
     const cleanCategory = reportReasonCategory.trim() || '其他';
     const cleanDetail = reportReasonDetail.trim().slice(0, 240);
-    const reason = cleanDetail ? `${cleanCategory}：${cleanDetail}` : cleanCategory;
     setIsSubmittingReport(true);
 
     try {
-      await addDoc(collection(db, 'reports'), {
+      await submitContentReport({
         targetId: reportDraft.targetId,
         targetType: reportDraft.targetType,
         postId: post.id,
         ...(reportDraft.commentId ? { commentId: reportDraft.commentId } : {}),
         ...(reportDraft.replyId ? { replyId: reportDraft.replyId } : {}),
         targetPreview: reportDraft.preview.slice(0, 160),
-        reporterId: user.uid,
-        reporterName: profile?.displayName || user.displayName || '匿名島民',
-        reason,
         reasonCategory: cleanCategory,
         reasonDetail: cleanDetail,
-        status: 'pending',
-        createdAt: serverTimestamp(),
       });
-
-      try {
-        await submitUserNotification({
-          recipientId: STATION_MASTER_UID,
-          type: 'report',
-          postId: post.id,
-          category: post.category || '未分類',
-          ...(reportDraft.commentId ? { commentId: reportDraft.commentId } : {}),
-          ...(reportDraft.replyId ? { replyId: reportDraft.replyId } : {}),
-          title: '⚠ 收到新的檢舉',
-          content: `有人檢舉了一則${reportDraft.targetType === 'post' ? '貼文' : reportDraft.targetType === 'comment' ? '留言' : '留言回覆'}：${reason}`,
-        });
-      } catch (notificationErr) {
-        console.warn('Report was created, but notification failed:', notificationErr);
-        alert('檢舉已送出，但站長通知建立失敗。請透過官方 LINE 補充截圖回報。');
-        setReportDraft(null);
-        return;
-      }
 
       setReportDraft(null);
       setReportReasonDetail('');
