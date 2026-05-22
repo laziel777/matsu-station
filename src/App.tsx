@@ -845,7 +845,7 @@ const ReactionButton = ({
   const [isOpen, setIsOpen] = useState(false);
   const [reactionCounts, setReactionCounts] = useState<Record<string, number>>({});
   const rootRef = React.useRef<HTMLDivElement | null>(null);
-  const displayReaction = currentReaction || DEFAULT_REACTION;
+  const displayReaction = currentReaction || '☻';
   const visibleReactionCounts = REACTION_OPTIONS
     .map(reaction => ({ reaction, count: reactionCounts[reaction] || 0 }))
     .filter(item => item.count > 0);
@@ -4734,7 +4734,7 @@ function PostCard({
       const likePath = `posts/${post.id}/likes/${user.uid}`;
       const likeRef = doc(db, 'posts', post.id, 'likes', user.uid);
       getDoc(likeRef)
-        .then(snap => setSelectedReaction(snap.exists() ? (snap.data().reaction || DEFAULT_REACTION) : null))
+        .then(snap => setSelectedReaction(snap.exists() ? (snap.data().reaction || null) : null))
         .catch(error => {
           console.warn('Like status fetch failed (likely offline or missing doc):', error.message);
         });
@@ -4889,7 +4889,7 @@ function PostCard({
           Promise.all(
             nextComments.map(async comment => {
               const likeSnap = await getDoc(doc(db, 'posts', post.id, 'comments', comment.id, 'likes', user.uid));
-              return [comment.id, likeSnap.exists() ? (likeSnap.data().reaction || DEFAULT_REACTION) : ''] as const;
+              return [comment.id, likeSnap.exists() ? (likeSnap.data().reaction || '') : ''] as const;
             })
           )
             .then(entries => {
@@ -4922,7 +4922,7 @@ function PostCard({
               Promise.all(
                 replies.map(async reply => {
                   const likeSnap = await getDoc(doc(db, 'posts', post.id, 'comments', comment.id, 'replies', reply.id, 'likes', user.uid));
-                  return [getReplyLikeKey(comment.id, reply.id), likeSnap.exists() ? (likeSnap.data().reaction || DEFAULT_REACTION) : ''] as const;
+                  return [getReplyLikeKey(comment.id, reply.id), likeSnap.exists() ? (likeSnap.data().reaction || '') : ''] as const;
                 })
               )
                 .then(entries => {
