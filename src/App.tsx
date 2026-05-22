@@ -849,9 +849,6 @@ const ReactionButton = ({
   const visibleReactionCounts = REACTION_OPTIONS
     .map(reaction => ({ reaction, count: reactionCounts[reaction] || 0 }))
     .filter(item => item.count > 0);
-  const displayedCount = visibleReactionCounts.length > 0
-    ? visibleReactionCounts.reduce((total, item) => total + item.count, 0)
-    : count;
 
   React.useEffect(() => {
     if (!isOpen) return;
@@ -902,7 +899,7 @@ const ReactionButton = ({
         <span className={compact ? 'text-base leading-none' : 'text-lg leading-none'}>
           {displayReaction}
         </span>
-        <span>{displayedCount}</span>
+        {visibleReactionCounts.length === 0 && count > 0 && <span>{count}</span>}
       </button>
 
       {currentReaction && (
