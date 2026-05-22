@@ -14,6 +14,7 @@ const db = admin.firestore();
 
 const REGION = "asia-east1";
 const STATION_MASTER_UID = "gHHxF8p1DnbMkoeVmU5XpB18Elz2";
+const STATION_MASTER_LEGACY_ID = "L";
 const DEFAULT_ISLANDER_PHOTO = "__DEFAULT_ISLANDER__";
 const GEMINI_MODEL = "gemini-2.5-flash";
 const SITE_URL = "https://www.matsustation.com/";
@@ -3843,6 +3844,11 @@ function sanitizeOptionalNotificationId(value, label) {
   return sanitizeSubmittedId(value, label);
 }
 
+function normalizeNotificationUid(value) {
+  const uid = String(value || "").trim();
+  return uid === STATION_MASTER_LEGACY_ID ? STATION_MASTER_UID : uid;
+}
+
 async function assertNotificationRecipientExists(recipientId) {
   const snap = await db.collection("users").doc(recipientId).get();
   if (!snap.exists) {
@@ -3881,7 +3887,7 @@ async function assertNotificationTarget({
     throw new HttpsError("not-found", "Notification target post does not exist.");
   }
 
-  let expectedRecipientId = String(postSnap.get("authorId") || "");
+  let expectedRecipientId = normalizeNotificationUid(postSnap.get("authorId"));
 
   if (commentId) {
     const commentRef = postRef.collection("comments").doc(commentId);
@@ -3889,7 +3895,7 @@ async function assertNotificationTarget({
     if (!commentSnap.exists) {
       throw new HttpsError("not-found", "Notification target comment does not exist.");
     }
-    expectedRecipientId = String(commentSnap.get("authorId") || "");
+    expectedRecipientId = normalizeNotificationUid(commentSnap.get("authorId"));
 
     if (replyId) {
       const replySnap = await commentRef.collection("replies").doc(replyId).get();
@@ -3897,7 +3903,7 @@ async function assertNotificationTarget({
         throw new HttpsError("not-found", "Notification target reply does not exist.");
       }
       if (type === "like") {
-        expectedRecipientId = String(replySnap.get("authorId") || "");
+        expectedRecipientId = normalizeNotificationUid(replySnap.get("authorId"));
       }
     }
   }
@@ -3928,7 +3934,8 @@ exports.createUserNotification = onCall(
     const senderId = requireSignedIn(request);
     const profile = await assertPublishingProfile(senderId);
     const type = sanitizeNotificationText(request.data?.type, 30, "type");
-    const recipientId = sanitizeSubmittedId(request.data?.recipientId, "recipient");
+    const rawRecipientId = normalizeNotificationUid(request.data?.recipientId);
+    const recipientId = sanitizeSubmittedId(rawRecipientId, "recipient");
     const allowedTypes = new Set(["like", "comment", "mention", "report", "follow_request"]);
 
     if (!allowedTypes.has(type)) {

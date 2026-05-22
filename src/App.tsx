@@ -19,6 +19,7 @@ import { db, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, up
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 const STATION_MASTER_UID = 'gHHxF8p1DnbMkoeVmU5XpB18Elz2';
+const STATION_MASTER_LEGACY_ID = 'L';
 const DEFAULT_BACKGROUND_MODE = 'dark';
 const DEFAULT_ACCENT_ID = 'bio-glow';
 const DEFAULT_FONT_SIZE = 100;
@@ -441,6 +442,10 @@ type CreateUserNotificationPayload = {
 
 const submitUserNotification = async (payload: CreateUserNotificationPayload) => {
   await createUserNotification(payload);
+};
+
+const getNotificationRecipientId = (authorId?: string) => {
+  return authorId === STATION_MASTER_LEGACY_ID ? STATION_MASTER_UID : (authorId || '');
 };
 
 const getSubmissionErrorMessage = (error: any, fallback: string) => {
@@ -878,6 +883,24 @@ const ReactionButton = ({
         </span>
         <span>{displayedCount}</span>
       </button>
+
+      {currentReaction && (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onSelect(currentReaction);
+            setIsOpen(false);
+          }}
+          className={`inline-flex items-center justify-center rounded-full border border-rose-400/20 bg-rose-500/10 text-rose-300 transition-all hover:bg-rose-500/20 active:scale-95 ${
+            compact ? 'h-5 w-5' : 'h-6 w-6'
+          }`}
+          title="取消反應"
+          aria-label="取消反應"
+        >
+          <X className={compact ? 'h-3 w-3' : 'h-3.5 w-3.5'} />
+        </button>
+      )}
 
       {visibleReactionCounts.length > 0 && (
         <div className="flex max-w-[12rem] flex-wrap items-center gap-1">
@@ -4759,7 +4782,7 @@ function PostCard({
         // Send notification to author
         if (isNewReaction && user.uid !== post.authorId) {
           void submitUserNotification({
-            recipientId: post.authorId,
+            recipientId: getNotificationRecipientId(post.authorId),
             type: 'like',
             postId: post.id,
             category: post.category,
@@ -5017,7 +5040,7 @@ function PostCard({
       if (createdComment.status === 'normal' && createdComment.id && user.uid !== post.authorId) {
         try {
           await submitUserNotification({
-            recipientId: post.authorId,
+            recipientId: getNotificationRecipientId(post.authorId),
             type: 'comment',
             postId: post.id,
             category: post.category,
@@ -5099,7 +5122,7 @@ function PostCard({
 
       if (isNewReaction && user.uid !== comment.authorId) {
         void submitUserNotification({
-          recipientId: comment.authorId,
+          recipientId: getNotificationRecipientId(comment.authorId),
           type: 'like',
           postId: post.id,
           category: post.category,
@@ -5184,7 +5207,7 @@ function PostCard({
 
       if (isNewReaction && user.uid !== reply.authorId) {
         void submitUserNotification({
-          recipientId: reply.authorId,
+          recipientId: getNotificationRecipientId(reply.authorId),
           type: 'like',
           postId: post.id,
           category: post.category,
@@ -5258,7 +5281,7 @@ function PostCard({
       if (createdReply.status === 'normal' && createdReply.id && user.uid !== comment.authorId) {
         try {
           await submitUserNotification({
-            recipientId: comment.authorId,
+            recipientId: getNotificationRecipientId(comment.authorId),
             type: 'comment',
             postId: post.id,
             category: post.category,
