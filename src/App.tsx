@@ -10,7 +10,7 @@ import {
   hasAcceptedLatestPolicies,
 } from './lib/AuthContext';
 import { signInWithPopup, googleProvider, auth, signOut } from './lib/firebase';
-import { LogIn, LogOut, MessageSquare, Share2, Send, Plus, User, Waves, Search, Flag, Edit2, Calendar, Menu, X, ChevronRight, Palette, Settings, Image as ImageIcon, Facebook, Instagram, Copy, Check, ExternalLink, Trash2, Bell, Shield, TrendingUp, Zap, Star, Compass, Clock, AlertCircle, Cloud, CloudRain, Snowflake, CloudLightning, Sun, Plane, Ship, Info, Wind, Eye, Activity, MapPin, RotateCcw, Loader2 } from 'lucide-react';
+import { LogIn, LogOut, MessageSquare, Share2, Send, Plus, User, Waves, Search, Flag, Edit2, Calendar, Menu, X, ChevronRight, Palette, Settings, Image as ImageIcon, Facebook, Instagram, Copy, Check, ExternalLink, Trash2, Bell, Shield, TrendingUp, Zap, Star, Compass, Clock, AlertCircle, Cloud, CloudRain, Snowflake, CloudLightning, Sun, Plane, Ship, Info, Wind, Eye, Activity, MapPin, RotateCcw, Loader2, Heart } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { createPortal } from 'react-dom';
 import { formatDistanceToNow, addMonths, isAfter } from 'date-fns';
@@ -870,7 +870,6 @@ const ReactionButton = ({
   const rootRef = React.useRef<HTMLDivElement | null>(null);
   const menuRef = React.useRef<HTMLDivElement | null>(null);
   const [menuPosition, setMenuPosition] = useState<{ top: number; left: number; placement: 'top' | 'bottom' } | null>(null);
-  const displayReaction = currentReaction || '☺';
   const reactionIconSizeClass = compact ? 'h-6 w-6 text-sm' : 'h-7 w-7 text-base';
   const visibleReactionCounts = REACTION_OPTIONS
     .map(reaction => ({ reaction, count: reactionCounts[reaction] || 0 }))
@@ -963,7 +962,7 @@ const ReactionButton = ({
           }`}
         >
           <span className="leading-none">
-            {displayReaction}
+            {currentReaction || <Heart className={compact ? 'h-3.5 w-3.5' : 'h-4 w-4'} />}
           </span>
         </span>
         {!currentReaction && !compact && (
