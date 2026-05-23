@@ -8137,8 +8137,8 @@ async function fetchMatsuAirportStatus() {
 
   const html = await response.text();
   const lines = htmlToVisibleLines(html);
-  const nangan = parseAirportSection(lines, ["南竿機場", "Nangan Airport"], ["北竿機場", "Beigan Airport"]);
-  const beigan = parseAirportSection(lines, ["北竿機場", "Beigan Airport"], ["候補資訊", "Waiting Information", "OPEN"]);
+  const nangan = parseAirportSection(lines, ["Nangan Airport"], ["Beigan Airport"]);
+  const beigan = parseAirportSection(lines, ["Beigan Airport"], ["Waiting Information", "OPEN"]);
 
   return {
     ok: nangan.rows.length > 0 || beigan.rows.length > 0,
