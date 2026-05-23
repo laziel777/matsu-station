@@ -8049,6 +8049,8 @@ exports.rangerExecuteAiControlPlan = onCall(
 
 const MATSU_AIRPORT_STATUS_URL = "https://msa.gov.tw/";
 const TAIMA_STAR_STATUS_URL = "https://www.alsealand.com/";
+const AOAWS_HOME_URL = "https://aoaws.anws.gov.tw/";
+const AOAWS_METAR_URL = "https://aoaws.anws.gov.tw/Home/get_metar_data";
 
 function decodeSimpleHtmlEntities(text) {
   return String(text || "")
@@ -8124,6 +8126,129 @@ function parseAirportSection(lines, startTerms, endTerms) {
   return { rows, summary: getFlightSummary(rows) };
 }
 
+function getSetCookieValues(headers) {
+  if (typeof headers.getSetCookie === "function") return headers.getSetCookie();
+  const single = headers.get("set-cookie");
+  return single ? [single] : [];
+}
+
+function toCookieHeader(setCookieValues) {
+  return setCookieValues
+    .map((value) => String(value || "").split(";")[0].trim())
+    .filter(Boolean)
+    .join("; ");
+}
+
+function windDirectionText(degrees) {
+  const value = Number(degrees);
+  if (!Number.isFinite(value)) return "不明";
+  const labels = ["北", "東北", "東", "東南", "南", "西南", "西", "西北"];
+  return labels[Math.round(value / 45) % 8];
+}
+
+function getAoawsWeatherIcon(weatherName) {
+  const text = String(weatherName || "");
+  if (/雷/.test(text)) return "CloudLightning";
+  if (/雨|毛雨|陣雨/.test(text)) return "CloudRain";
+  if (/雪|冰|雹|霰/.test(text)) return "Snowflake";
+  if (/霧|靄|霾|煙/.test(text)) return "Cloud";
+  if (/晴/.test(text) && !/多雲|陰/.test(text)) return "Sun";
+  return "Cloud";
+}
+
+function normalizeAoawsAirport(row) {
+  if (!row) return null;
+  const visibility = Number(row.VIS);
+  const ceiling = Number(row.CEILING);
+  const weatherText = String(row.WEATHER?.CName || "天氣資料");
+  return {
+    stationId: String(row.STID || ""),
+    stationName: String(row.STNM_C || row.location_ch || ""),
+    iataCode: String(row.IATA_code || ""),
+    observedAtIso: row.datatime || null,
+    apiDataTime: String(row.API_DATA_TIME || ""),
+    report: String(row.REPORT || ""),
+    temp: Number.isFinite(Number(row.TEMP)) ? Number(row.TEMP) : null,
+    text: weatherText,
+    icon: getAoawsWeatherIcon(weatherText),
+    windDirection: Number.isFinite(Number(row.WDIR)) ? Number(row.WDIR) : null,
+    windDirectionText: windDirectionText(row.WDIR),
+    windSpeedKt: Number.isFinite(Number(row.WDSD)) ? Number(row.WDSD) : null,
+    windUnit: String(row.WDSD_UNIT || "KT"),
+    visibilityMeters: Number.isFinite(visibility) ? visibility : null,
+    visibilityText: visibility === 9999 ? "10 公里以上" : Number.isFinite(visibility) ? `${Math.round(visibility / 100) / 10} 公里` : "未提供",
+    ceilingFt: Number.isFinite(ceiling) ? ceiling : null,
+    ceilingText: Number.isFinite(ceiling) ? `${ceiling} 呎` : "未提供",
+    visAllowed: Boolean(row.VIS_ALLOWED),
+    flightAllowed: Boolean(row.FLIGHT_ALLOWED),
+  };
+}
+
+async function fetchAoawsWeatherStatus() {
+  const homeResponse = await fetch(AOAWS_HOME_URL, {
+    headers: {
+      "accept-language": "zh-TW,zh;q=0.9,en;q=0.6",
+      "user-agent": "MatsuStationBot/1.0 (+https://www.matsustation.com/)",
+    },
+  });
+  if (!homeResponse.ok) {
+    throw new Error(`AOAWS home fetch failed: ${homeResponse.status}`);
+  }
+
+  const cookieHeader = toCookieHeader(getSetCookieValues(homeResponse.headers));
+  const metarResponse = await fetch(AOAWS_METAR_URL, {
+    method: "POST",
+    headers: {
+      "accept": "application/json, text/javascript, */*; q=0.01",
+      "accept-language": "zh-TW,zh;q=0.9,en;q=0.6",
+      "origin": AOAWS_HOME_URL.replace(/\/$/, ""),
+      "referer": AOAWS_HOME_URL,
+      "user-agent": "MatsuStationBot/1.0 (+https://www.matsustation.com/)",
+      "x-requested-with": "XMLHttpRequest",
+      ...(cookieHeader ? { cookie: cookieHeader } : {}),
+    },
+  });
+  if (!metarResponse.ok) {
+    throw new Error(`AOAWS METAR fetch failed: ${metarResponse.status}`);
+  }
+
+  const text = await metarResponse.text();
+  if (/Direct access is not allowed/i.test(text)) {
+    throw new Error("AOAWS rejected request without browser session.");
+  }
+
+  const data = JSON.parse(text);
+  const latestTaiwan = Array.isArray(data?.latest_airport_list?.Taiwan)
+    ? data.latest_airport_list.Taiwan
+    : [];
+  const nangan = normalizeAoawsAirport(latestTaiwan.find((item) => item?.STID === "RCFG"));
+  const beigan = normalizeAoawsAirport(latestTaiwan.find((item) => item?.STID === "RCMT"));
+  const primary = nangan || beigan;
+
+  return {
+    ok: Boolean(primary),
+    source: "民用航空局飛航服務總臺航空氣象服務網",
+    sourceUrl: AOAWS_HOME_URL,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    fetchedAtIso: new Date().toISOString(),
+    notice: "航空氣象資料供站內天氣資訊參考；實際飛航、起降與交通異動仍請以航空站及航空公司公告為準。",
+    primaryStation: primary?.stationId || null,
+    temp: primary?.temp ?? null,
+    text: primary?.text || "航空氣象",
+    icon: primary?.icon || "Cloud",
+    windDirection: primary?.windDirection ?? null,
+    windDirectionText: primary?.windDirectionText || "不明",
+    windSpeedKt: primary?.windSpeedKt ?? null,
+    visibilityText: primary?.visibilityText || "未提供",
+    ceilingText: primary?.ceilingText || "未提供",
+    flightAllowed: primary?.flightAllowed ?? null,
+    airports: {
+      nangan,
+      beigan,
+    },
+  };
+}
+
 async function fetchMatsuAirportStatus() {
   const response = await fetch(MATSU_AIRPORT_STATUS_URL, {
     headers: {
@@ -8190,14 +8315,16 @@ async function fetchTaimaStarAnnouncements() {
 
 async function refreshPublicTransportStatus() {
   const now = admin.firestore.FieldValue.serverTimestamp();
-  const [flightResult, ferryResult] = await Promise.allSettled([
+  const [flightResult, ferryResult, weatherResult] = await Promise.allSettled([
     fetchMatsuAirportStatus(),
     fetchTaimaStarAnnouncements(),
+    fetchAoawsWeatherStatus(),
   ]);
 
   const batch = db.batch();
   const flightRef = db.collection("transportStatus").doc("flight");
   const ferryRef = db.collection("transportStatus").doc("ferry");
+  const weatherRef = db.collection("transportStatus").doc("weather");
 
   if (flightResult.status === "fulfilled") {
     batch.set(flightRef, flightResult.value, { merge: true });
@@ -8233,10 +8360,28 @@ async function refreshPublicTransportStatus() {
     );
   }
 
+  if (weatherResult.status === "fulfilled") {
+    batch.set(weatherRef, weatherResult.value, { merge: true });
+  } else {
+    batch.set(
+      weatherRef,
+      {
+        ok: false,
+        source: "民用航空局飛航服務總臺航空氣象服務網",
+        sourceUrl: AOAWS_HOME_URL,
+        updatedAt: now,
+        fetchedAtIso: new Date().toISOString(),
+        error: String(weatherResult.reason?.message || weatherResult.reason).slice(0, 300),
+      },
+      { merge: true }
+    );
+  }
+
   await batch.commit();
   return {
     flightOk: flightResult.status === "fulfilled" && flightResult.value.ok,
     ferryOk: ferryResult.status === "fulfilled" && ferryResult.value.ok,
+    weatherOk: weatherResult.status === "fulfilled" && weatherResult.value.ok,
   };
 }
 

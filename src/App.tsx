@@ -174,6 +174,27 @@ interface Post {
   createdAt: any;
 }
 
+interface WeatherStatus {
+  temp: number | null;
+  icon: string;
+  text: string;
+  wind: number | null;
+  dir: string;
+  vis: number | null;
+  humidity: number | null;
+  visibilityText?: string;
+  ceilingText?: string;
+  source?: string;
+  sourceUrl?: string;
+  fetchedAtIso?: string;
+  notice?: string;
+  flightAllowed?: boolean | null;
+  airports?: {
+    nangan?: any;
+    beigan?: any;
+  };
+}
+
 interface Comment {
   id: string;
   authorId: string;
@@ -1176,7 +1197,7 @@ export default function App() {
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [discussionTarget, setDiscussionTarget] = useState<DiscussionTarget | null>(null);
-  const [weather, setWeather] = useState<{ temp: number; icon: string; text: string; wind: number; dir: string; vis: number | null; humidity: number | null } | null>(null);
+  const [weather, setWeather] = useState<WeatherStatus | null>(null);
   const [transportStatus, setTransportStatus] = useState<{ flight: any | null; ferry: any | null }>({ flight: null, ferry: null });
   const [showWeatherModal, setShowWeatherModal] = useState(false);
   const [showTransportModal, setShowTransportModal] = useState<'flight' | 'ferry' | null>(null);
@@ -1234,55 +1255,41 @@ useEffect(() => {
   setOnlineCount(randomOnline);
 }, [posts]);
 
-  // Weather Fetching
   useEffect(() => {
-    const fetchWeather = async () => {
-      try {
-        // Matsu Coordinates: 26.1587, 119.9284
-        const res = await fetch('https://api.open-meteo.com/v1/forecast?latitude=26.15&longitude=119.93&current_weather=true&hourly=relativehumidity_2m,visibility');
-        const data = await res.json();
-        if (data.current_weather) {
-          const temp = Math.round(data.current_weather.temperature);
-          const code = data.current_weather.weathercode;
-          const wind = data.current_weather.windspeed;
-          const windDir = data.current_weather.winddirection;
-          
-          // Decode Wind Dir
-          const dirs = ['北', '東北', '東', '東南', '南', '西南', '西', '西北'];
-          const dir = dirs[Math.round(windDir / 45) % 8];
-
-          let text = '晴朗';
-          let icon = 'Sun';
-          
-          if (code >= 1 && code <= 3) { text = '多雲'; icon = 'Cloud'; }
-          else if (code >= 45 && code <= 48) { text = '有霧'; icon = 'Cloud'; }
-          else if (code >= 51 && code <= 67) { text = '有雨'; icon = 'CloudRain'; }
-          else if (code >= 71 && code <= 86) { text = '有雪'; icon = 'Snowflake'; }
-          else if (code >= 95 && code <= 99) { text = '雷雨'; icon = 'CloudLightning'; }
-
-          const hourlyTimes: string[] = data.hourly?.time || [];
-          const currentIndex = hourlyTimes.indexOf(data.current_weather.time);
-          const weatherIndex = currentIndex >= 0 ? currentIndex : 0;
-          const visibilityMeters = data.hourly?.visibility?.[weatherIndex];
-          const humidityValue = data.hourly?.relativehumidity_2m?.[weatherIndex];
-          
-          setWeather({ 
-            temp, 
-            icon, 
-            text, 
-            wind, 
-            dir, 
-            vis: typeof visibilityMeters === 'number' ? Math.round(visibilityMeters / 1000) : null,
-            humidity: typeof humidityValue === 'number' ? humidityValue : null
-          });
-        }
-      } catch (err) {
-        console.error('Weather fetch failed:', err);
+    const unsubscribeWeather = onSnapshot(doc(db, 'transportStatus', 'weather'), (snapshot) => {
+      if (!snapshot.exists()) {
+        setWeather(null);
+        return;
       }
-    };
-    fetchWeather();
-    const interval = setInterval(fetchWeather, 600000); // Update every 10 mins
-    return () => clearInterval(interval);
+
+      const data = snapshot.data();
+      const airport = data.airports?.nangan || data.airports?.beigan || {};
+      const windDirection = data.windDirection ?? airport.windDirection;
+      const directionText = data.windDirectionText || airport.windDirectionText || '不明';
+
+      setWeather({
+        temp: typeof (data.temp ?? airport.temp) === 'number' ? data.temp ?? airport.temp : null,
+        icon: data.icon || airport.icon || 'Cloud',
+        text: data.text || airport.text || '航空氣象',
+        wind: typeof (data.windSpeedKt ?? airport.windSpeedKt) === 'number' ? data.windSpeedKt ?? airport.windSpeedKt : null,
+        dir: `${directionText}${typeof windDirection === 'number' ? ` ${windDirection}°` : ''}`,
+        vis: null,
+        humidity: null,
+        visibilityText: data.visibilityText || airport.visibilityText,
+        ceilingText: data.ceilingText || airport.ceilingText,
+        source: data.source,
+        sourceUrl: data.sourceUrl,
+        fetchedAtIso: data.fetchedAtIso,
+        notice: data.notice,
+        flightAllowed: typeof data.flightAllowed === 'boolean' ? data.flightAllowed : airport.flightAllowed,
+        airports: data.airports,
+      });
+    }, (error) => {
+      console.warn('Weather status listener failed:', error.message);
+      setWeather(null);
+    });
+
+    return () => unsubscribeWeather();
   }, []);
 
   useEffect(() => {
@@ -3111,7 +3118,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                 {weather.icon === 'CloudLightning' && <CloudLightning className="w-4 h-4 text-yellow-500" />}
                 <div className="flex flex-col items-start gap-0.5">
                   <span className="weather-chip-label text-[0.625rem] font-bold uppercase tracking-tighter leading-none text-left">馬祖氣象</span>
-                  <span className="text-[0.75rem] font-mono font-bold text-text-main leading-none">{weather.temp}°C</span>
+                  <span className="text-[0.75rem] font-mono font-bold text-text-main leading-none">{weather.temp != null ? `${weather.temp}°C` : '--°C'}</span>
                 </div>
               </motion.button>
             )}
@@ -4530,9 +4537,9 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                   {weather.icon === 'CloudLightning' && <CloudLightning className="w-10 h-10 text-yellow-500" />}
                 </div>
                 <div>
-                  <h2 className="text-2xl font-bold text-text-main">連江縣馬祖氣象站</h2>
+                  <h2 className="text-2xl font-bold text-text-main">馬祖航空氣象</h2>
                   <p className="text-text-muted text-sm font-mono uppercase tracking-widest flex items-center gap-2">
-                    <MapPin className="w-3 h-3" /> 南竿鄉介壽村
+                    <MapPin className="w-3 h-3" /> 南竿 / 北竿機場
                   </p>
                 </div>
               </div>
@@ -4540,7 +4547,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-8">
                 <div className="p-4 rounded-2xl bg-mist border border-line">
                   <span className="text-[0.625rem] text-text-muted font-bold uppercase tracking-widest block mb-1">目前溫度</span>
-                  <span className="text-xl font-mono font-bold text-text-main">{weather.temp}°C</span>
+                  <span className="text-xl font-mono font-bold text-text-main">{weather.temp != null ? `${weather.temp}°C` : '未提供'}</span>
                 </div>
                 <div className="p-4 rounded-2xl bg-mist border border-line">
                   <span className="text-[0.625rem] text-text-muted font-bold uppercase tracking-widest block mb-1">天氣概況</span>
@@ -4551,16 +4558,16 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                   <span className="text-xl font-bold text-text-main flex items-center gap-1"><Wind className="w-4 h-4 text-bio-glow" /> {weather.dir}</span>
                 </div>
                 <div className="p-4 rounded-2xl bg-mist border border-line">
-                  <span className="text-[0.625rem] text-text-muted font-bold uppercase tracking-widest block mb-1">平均風力</span>
-                  <span className="text-xl font-mono font-bold text-text-main">{Math.round(weather.wind / 5)} 級</span>
+                  <span className="text-[0.625rem] text-text-muted font-bold uppercase tracking-widest block mb-1">風速</span>
+                  <span className="text-xl font-mono font-bold text-text-main">{weather.wind != null ? `${weather.wind} 節` : '未提供'}</span>
                 </div>
                 <div className="p-4 rounded-2xl bg-mist border border-line">
-                  <span className="text-[0.625rem] text-text-muted font-bold uppercase tracking-widest block mb-1">相對濕度</span>
-                  <span className="text-xl font-mono font-bold text-text-main">{weather.humidity != null ? `${weather.humidity}%` : '查詢中'}</span>
+                  <span className="text-[0.625rem] text-text-muted font-bold uppercase tracking-widest block mb-1">主要雲層</span>
+                  <span className="text-xl font-mono font-bold text-text-main">{weather.ceilingText || '未提供'}</span>
                 </div>
                 <div className="p-4 rounded-2xl bg-mist border border-line">
                   <span className="text-[0.625rem] text-text-muted font-bold uppercase tracking-widest block mb-1">能見度</span>
-                  <span className="text-xl font-bold text-text-main flex items-center gap-1"><Eye className="w-4 h-4 text-bio-glow" /> {weather.vis != null ? `${weather.vis} KM` : '查詢中'}</span>
+                  <span className="text-xl font-bold text-text-main flex items-center gap-1"><Eye className="w-4 h-4 text-bio-glow" /> {weather.visibilityText || '未提供'}</span>
                 </div>
               </div>
 
@@ -4575,7 +4582,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                       <p className="text-[0.6875rem] text-indigo-400/60">Nangan Airport Ceiling</p>
                     </div>
                   </div>
-                  <span className="text-right text-xs font-bold leading-relaxed text-text-muted">以航空站<br />公告為準</span>
+                  <span className="text-right text-xs font-bold leading-relaxed text-text-main">{weather.airports?.nangan?.ceilingText || '未提供'}<br />{weather.airports?.nangan?.flightAllowed ? '符合標準' : '注意條件'}</span>
                 </div>
 
                 <div className="p-5 rounded-2xl bg-blue-500/5 border border-blue-500/10 flex items-center justify-between">
@@ -4588,13 +4595,13 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                       <p className="text-[0.6875rem] text-blue-400/60">Beigan Airport Ceiling</p>
                     </div>
                   </div>
-                  <span className="text-right text-xs font-bold leading-relaxed text-text-muted">以航空站<br />公告為準</span>
+                  <span className="text-right text-xs font-bold leading-relaxed text-text-main">{weather.airports?.beigan?.ceilingText || '未提供'}<br />{weather.airports?.beigan?.flightAllowed ? '符合標準' : '注意條件'}</span>
                 </div>
               </div>
 
               <div className="mt-8 text-center">
                 <p className="text-[0.625rem] text-text-muted opacity-60 font-mono italic">
-                  氣象基礎資料由天氣服務估算；飛航條件請以馬祖航空站公告為準
+                  資料來源：{weather.source || '民用航空局飛航服務總臺航空氣象服務網'}；{weather.notice || '飛航條件請以航空站及航空公司公告為準'}
                 </p>
               </div>
             </motion.div>
