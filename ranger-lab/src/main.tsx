@@ -44,7 +44,7 @@ import './styles.css';
 
 type RiskLevel = 'low' | 'medium' | 'high' | 'critical';
 type SourceType = 'post' | 'comment' | 'reply';
-type CaseAction = 'mark_reviewed' | 'dismiss' | 'release' | 'quarantine' | 'remove';
+type CaseAction = 'mark_reviewed' | 'dismiss' | 'release' | 'quarantine' | 'remove' | 'delete_case';
 type ContentAction = 'review' | 'hide' | 'mask' | 'delete' | 'restore' | 'hide_image' | 'restore_image' | 'delete_image';
 type AccountAction = 'watch' | 'clear_watch' | 'ban' | 'unban' | 'suspend_posting' | 'restore_posting';
 type DrawerKey = 'cockpit' | 'accounts' | 'articles' | 'images' | 'reports' | 'aiSheet' | 'cases';
@@ -1010,6 +1010,7 @@ function CasePanel({ cases, selected, sourcePaths, onSelect, onAction }: {
       quarantine: '確定要遮蔽這筆內容並保留審核原因？',
       remove: '確定要隱藏這筆內容？原文會保留在後台治理紀錄。',
       dismiss: '確定要將此案件結案？',
+      delete_case: '確定要清除此封存案件？這只會刪除後台案件卡片，不會恢復或刪除前台內容。',
     };
     const message = confirmations[action];
     if (message && !window.confirm(message)) return;
@@ -1102,12 +1103,22 @@ function CasePanel({ cases, selected, sourcePaths, onSelect, onAction }: {
             </div>
 
             {selectedIsArchived ? (
-              <div className="case-archive-note">
-                <CheckCircle2 size={18} />
-                <div>
-                  <strong>此內容已由作者刪除，案件已封存</strong>
-                  <p>前台內容已不公開；後台保留原文、時間、來源與風險紀錄，供日後查核，不需要再裁決。</p>
+              <div className="case-archive-note case-archive-note-stack">
+                <div className="case-archive-note-body">
+                  <CheckCircle2 size={18} />
+                  <div>
+                    <strong>此內容已由作者刪除，案件已封存</strong>
+                    <p>前台內容已不公開；後台保留原文、時間、來源與風險紀錄，供日後查核，不需要再裁決。</p>
+                  </div>
                 </div>
+                <button
+                  className="case-archive-delete"
+                  disabled={isBusy}
+                  onClick={() => void run(visibleSelected, 'delete_case')}
+                  title="只清除後台案件卡片，不影響前台內容"
+                >
+                  <Trash2 size={14} /> 清除封存案件
+                </button>
               </div>
             ) : (
               <div className="case-actions case-action-grid">

@@ -7432,7 +7432,7 @@ exports.rangerModerationAction = onCall(
     const caseId = String(request.data?.caseId || "").trim();
     const action = String(request.data?.action || "").trim();
     const adminNote = String(request.data?.adminNote || "").trim().slice(0, 500);
-    const allowedActions = ["mark_reviewed", "dismiss", "release", "quarantine", "remove"];
+    const allowedActions = ["mark_reviewed", "dismiss", "release", "quarantine", "remove", "delete_case"];
 
     if (!caseId || !allowedActions.includes(action)) {
       throw new HttpsError("invalid-argument", "Invalid moderation action.");
@@ -7445,6 +7445,39 @@ exports.rangerModerationAction = onCall(
     }
 
     const caseData = caseSnap.data();
+    if (action === "delete_case") {
+      let sourceExists = false;
+      const sourcePath = String(caseData?.sourcePath || "").trim();
+      if (sourcePath) {
+        try {
+          const sourceSnap = await db.doc(sourcePath).get();
+          sourceExists = sourceSnap.exists;
+        } catch (error) {
+          logger.warn("Could not check moderation case source before deletion.", {
+            caseId,
+            sourcePath,
+            message: error?.message || String(error),
+          });
+        }
+      }
+
+      const canDeleteArchivedCase =
+        !sourceExists ||
+        caseData?.status === "deleted" ||
+        caseData?.recommendedAction === "author_deleted";
+
+      if (!canDeleteArchivedCase) {
+        throw new HttpsError("failed-precondition", "Only archived or author-deleted cases can be removed from the backend drawer.");
+      }
+
+      await caseRef.delete();
+      return {
+        ok: true,
+        caseId,
+        status: "case_deleted",
+      };
+    }
+
     const sourceStatus = await updateSourceByAction(caseData, action);
     const nextStatus = action === "dismiss" ? "dismissed" : sourceStatus;
     const now = admin.firestore.FieldValue.serverTimestamp();

@@ -4352,6 +4352,41 @@ button:disabled {
   line-height: 1.55;
 }
 
+.case-archive-note-stack {
+  display: block;
+}
+
+.case-archive-note-body {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.case-archive-delete {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 12px;
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 45, 85, 0.32);
+  border-radius: 999px;
+  background: rgba(255, 45, 85, 0.09);
+  color: #ff8aa0;
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.case-archive-delete:hover:not(:disabled) {
+  border-color: rgba(255, 45, 85, 0.58);
+  background: rgba(255, 45, 85, 0.16);
+  color: #ffd1da;
+}
+
+.case-archive-delete svg {
+  color: currentColor;
+  margin-top: 0;
+}
+
 .action-state {
   display: inline-flex;
   align-items: center;
