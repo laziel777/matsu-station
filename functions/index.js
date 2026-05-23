@@ -42,7 +42,7 @@ const SERVER_NEW_ACCOUNT_WINDOW_MS = 30 * 60 * 1000;
 const SERVER_DAILY_POST_LIMIT = 20;
 const SERVER_DAILY_COMMENT_LIMIT = DAILY_COMMENT_LIMIT;
 const SERVER_DAILY_REPORT_LIMIT = 30;
-const SERVER_MAX_POST_IMAGES = 8;
+const SERVER_MAX_POST_IMAGES = 1;
 const ACCOUNT_CONTROL_VERSION = "account-control-v1-2026-05-22";
 const AI_PATROL_QUEUE_REVIEW_COPY = "此內容可能涉及高風險資訊，目前正在由站長審核中。";
 const ASSISTANT_IDENTITY = "馬祖小站智能客服（系統輔助，非真人客服）";
@@ -1802,6 +1802,9 @@ async function enrichPatrolPayloadWithModerationCase(payload = {}) {
     imageUrls: Array.isArray(payload.imageUrls) && payload.imageUrls.length
       ? payload.imageUrls
       : Array.isArray(caseData.imageUrlsSnapshot) ? caseData.imageUrlsSnapshot : payload.imageUrls,
+    imagePaths: Array.isArray(payload.imagePaths) && payload.imagePaths.length
+      ? payload.imagePaths
+      : Array.isArray(caseData.imagePathsSnapshot) ? caseData.imagePathsSnapshot : payload.imagePaths,
     reportsCount: Math.max(Number(payload.reportsCount || 0), Number(caseData.reportsCount || 0)),
     adminCaseData: caseData,
     sourceData: {
@@ -1941,7 +1944,10 @@ function buildSourcePatchForPendingReview(sourceType, sourceData, publicCaseId, 
     return {
       ...basePatch,
       content: "",
+      imageUrl: "",
+      imagePath: "",
       imageUrls: [],
+      imagePaths: [],
       quarantinedContentPreview: PUBLIC_HIDDEN_PREVIEW,
     };
   }
@@ -1986,6 +1992,11 @@ async function writePatrolArtifacts(payload, analysis) {
     sourceRestorationPatch.moderationReviewNotice = admin.firestore.FieldValue.delete();
     if (payload.sourceType === "post" && Array.isArray(payload.imageUrls)) {
       sourceRestorationPatch.imageUrls = payload.imageUrls.slice(0, 8);
+      sourceRestorationPatch.imageUrl = sourceRestorationPatch.imageUrls[0] || "";
+    }
+    if (payload.sourceType === "post" && Array.isArray(payload.imagePaths)) {
+      sourceRestorationPatch.imagePaths = payload.imagePaths.slice(0, 8);
+      sourceRestorationPatch.imagePath = sourceRestorationPatch.imagePaths[0] || "";
     }
   }
 
@@ -2033,6 +2044,8 @@ async function writePatrolArtifacts(payload, analysis) {
     commentsCount: Math.max(0, Number(payload.sourceData?.commentsCount || 0)),
     repliesCount: Math.max(0, Number(payload.sourceData?.repliesCount || 0)),
     imageCount: Array.isArray(payload.imageUrls) ? payload.imageUrls.length : 0,
+    imageUrlsSnapshot: Array.isArray(payload.imageUrls) ? payload.imageUrls.slice(0, 8) : [],
+    imagePathsSnapshot: Array.isArray(payload.imagePaths) ? payload.imagePaths.slice(0, 8) : [],
     publicCaseId,
   };
 
@@ -2055,6 +2068,7 @@ async function writePatrolArtifacts(payload, analysis) {
         ...baseRecord,
         contentSnapshot: String(payload.content || "").slice(0, 4000),
         imageUrlsSnapshot: Array.isArray(payload.imageUrls) ? payload.imageUrls.slice(0, 8) : [],
+        imagePathsSnapshot: Array.isArray(payload.imagePaths) ? payload.imagePaths.slice(0, 8) : [],
         status: "approved",
         adminDecision: "ai_cleared_precheck",
         adminNote: "Gemini completed queue patrol and cleared the precheck hold.",
@@ -2074,6 +2088,7 @@ async function writePatrolArtifacts(payload, analysis) {
       ...baseRecord,
       contentSnapshot: String(payload.content || "").slice(0, 4000),
       imageUrlsSnapshot: Array.isArray(payload.imageUrls) ? payload.imageUrls.slice(0, 8) : [],
+      imagePathsSnapshot: Array.isArray(payload.imagePaths) ? payload.imagePaths.slice(0, 8) : [],
       status: contentStatus,
       adminDecision: null,
       adminNote: "",
@@ -2264,6 +2279,7 @@ async function applyQueuePrecheckReview(payload, context) {
   const caseRef = db.collection("moderationCases").doc(sourceKey);
   const contentSnapshot = String(payload.content || "").slice(0, 4000);
   const imageUrlsSnapshot = Array.isArray(payload.imageUrls) ? payload.imageUrls.slice(0, 8) : [];
+  const imagePathsSnapshot = Array.isArray(payload.imagePaths) ? payload.imagePaths.slice(0, 8) : [];
   const riskScore = clampNumber(Math.max(
     Number(context.priorityScore || 0),
     Number(deterministicSignals.scoreFloor || 0),
@@ -2286,6 +2302,7 @@ async function applyQueuePrecheckReview(payload, context) {
     contentPreview: compactPreview(contentSnapshot),
     contentSnapshot,
     imageUrlsSnapshot,
+    imagePathsSnapshot,
     aiGovernanceMode: "queue_precheck",
     policyVersion: POLICY_VERSION,
     publicCaseId,
@@ -2344,7 +2361,7 @@ async function applyQueuePrecheckReview(payload, context) {
     moderationMaskNotice: admin.firestore.FieldValue.delete(),
     content: "",
     quarantinedContentPreview: PUBLIC_HIDDEN_PREVIEW,
-    ...(payload.sourceType === "post" ? { imageUrls: [] } : {}),
+    ...(payload.sourceType === "post" ? { imageUrl: "", imagePath: "", imageUrls: [], imagePaths: [] } : {}),
     moderationUpdatedAt: now,
   }, { merge: true });
 
@@ -3616,6 +3633,50 @@ function sanitizeSubmittedImageUrls(value) {
     .slice(0, SERVER_MAX_POST_IMAGES);
 }
 
+function sanitizeSubmittedImagePaths(value, uid) {
+  if (!Array.isArray(value)) return [];
+  const prefix = `posts/${uid}/`;
+  return value
+    .map((item) => String(item || "").trim())
+    .filter((item) => item.startsWith(prefix) && item.length <= 500 && !item.includes(".."))
+    .slice(0, SERVER_MAX_POST_IMAGES);
+}
+
+function sanitizeSubmittedPostImages(data, uid) {
+  const imageUrls = sanitizeSubmittedImageUrls([
+    ...(Array.isArray(data?.imageUrls) ? data.imageUrls : []),
+    data?.imageUrl,
+  ]);
+  const imagePaths = sanitizeSubmittedImagePaths([
+    ...(Array.isArray(data?.imagePaths) ? data.imagePaths : []),
+    data?.imagePath,
+  ], uid);
+  const count = Math.min(imageUrls.length, imagePaths.length, SERVER_MAX_POST_IMAGES);
+  return {
+    imageUrls: imageUrls.slice(0, count),
+    imagePaths: imagePaths.slice(0, count),
+    imageUrl: imageUrls[0] || "",
+    imagePath: imagePaths[0] || "",
+  };
+}
+
+async function deleteStoragePaths(imagePaths) {
+  const paths = Array.from(new Set(
+    (Array.isArray(imagePaths) ? imagePaths : [])
+      .map((item) => String(item || "").trim())
+      .filter((item) => item.startsWith("posts/") && !item.includes("..")),
+  ));
+  if (!paths.length) return;
+  const bucket = admin.storage().bucket();
+  await Promise.all(paths.map(async (imagePath) => {
+    try {
+      await bucket.file(imagePath).delete({ ignoreNotFound: true });
+    } catch (error) {
+      console.warn("Storage image cleanup failed", { imagePath, message: error?.message });
+    }
+  }));
+}
+
 function sanitizeSubmittedId(value, label) {
   const id = String(value || "").trim();
   if (!/^[a-zA-Z0-9_-]{6,120}$/.test(id)) {
@@ -3828,7 +3889,7 @@ function buildProtectedSourcePatch(sourceType, publicCaseId, decision) {
     moderationReviewNotice: HIGH_REVIEW_COPY,
     content: "",
     quarantinedContentPreview: PUBLIC_HIDDEN_PREVIEW,
-    ...(sourceType === "post" ? { imageUrls: [] } : {}),
+    ...(sourceType === "post" ? { imageUrl: "", imagePath: "", imageUrls: [], imagePaths: [] } : {}),
   };
 }
 
@@ -4020,10 +4081,17 @@ exports.createCommunityContent = onCall(
     let category = "";
     let content = "";
     let imageUrls = [];
+    let imagePaths = [];
+    let imageUrl = "";
+    let imagePath = "";
     let baseDoc = {};
 
     if (sourceType === "post") {
-      imageUrls = sanitizeSubmittedImageUrls(request.data?.imageUrls);
+      const submittedImages = sanitizeSubmittedPostImages(request.data || {}, uid);
+      imageUrls = submittedImages.imageUrls;
+      imagePaths = submittedImages.imagePaths;
+      imageUrl = submittedImages.imageUrl;
+      imagePath = submittedImages.imagePath;
       content = sanitizeSubmittedText(request.data?.content, SERVER_POST_CHAR_LIMIT, { allowEmpty: imageUrls.length > 0 });
       category = normalizeSubmittedCategory(request.data?.category);
       await assertDailyPostQuota(uid, profile.raw);
@@ -4043,7 +4111,10 @@ exports.createCommunityContent = onCall(
         likesCount: 0,
         commentsCount: 0,
         reportsCount: 0,
+        imageUrl,
+        imagePath,
         imageUrls,
+        imagePaths,
       };
     } else if (sourceType === "comment") {
       postId = sanitizeSubmittedId(request.data?.postId, "貼文");
@@ -4104,7 +4175,10 @@ exports.createCommunityContent = onCall(
       authorName: profile.displayName,
       category,
       content,
+      imageUrl,
+      imagePath,
       imageUrls,
+      imagePaths,
       reportsCount: 0,
       createdAt: null,
       sourceData: {
@@ -4225,6 +4299,13 @@ async function softRemoveCommunitySource({ sourcePath, actorId }) {
     : Array.isArray(existingCase.imageUrlsSnapshot)
       ? existingCase.imageUrlsSnapshot.slice(0, 8)
       : [];
+  const imagePathsSnapshot = Array.isArray(sourceData.imagePaths) && sourceData.imagePaths.length
+    ? sourceData.imagePaths.slice(0, 8)
+    : sourceData.imagePath
+      ? [String(sourceData.imagePath)]
+      : Array.isArray(existingCase.imagePathsSnapshot)
+        ? existingCase.imagePathsSnapshot.slice(0, 8)
+        : [];
   const riskScore = clampNumber(Number(sourceData.moderationRiskScore || existingCase.riskScore || 0), 0, 100);
   const riskProfile = getStoredRiskProfile({
     ...existingCase,
@@ -4243,7 +4324,7 @@ async function softRemoveCommunitySource({ sourcePath, actorId }) {
     moderationReviewNotice: admin.firestore.FieldValue.delete(),
     content: "",
     quarantinedContentPreview: authorDeletedCopy,
-    ...(sourceMeta.sourceType === "post" ? { imageUrls: [] } : {}),
+    ...(sourceMeta.sourceType === "post" ? { imageUrl: "", imagePath: "", imageUrls: [], imagePaths: [] } : {}),
     deletionRequestedBy: actorId,
     deletionRequestedAt: now,
     moderationUpdatedAt: now,
@@ -4261,6 +4342,7 @@ async function softRemoveCommunitySource({ sourcePath, actorId }) {
     contentPreview: compactPreview(contentSnapshot),
     contentSnapshot,
     imageUrlsSnapshot,
+    imagePathsSnapshot,
     aiGovernanceMode: existingCase.aiGovernanceMode || "author_removal",
     policyVersion: POLICY_VERSION,
     publicCaseId,
@@ -4297,6 +4379,10 @@ async function softRemoveCommunitySource({ sourcePath, actorId }) {
     createdAt: existingCase.createdAt || sourceData.createdAt || now,
     sourceCreatedAt: sourceData.createdAt || existingCase.sourceCreatedAt || null,
   }, { merge: true });
+
+  if (sourceMeta.sourceType === "post") {
+    await deleteStoragePaths(imagePathsSnapshot);
+  }
 
   return {
     ok: true,
@@ -7285,6 +7371,9 @@ async function updateSourceByAction(caseData, action) {
 
     if (caseData.sourceType === "post") {
       patch.imageUrls = Array.isArray(caseData.imageUrlsSnapshot) ? caseData.imageUrlsSnapshot : [];
+      patch.imageUrl = patch.imageUrls[0] || "";
+      patch.imagePaths = Array.isArray(caseData.imagePathsSnapshot) ? caseData.imagePathsSnapshot : [];
+      patch.imagePath = patch.imagePaths[0] || "";
     }
 
     await sourceRef.set(patch, { merge: true });
@@ -7308,6 +7397,9 @@ async function updateSourceByAction(caseData, action) {
 
     if (caseData.sourceType === "post") {
       patch.imageUrls = Array.isArray(caseData.imageUrlsSnapshot) ? caseData.imageUrlsSnapshot : [];
+      patch.imageUrl = patch.imageUrls[0] || "";
+      patch.imagePaths = Array.isArray(caseData.imagePathsSnapshot) ? caseData.imagePathsSnapshot : [];
+      patch.imagePath = patch.imagePaths[0] || "";
     }
 
     await sourceRef.set(patch, { merge: true });
@@ -7322,7 +7414,7 @@ async function updateSourceByAction(caseData, action) {
       moderationPublicNotice: getPublicModerationNoticeForStatus("hidden"),
       moderationReviewNotice: HIGH_REVIEW_COPY,
       quarantinedContentPreview: PUBLIC_HIDDEN_PREVIEW,
-      ...(caseData.sourceType === "post" ? { imageUrls: [] } : {}),
+      ...(caseData.sourceType === "post" ? { imageUrl: "", imagePath: "", imageUrls: [], imagePaths: [] } : {}),
       moderationUpdatedAt: now,
     }, { merge: true });
     return "hidden";
@@ -7438,6 +7530,13 @@ async function applyDirectContentAction({ sourcePath, action, reviewerId, reason
     : Array.isArray(existingCase.imageUrlsSnapshot)
       ? existingCase.imageUrlsSnapshot.slice(0, 8)
       : [];
+  const imagePathsSnapshot = Array.isArray(sourceData.imagePaths) && sourceData.imagePaths.length
+    ? sourceData.imagePaths.slice(0, 8)
+    : sourceData.imagePath
+      ? [String(sourceData.imagePath)]
+      : Array.isArray(existingCase.imagePathsSnapshot)
+        ? existingCase.imagePathsSnapshot.slice(0, 8)
+        : [];
   const riskScore = clampNumber(
     Number(sourceData.moderationRiskScore || sourceData.aiRisk || 0),
     0,
@@ -7498,7 +7597,7 @@ async function applyDirectContentAction({ sourcePath, action, reviewerId, reason
       moderationPublicNotice: getPublicModerationNoticeForStatus("hidden"),
       content: "",
       quarantinedContentPreview: PUBLIC_HIDDEN_PREVIEW,
-      ...(sourceMeta.sourceType === "post" ? { imageUrls: [] } : {}),
+      ...(sourceMeta.sourceType === "post" ? { imageUrl: "", imagePath: "", imageUrls: [], imagePaths: [] } : {}),
     }, { merge: true });
   }
 
@@ -7512,7 +7611,7 @@ async function applyDirectContentAction({ sourcePath, action, reviewerId, reason
       moderationMaskNotice: admin.firestore.FieldValue.delete(),
       content: "",
       quarantinedContentPreview: PUBLIC_HIDDEN_PREVIEW,
-      ...(sourceMeta.sourceType === "post" ? { imageUrls: [] } : {}),
+      ...(sourceMeta.sourceType === "post" ? { imageUrl: "", imagePath: "", imageUrls: [], imagePaths: [] } : {}),
     }, { merge: true });
   }
 
@@ -7526,7 +7625,12 @@ async function applyDirectContentAction({ sourcePath, action, reviewerId, reason
       moderationReviewNotice: admin.firestore.FieldValue.delete(),
       quarantinedContentPreview: admin.firestore.FieldValue.delete(),
       ...(action === "mask" ? { moderationMaskNotice: MEDIUM_MASK_COPY } : { moderationMaskNotice: admin.firestore.FieldValue.delete() }),
-      ...(sourceMeta.sourceType === "post" ? { imageUrls: imageUrlsSnapshot } : {}),
+      ...(sourceMeta.sourceType === "post" ? {
+        imageUrl: imageUrlsSnapshot[0] || "",
+        imagePath: imagePathsSnapshot[0] || "",
+        imageUrls: imageUrlsSnapshot,
+        imagePaths: imagePathsSnapshot,
+      } : {}),
     };
 
     await sourceRef.set(patch, { merge: true });
@@ -7545,6 +7649,7 @@ async function applyDirectContentAction({ sourcePath, action, reviewerId, reason
     contentPreview: compactPreview(contentSnapshot),
     contentSnapshot,
     imageUrlsSnapshot,
+    imagePathsSnapshot,
     aiGovernanceMode: sourceData.aiGovernanceMode || "manual",
     policyVersion: POLICY_VERSION,
     policyRefs: [
@@ -7594,6 +7699,9 @@ async function applyDirectContentAction({ sourcePath, action, reviewerId, reason
 
   if (action === "delete") {
     await sourceRef.delete();
+    if (sourceMeta.sourceType === "post") {
+      await deleteStoragePaths(imagePathsSnapshot);
+    }
   }
 
   return {

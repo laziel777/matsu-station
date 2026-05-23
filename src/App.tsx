@@ -16,7 +16,7 @@ import { createPortal } from 'react-dom';
 import { formatDistanceToNow, addMonths, isAfter } from 'date-fns';
 import { zhTW } from 'date-fns/locale';
 import { db, collection, query, orderBy, onSnapshot, serverTimestamp, updateDoc, doc, setDoc, deleteDoc, getDoc, getDocs, where, handleFirestoreError, OperationType, storage, functions, httpsCallable } from './lib/firebase';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { deleteObject, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { SITE_POLICY_PAGES, SITE_POLICY_SECTIONS, SitePolicyPage, SitePolicySectionId } from './lib/sitePolicies';
 
 const STATION_MASTER_UID = 'gHHxF8p1DnbMkoeVmU5XpB18Elz2';
@@ -247,6 +247,9 @@ const compressImageFile = async (file: File, options: Record<string, unknown>) =
   return imageCompression(file, options);
 };
 
+const POST_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+const POST_IMAGE_ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+
 const BACKGROUND_MODES = [
   { id: 'dark', name: '深色背景', description: '夜間閱讀', previewBackground: '#0A0C10', previewText: '#FAFAF9' },
   { id: 'light', name: '淺色背景', description: '白天閱讀', previewBackground: '#F8FAFC', previewText: '#0F172A' },
@@ -303,7 +306,10 @@ interface Post {
   recommendationRiskProfile?: RiskProfile;
   moderationRiskProfile?: RiskProfile;
   recommendationUpdatedAt?: any;
+  imageUrl?: string;
+  imagePath?: string;
   imageUrls?: string[];
+  imagePaths?: string[];
   createdAt: any;
 }
 
@@ -552,7 +558,10 @@ type CreateCommunityContentPayload = {
   sourceType: 'post' | 'comment' | 'reply';
   content: string;
   category?: string;
+  imageUrl?: string;
+  imagePath?: string;
   imageUrls?: string[];
+  imagePaths?: string[];
   postId?: string;
   commentId?: string;
 };
@@ -914,6 +923,22 @@ const isTrustedPostImageUrl = (url: string) => {
   } catch {
     return false;
   }
+};
+
+const getTrustedPostImageUrls = (post: Post) => {
+  const urls = [
+    ...(post.imageUrl ? [post.imageUrl] : []),
+    ...(Array.isArray(post.imageUrls) ? post.imageUrls : []),
+  ];
+  return Array.from(new Set(urls)).filter(isTrustedPostImageUrl).slice(0, 1);
+};
+
+const getPostImagePaths = (post: Post) => {
+  const paths = [
+    ...(post.imagePath ? [post.imagePath] : []),
+    ...(Array.isArray(post.imagePaths) ? post.imagePaths : []),
+  ];
+  return Array.from(new Set(paths.filter(Boolean))).slice(0, 1);
 };
 
 const DefaultIslanderAvatar = ({ className = "w-10 h-10" }: { className?: string }) => {
@@ -2261,14 +2286,25 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
 
   const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
+    e.target.value = '';
     if (files.length + selectedImages.length > 1) {
       alert('島嶼規範：每篇貼文只能上傳 1 張圖片。');
+      return;
+    }
+    const invalidFile = files.find(file => !POST_IMAGE_ALLOWED_TYPES.includes(file.type));
+    if (invalidFile) {
+      alert('圖片格式目前只支援 JPG、PNG、WebP。');
+      return;
+    }
+    const oversizedFile = files.find(file => file.size > POST_IMAGE_MAX_BYTES);
+    if (oversizedFile) {
+      alert('圖片大小需小於 10MB。');
       return;
     }
 
     setIsCompressing(true);
     const options = {
-      maxSizeMB: 1, // Max size 1MB
+      maxSizeMB: 3,
       maxWidthOrHeight: 1920,
       useWebWorker: true,
     };
@@ -2378,16 +2414,18 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
       setUploadProgress(25);
 
       // 1) 上傳圖片
-      const uploadedUrls: string[] = [];
+      const uploadedImages: Array<{ url: string; path: string }> = [];
       for (let i = 0; i < selectedImages.length; i++) {
         const file = selectedImages[i];
         const safeFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
         const fileRef = ref(storage, `posts/${user.uid}/${Date.now()}_${safeFileName}`);
         const snapshot = await uploadBytes(fileRef, file);
         const url = await getDownloadURL(snapshot.ref);
-        uploadedUrls.push(url);
+        uploadedImages.push({ url, path: snapshot.ref.fullPath });
         setUploadProgress(25 + ((i + 1) / selectedImages.length) * 45);
       }
+      const uploadedUrls = uploadedImages.map(image => image.url);
+      const uploadedPaths = uploadedImages.map(image => image.path);
 
       setPostingMessage('正在發布到馬祖小站...');
       setUploadProgress(82);
@@ -2400,7 +2438,10 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
         sourceType: 'post',
         content: cleanContent,
         category: postCategory,
+        imageUrl: uploadedUrls[0] || '',
+        imagePath: uploadedPaths[0] || '',
         imageUrls: uploadedUrls,
+        imagePaths: uploadedPaths,
       });
 
       if (createdPost.status === 'normal' && createdPost.id) {
@@ -4278,7 +4319,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                         initial={{ opacity: 0, height: 0 }}
                         animate={{ opacity: 1, height: 'auto' }}
                         exit={{ opacity: 0, height: 0 }}
-                        className="grid grid-cols-5 gap-2 pt-2"
+                        className="grid grid-cols-1 gap-2 pt-2 sm:max-w-xs"
                       >
                         {imagePreviews.map((preview, idx) => (
                           <div key={idx} className="relative group aspect-square">
@@ -4286,7 +4327,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                             <button 
                               type="button"
                               onClick={() => removeImage(idx)}
-                              className="absolute -top-1 -right-1 bg-black/80 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                              className="absolute -top-1 -right-1 bg-black/80 text-white rounded-full p-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity cursor-pointer"
                             >
                               <X className="w-3 h-3" />
                             </button>
@@ -4301,16 +4342,17 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                 <div className="flex items-center gap-2">
                   <input 
                     type="file" 
-                    accept="image/*" 
+                    accept="image/jpeg,image/png,image/webp" 
                     className="hidden" 
                     ref={fileInputRef}
-                    disabled
-                 title="圖片功能開發中"
+                    disabled={isPosting || isCompressing || selectedImages.length >= 1}
+                    onChange={handleImageSelect}
                   />
                   <button 
                     type="button"
-                    disabled
-                    title="圖片功能開發中"
+                    disabled={isPosting || isCompressing || selectedImages.length >= 1}
+                    onClick={() => fileInputRef.current?.click()}
+                    title={selectedImages.length >= 1 ? '每篇貼文最多 1 張圖片' : '上傳圖片'}
                     className="p-2.5 text-text-muted hover:text-bio-glow hover:bg-white/5 rounded-xl transition-all cursor-pointer flex items-center gap-2 disabled:opacity-30 disabled:cursor-not-allowed"
                   >
                     {isCompressing ? (
@@ -4325,6 +4367,9 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                       {isCompressing ? '處理中...' : `上傳圖片 (${selectedImages.length}/1)`}
                     </span>
                   </button>
+                  <span className="hidden sm:inline text-[0.5625rem] text-text-muted/70 font-bold">
+                    JPG / PNG / WebP，10MB 以下
+                  </span>
                 </div>
                 <button 
                   disabled={(!newPostContent.trim() && selectedImages.length === 0) || isPosting || countChars(newPostContent) > POST_CHAR_LIMIT}
@@ -5674,10 +5719,23 @@ function PostCard({
     setIsDeleting(true);
     setShowDeleteConfirm(false);
     try {
+      const imagePathsToDelete = getPostImagePaths(post);
       await submitRemoveCommunityContent({
         sourceType: 'post',
         postId: post.id,
       });
+      if (imagePathsToDelete.length > 0) {
+        try {
+          await Promise.all(imagePathsToDelete.map(imagePath => deleteObject(ref(storage, imagePath))));
+        } catch (storageError) {
+          if ((storageError as any)?.code === 'storage/object-not-found') {
+            console.info('Post image already removed from Storage.');
+            return;
+          }
+          console.warn('Post deleted but image storage cleanup failed:', storageError);
+          alert('貼文已刪除，但圖片檔案清理失敗。請稍後再試或透過官方 LINE 回報。');
+        }
+      }
       console.log('Post deleted successfully');
     } catch (err: any) {
       console.error('Delete post error:', err);
@@ -5765,7 +5823,7 @@ function PostCard({
 
   const canModerate = user && post.authorId === user.uid;
   const isPostStationMaster = post.authorId === STATION_MASTER_UID;
-  const trustedImageUrls = (post.imageUrls || []).filter(isTrustedPostImageUrl);
+  const trustedImageUrls = getTrustedPostImageUrls(post);
   const reportNeedsDetail = reportReasonCategory === '其他';
   const canSubmitReport = Boolean(reportReasonCategory.trim()) && (!reportNeedsDetail || Boolean(reportReasonDetail.trim()));
 

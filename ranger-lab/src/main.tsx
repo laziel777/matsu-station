@@ -1,10 +1,19 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, getRedirectResult, onAuthStateChanged, signInWithPopup, signInWithRedirect, signOut, type User } from 'firebase/auth';
-import { getFunctions, httpsCallable } from 'firebase/functions';
+import { initializeApp, getApp, getApps } from 'firebase/app';
+import {
+  getAuth,
+  GoogleAuthProvider,
+  onAuthStateChanged,
+  signInWithPopup,
+  signInWithRedirect,
+  signOut,
+  type User,
+} from 'firebase/auth';
 import {
   collection,
+  collectionGroup,
+  doc,
   getDocs,
   getFirestore,
   limit as firestoreLimit,
@@ -13,86 +22,38 @@ import {
   query,
   type DocumentData,
 } from 'firebase/firestore';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 import {
   Activity,
   AlertTriangle,
   CheckCircle2,
   CircleSlash,
-  Cpu,
-  Eye,
   FileWarning,
-  Filter,
   Gavel,
-  Network,
-  Radar,
+  LayoutDashboard,
+  Loader2,
+  LogOut,
   RefreshCw,
-  RotateCcw,
+  Search,
   Shield,
-  Tags,
-  TerminalSquare,
-  UserCircle2,
+  Sparkles,
+  Trash2,
 } from 'lucide-react';
 import firebaseConfig from '../../firebase-applet-config.json';
 import './styles.css';
 
-type GraphMode = 'social' | 'topics';
 type RiskLevel = 'low' | 'medium' | 'high' | 'critical';
-type CaseStatusFilter = 'active' | 'all' | 'fight' | 'escalated' | 'downgraded' | 'pending' | 'quarantined' | 'released' | 'removed' | 'dismissed';
-type RangerAction = 'mark_reviewed' | 'dismiss' | 'release' | 'quarantine' | 'remove';
-type ContentAction = 'hide' | 'delete';
 type SourceType = 'post' | 'comment' | 'reply';
+type CaseAction = 'mark_reviewed' | 'dismiss' | 'release' | 'quarantine' | 'remove';
+type ContentAction = 'review' | 'hide' | 'mask' | 'delete' | 'restore';
+type AccountAction = 'watch' | 'clear_watch' | 'ban' | 'unban' | 'suspend_posting' | 'restore_posting';
+type DrawerKey = 'cockpit' | 'accounts' | 'articles' | 'reports' | 'aiSheet' | 'cases';
+type ContentSortKey = 'risk_desc' | 'risk_asc' | 'newest' | 'oldest' | 'author' | 'type';
+type ContentDecisionFilter = 'all' | 'open' | 'decided' | 'hidden' | 'masked' | 'approved' | 'deleted';
+type CaseStatusFilter = 'open' | 'all' | 'masked' | 'hidden' | 'approved' | 'dismissed' | 'reviewed' | 'deleted';
+type AccountSortKey = 'risk_desc' | 'newest' | 'oldest' | 'status' | 'name';
 
-interface GraphNode {
-  id: string;
-  label: string;
-  type: 'user' | 'topic';
-  role?: string;
-  weight: number;
-  risk: number;
-  cluster: string;
-  color: string;
-  x?: number;
-  y?: number;
-  vx?: number;
-  vy?: number;
-}
-
-interface GraphLink {
-  source: string;
-  target: string;
-  weight: number;
-  type: string;
-}
-
-interface RiskTimelineBucket {
-  label: string;
-  start: number;
-  end: number;
-  low: number;
-  medium: number;
-  high: number;
-  critical: number;
-  fight: number;
-  total: number;
-}
-
-interface CategoryMetric {
-  id: string;
-  label: string;
-  count: number;
-  riskScore: number;
-  tone: string;
-}
-
-interface OpsMetric {
-  id: string;
-  label: string;
-  value: string;
-  hint: string;
-  tone: string;
-}
-
-interface ContentWatchItem {
+interface SiteItem {
   id: string;
   sourceType: SourceType;
   sourcePath: string;
@@ -101,73 +62,91 @@ interface ContentWatchItem {
   replyId?: string;
   authorId: string;
   authorName: string;
-  category?: string;
-  contentPreview: string;
-  riskLevel: RiskLevel;
-  riskScore: number;
-  fightMode: boolean;
-  moderationStatus?: string;
-  judgement: string;
-  recommendation: string;
+  category: string;
+  text: string;
+  imageUrl?: string;
+  imagePath?: string;
+  imageCount: number;
   createdAt?: unknown;
+  createdAtText: string;
+  currentRiskLabel: RiskLevel;
+  currentRiskScore: number;
+  status: string;
+  localLabels: string[];
+  usesAdminSnapshot?: boolean;
+  authorIpAddress?: string;
+  authorIpKey?: string;
+  ipSource?: 'content' | 'account' | 'none';
 }
 
-interface LabData {
-  socialNodes: GraphNode[];
-  socialLinks: GraphLink[];
-  topicNodes: GraphNode[];
-  topicLinks: GraphLink[];
-  postsScanned: number;
-  interactions: number;
-  usersSeen: number;
-  topicCount: number;
-  riskCounts: Record<string, number>;
-  patrolFeed: PatrolCase[];
-  riskTimeline: RiskTimelineBucket[];
-  categoryMetrics: CategoryMetric[];
-  opsMetrics: OpsMetric[];
-  fightContentCount: number;
-  contentItems: ContentWatchItem[];
-  consoleLines: string[];
-  caseReadError?: string;
-  caseReadAuthUid?: string | null;
-}
-
-interface PatrolCase {
+interface ModerationCase {
   id: string;
   publicCaseId?: string;
-  riskLevel?: RiskLevel | string;
-  riskScore?: number;
-  categories?: string[];
-  summary?: string;
-  legalRisk?: string;
-  publicInterest?: string;
-  recommendedAction?: string;
-  rationale?: string;
-  sourceType?: string;
   sourcePath?: string;
-  postId?: string;
-  commentId?: string;
-  replyId?: string;
+  sourceType?: SourceType;
   authorId?: string;
   authorName?: string;
   category?: string;
-  status?: string;
   contentPreview?: string;
   contentSnapshot?: string;
-  fightMode?: boolean;
-  userRiskLabel?: string;
-  aiGovernanceMode?: string;
-  policyVersion?: string;
-  policyRefs?: Array<{ code: string; label: string }>;
+  summary?: string;
+  legalRisk?: string;
+  recommendedAction?: string;
+  rationale?: string;
+  riskLevel?: RiskLevel;
+  riskScore?: number;
+  status?: string;
   createdAt?: unknown;
   updatedAt?: unknown;
 }
 
-interface UserMeta {
+interface ReportItem {
+  id: string;
+  sourcePath?: string;
+  targetType?: string;
+  targetId?: string;
+  postId?: string;
+  commentId?: string;
+  replyId?: string;
+  reporterId?: string;
+  reason?: string;
+  status?: string;
+  createdAt?: unknown;
+}
+
+interface LabelResult {
+  reply?: string;
+  analyzedCount?: number;
+  scannedCount?: number;
+  skippedAlreadyScanned?: number;
+  riskUpdatesApplied?: Array<{ sourcePath: string; riskLevel?: string; riskScore?: number; reason?: string }>;
+  riskUpdatesSkipped?: Array<{ sourcePath: string; reason?: string }>;
+  model?: string;
+}
+
+interface AccountItem {
   uid: string;
-  label: string;
+  displayName: string;
+  islanderId: string;
+  email?: string;
+  emailVerified?: boolean;
   role?: string;
+  photoURL?: string;
+  accountStatus: string;
+  isBanned: boolean;
+  authDisabled?: boolean;
+  postCount: number;
+  commentCount: number;
+  replyCount: number;
+  maxRisk: number;
+  lastSeenAt?: unknown;
+  createdAt?: unknown;
+  authCreatedAt?: unknown;
+  authLastSignInAt?: unknown;
+  lastIpAddress?: string;
+  lastIpKey?: string;
+  lastIpAt?: unknown;
+  reason?: string;
 }
 
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
@@ -176,49 +155,11 @@ const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 const functions = getFunctions(app, 'asia-east1');
 const provider = new GoogleAuthProvider();
 provider.setCustomParameters({ prompt: 'select_account' });
+
 const STATION_MASTER_UID = 'gHHxF8p1DnbMkoeVmU5XpB18Elz2';
-
-const EMPTY_DATA: LabData = {
-  socialNodes: [],
-  socialLinks: [],
-  topicNodes: [],
-  topicLinks: [],
-  postsScanned: 0,
-  interactions: 0,
-  usersSeen: 0,
-  topicCount: 0,
-  riskCounts: {},
-  patrolFeed: [],
-  riskTimeline: [],
-  categoryMetrics: [],
-  opsMetrics: [],
-  fightContentCount: 0,
-  contentItems: [],
-  consoleLines: ['AI 游騎兵本地後台已就緒。未登入時會先掃描公開資料。'],
-};
-
-const KNOWN_TOPICS = [
-  '藍眼淚',
-  '閒聊',
-  '在地生活',
-  '政治論壇',
-  '交通',
-  '船班',
-  '航班',
-  '馬祖氣象',
-  '美景分享',
-  '馬祖鬼故事',
-  '野生動物',
-  '馬祖UFO',
-  '美食',
-  '公告',
-  '求助',
-  '抱怨',
-];
-
-const STATION_MASTER_NODE_COLOR = '#e8fcff';
-const USER_COLORS = ['#00d9e8', '#38bdf8', '#60a5fa', '#818cf8', '#a78bfa', '#14b8a6', '#2dd4bf'];
-const TOPIC_COLORS = ['#22d3ee', '#38bdf8', '#60a5fa', '#818cf8', '#a78bfa', '#14b8a6', '#2dd4bf'];
+const MAX_POSTS = 260;
+const MAX_COMMENTS = 700;
+const MAX_REPLIES = 500;
 
 function toMillis(value: unknown) {
   if (!value) return 0;
@@ -231,1131 +172,458 @@ function toMillis(value: unknown) {
   return 0;
 }
 
-function getRiskTone(level?: string) {
+function timeText(value: unknown) {
+  const time = toMillis(value);
+  if (!time) return '未記錄';
+  return new Intl.DateTimeFormat('zh-TW', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(time));
+}
+
+function fullTimeText(value: unknown) {
+  const time = toMillis(value);
+  if (!time && typeof value === 'string' && value.trim()) {
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) {
+      return new Intl.DateTimeFormat('zh-TW', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      }).format(new Date(parsed));
+    }
+  }
+  if (!time) return '未記錄';
+  return new Intl.DateTimeFormat('zh-TW', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(time));
+}
+
+function compactUid(uid = '') {
+  if (!uid) return 'unknown';
+  return uid.length > 10 ? `${uid.slice(0, 4)}-${uid.slice(-4)}` : uid;
+}
+
+function cleanText(value: unknown) {
+  return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function riskFromScore(score: number): RiskLevel {
+  if (score >= 90) return 'critical';
+  if (score >= 70) return 'high';
+  if (score >= 35) return 'medium';
+  return 'low';
+}
+
+function riskTone(level?: string) {
   if (level === 'critical') return '#ff2d55';
   if (level === 'high') return '#ff7a18';
   if (level === 'medium') return '#facc15';
   return '#30f2a2';
 }
 
-function getRiskLabel(level?: string) {
-  if (level === 'critical') return '極高風險';
-  if (level === 'high') return '高風險';
-  if (level === 'medium') return '中風險';
-  return '低風險';
+function riskLabel(level?: string) {
+  if (level === 'critical') return '\u6975\u9ad8';
+  if (level === 'high') return '\u9ad8';
+  if (level === 'medium') return '\u4e2d';
+  return '\u4f4e';
 }
 
-function getNodeRiskTone(risk: number, fallbackColor: string) {
-  if (risk >= 90) return getRiskTone('critical');
-  if (risk >= 70) return getRiskTone('high');
-  if (risk >= 35) return getRiskTone('medium');
-  return fallbackColor;
+function sourceLabel(type?: string) {
+  if (type === 'post') return '\u8cbc\u6587';
+  if (type === 'comment') return '\u7559\u8a00';
+  if (type === 'reply') return '\u56de\u8986';
+  return '\u5167\u5bb9';
 }
 
-function getRiskBandLabel(risk: number) {
-  if (risk >= 90) return '極高';
-  if (risk >= 70) return '高';
-  if (risk >= 35) return '中';
-  return '低';
+function statusLabel(status?: string) {
+  if (status === 'approved' || status === 'released') return '\u5df2\u653e\u884c';
+  if (status === 'masked' || status === 'quarantined' || status === 'pending_review') return '\u5be9\u6838\u4e2d';
+  if (status === 'hidden' || status === 'removed') return '\u5df2\u96b1\u85cf';
+  if (status === 'deleted') return '\u5df2\u522a\u9664';
+  if (status === 'dismissed') return '\u5df2\u7d50\u6848';
+  if (status === 'reviewed') return '\u5df2\u67e5\u770b';
+  if (status === 'pending') return '\u5f85\u8655\u7406';
+  if (status === 'normal') return '\u6b63\u5e38';
+  return status || '\u672a\u77e5';
 }
 
-function getRiskLevelFromScore(risk: number): RiskLevel {
-  if (risk >= 90) return 'critical';
-  if (risk >= 70) return 'high';
-  if (risk >= 35) return 'medium';
-  return 'low';
+function handlingState(status?: string) {
+  if (status === 'approved' || status === 'released') return '\u7ad9\u52d9\u5df2\u653e\u884c';
+  if (status === 'hidden' || status === 'removed') return '\u524d\u53f0\u5df2\u96b1\u85cf';
+  if (status === 'deleted') return '\u5df2\u522a\u9664';
+  if (status === 'dismissed') return '\u5df2\u7d50\u6848';
+  if (status === 'reviewed') return '\u7ad9\u9577\u5df2\u67e5\u770b';
+  if (status === 'masked' || status === 'quarantined' || status === 'pending_review') return '\u5be9\u6838\u4e2d';
+  if (status === 'pending') return '\u5f85\u8655\u7406';
+  if (status === 'normal') return '\u6b63\u5e38';
+  return '\u672a\u77e5';
 }
 
-function getStoredRiskScore(data: DocumentData) {
-  const moderationRiskScore = Number(data.moderationRiskScore || 0);
-  if (Number.isFinite(moderationRiskScore) && moderationRiskScore > 0) return moderationRiskScore;
-
-  const aiRisk = Number(data.aiRisk || 0);
-  if (!Number.isFinite(aiRisk) || aiRisk <= 0) return 0;
-  return aiRisk <= 10 ? aiRisk * 10 : aiRisk;
+function contentDecisionFilterLabel(filter: ContentDecisionFilter) {
+  if (filter === 'open') return '待裁決';
+  if (filter === 'decided') return '已裁決';
+  if (filter === 'hidden') return '已隱藏';
+  if (filter === 'masked') return '已遮蔽';
+  if (filter === 'approved') return '已放行';
+  if (filter === 'deleted') return '已刪除';
+  return '全部裁決';
 }
 
-function getStatusLabel(status?: string) {
-  if (status === 'downgraded') return 'AI 降級';
-  if (status === 'quarantined') return '已隔離';
-  if (status === 'released') return '已放行';
-  if (status === 'removed') return '已移除';
-  if (status === 'dismissed') return '已忽略';
-  if (status === 'reviewed') return '已審核';
-  return '待處理';
+function getContentDecisionFilter(status?: string): ContentDecisionFilter {
+  if (status === 'hidden' || status === 'removed') return 'hidden';
+  if (status === 'masked' || status === 'quarantined') return 'masked';
+  if (status === 'approved' || status === 'released') return 'approved';
+  if (status === 'deleted') return 'deleted';
+  if (status === 'pending_review' || status === 'pending') return 'open';
+  if (status === 'reviewed' || status === 'dismissed') return 'decided';
+  return 'open';
 }
 
-function getSourceLabel(sourceType?: string) {
-  if (sourceType === 'post') return '貼文';
-  if (sourceType === 'comment') return '留言';
-  if (sourceType === 'reply') return '留言回覆';
-  return '內容';
+function isContentDecisionMatch(status: string | undefined, filter: ContentDecisionFilter) {
+  if (filter === 'all') return true;
+  const bucket = getContentDecisionFilter(status);
+  if (filter === 'decided') return ['hidden', 'masked', 'approved', 'deleted', 'decided'].includes(bucket);
+  return bucket === filter;
 }
 
-function getGovernanceLabel(mode?: string) {
-  if (mode === 'fight') return 'Fight 監管';
-  if (mode === 'downgraded') return 'AI 降級';
-  if (mode === 'escalated') return 'AI 升級';
-  return '一般巡邏';
+function caseStatusFilterLabel(filter: CaseStatusFilter) {
+  if (filter === 'open') return '待裁決';
+  if (filter === 'masked') return '已遮蔽';
+  if (filter === 'hidden') return '已隱藏';
+  if (filter === 'approved') return '已放行';
+  if (filter === 'dismissed') return '已結案';
+  if (filter === 'reviewed') return '已查看';
+  if (filter === 'deleted') return '已刪除 / 來源不存在';
+  return '全部案件';
 }
 
-function getActionLabel(action: RangerAction) {
-  return {
-    mark_reviewed: '標記已審',
-    dismiss: '忽略案件',
-    release: '放行內容',
-    quarantine: '隔離內容',
-    remove: '移除內容',
-  }[action];
+function getCaseStatusFilter(status?: string, sourceMissing = false): CaseStatusFilter {
+  if (sourceMissing) return 'deleted';
+  if (status === 'masked' || status === 'quarantined') return 'masked';
+  if (status === 'hidden' || status === 'removed') return 'hidden';
+  if (status === 'deleted') return 'deleted';
+  if (status === 'approved' || status === 'released') return 'approved';
+  if (status === 'dismissed') return 'dismissed';
+  if (status === 'reviewed') return 'reviewed';
+  return 'open';
 }
 
-function getAuthErrorCode(error: unknown) {
-  if (typeof error === 'object' && error && 'code' in error) {
-    return String((error as { code?: unknown }).code || '');
+function isCaseStatusMatch(status: string | undefined, filter: CaseStatusFilter, sourceMissing = false) {
+  if (filter === 'all') return true;
+  return getCaseStatusFilter(status, sourceMissing) === filter;
+}
+
+function accountStatusLabel(status?: string, isBanned = false) {
+  if (isBanned || status === 'banned') return '已停權';
+  if (status === 'posting_suspended') return '發文暫停';
+  if (status === 'watch') return '觀察中';
+  if (status === 'admin') return '站務';
+  return '正常';
+}
+
+function accountStatusTone(status?: string, isBanned = false) {
+  if (isBanned || status === 'banned') return '#ff2d55';
+  if (status === 'posting_suspended') return '#ff7a18';
+  if (status === 'watch') return '#facc15';
+  return '#30f2a2';
+}
+
+function casePriority(item: ModerationCase) {
+  const openBoost = !item.status || ['pending', 'masked', 'quarantined', 'pending_review'].includes(item.status) ? 100000 : 0;
+  return openBoost + Number(item.riskScore || 0) * 100 + Math.floor(toMillis(item.updatedAt || item.createdAt) / 100000);
+}
+
+function sourcePathFromReport(report: ReportItem) {
+  if (report.sourcePath) return report.sourcePath;
+  if (report.targetType === 'post' && report.targetId) return `posts/${report.targetId}`;
+  if (report.targetType === 'comment' && report.postId && (report.commentId || report.targetId)) {
+    return `posts/${report.postId}/comments/${report.commentId || report.targetId}`;
+  }
+  if (report.targetType === 'reply' && report.postId && report.commentId && (report.replyId || report.targetId)) {
+    return `posts/${report.postId}/comments/${report.commentId}/replies/${report.replyId || report.targetId}`;
   }
   return '';
 }
 
-function formatAuthError(error: unknown) {
-  const code = getAuthErrorCode(error);
-  if (code === 'auth/unauthorized-domain') {
-    return 'Firebase Auth 尚未授權目前網域。請用 http://localhost:4321 開啟本地後台，或到 Firebase Auth 的「授權網域」加入目前網域。';
-  }
-  if (code === 'auth/popup-blocked') {
-    return '瀏覽器阻擋 Google 登入視窗，已改用重新導向登入。';
-  }
-  if (code === 'auth/popup-closed-by-user') {
-    return '登入視窗已關閉，尚未完成登入。';
-  }
-  const message = typeof error === 'object' && error && 'message' in error
-    ? String((error as { message?: unknown }).message || '')
-    : '';
-  return `Google 登入失敗：${message || code || '請稍後再試。'}`;
-}
-
-function formatReadError(error: unknown) {
-  const code = getAuthErrorCode(error);
-  const message = typeof error === 'object' && error && 'message' in error
-    ? String((error as { message?: unknown }).message || '')
-    : '';
-  return [code, message].filter(Boolean).join(' / ') || String(error);
-}
-
-function isActiveCase(item: PatrolCase) {
-  return !item.status || item.status === 'pending' || item.status === 'quarantined';
-}
-
-function matchesCaseFilter(item: PatrolCase, filter: CaseStatusFilter) {
-  if (filter === 'all') return true;
-  if (filter === 'active') return isActiveCase(item);
-  if (filter === 'fight') return item.aiGovernanceMode === 'fight';
-  if (filter === 'escalated') return item.aiGovernanceMode === 'escalated';
-  if (filter === 'downgraded') return item.aiGovernanceMode === 'downgraded' || item.status === 'downgraded';
-  return (item.status || 'pending') === filter;
-}
-
-function getCaseTime(item: PatrolCase) {
-  return toMillis(item.updatedAt) || toMillis(item.createdAt);
-}
-
-function getCaseSortScore(item: PatrolCase) {
-  const activeBoost = isActiveCase(item) ? 1000000 : 0;
-  return activeBoost + Number(item.riskScore || 0) * 1000 + getCaseTime(item) / 1000000000;
-}
-
-function compactUid(uid: string) {
-  if (!uid) return 'unknown';
-  return uid.length > 10 ? `${uid.slice(0, 4)}-${uid.slice(-4)}` : uid;
-}
-
-function safeText(value: unknown) {
-  return String(value || '').replace(/\s+/g, ' ').trim();
-}
-
-function compactPathId(path: string) {
-  return path.replace(/[\/]/g, '__');
-}
-
-function isFightMarked(data: DocumentData | PatrolCase) {
-  return Boolean(
-    data.fightMode ||
-    data.userRiskLabel === 'fight' ||
-    data.aiGovernanceMode === 'fight',
+function getContentText(data: DocumentData, caseData?: DocumentData) {
+  return cleanText(
+    caseData?.contentSnapshot ||
+      caseData?.contentPreview ||
+      data.contentSnapshot ||
+      data.content ||
+      data.text ||
+      data.body ||
+      data.contentPreview ||
+      data.quarantinedContentPreview ||
+      data.moderationPublicNotice ||
+      '',
   );
 }
 
-function createTimelineBuckets(now = Date.now()) {
-  const bucketMs = 60 * 60 * 1000;
-  const bucketCount = 12;
-  const currentHour = Math.floor(now / bucketMs) * bucketMs;
-  return Array.from({ length: bucketCount }, (_, index) => {
-    const start = currentHour - (bucketCount - 1 - index) * bucketMs;
-    const date = new Date(start);
-    return {
-      label: `${String(date.getHours()).padStart(2, '0')}:00`,
-      start,
-      end: start + bucketMs,
-      low: 0,
-      medium: 0,
-      high: 0,
-      critical: 0,
-      fight: 0,
-      total: 0,
-    };
-  });
-}
-
-function addTimelineEvent(buckets: RiskTimelineBucket[], timeValue: unknown, riskScore: number, fightMode: boolean) {
-  const time = toMillis(timeValue);
-  if (!time) return;
-  const bucket = buckets.find(item => time >= item.start && time < item.end);
-  if (!bucket) return;
-  const level = getRiskLevelFromScore(riskScore);
-  bucket[level] += 1;
-  bucket.total += 1;
-  if (fightMode) bucket.fight += 1;
-}
-
-function normalizeCategoryLabel(value: unknown) {
-  const raw = safeText(value).toLowerCase();
-  if (!raw) return '未分類';
-
-  const categoryMap: Record<string, string> = {
-    personal_data: '個資風險',
-    privacy: '隱私風險',
-    threat: '威脅安全',
-    violence: '威脅安全',
-    harassment: '騷擾圍剿',
-    insult: '人身攻擊',
-    defamation: '名譽風險',
-    unverified_accusation: '未證實指控',
-    accusation: '未證實指控',
-    spam: '洗版干擾',
-    scam: '詐騙風險',
-    fraud: '詐騙風險',
-    sexual_image: '私密影像',
-    public_issue: '公共議題',
-    politics: '公共議題',
-    fight: 'Fight 討論',
-  };
-
-  return categoryMap[raw] || safeText(value).replace(/^#/, '') || '未分類';
-}
-
-function addCategoryStat(
-  map: Map<string, { label: string; count: number; riskTotal: number; maxRisk: number }>,
-  value: unknown,
-  riskScore: number,
-  weight = 1,
-) {
-  const label = normalizeCategoryLabel(value);
-  const key = label.toLowerCase();
-  const next = map.get(key) || { label, count: 0, riskTotal: 0, maxRisk: 0 };
-  next.count += weight;
-  next.riskTotal += riskScore * weight;
-  next.maxRisk = Math.max(next.maxRisk, riskScore);
-  map.set(key, next);
-}
-
-function getLocalJudgement(content: unknown, fightMode: boolean, storedRiskScore: number) {
-  const text = safeText(content);
-  const hasTarget = /(他|她|那個|某人|某店|老闆|議員|鄉長|主任|老師|醫生|警察|公務員|店家|公司|單位|[A-Z][0-9]|@[^\s]+)/i.test(text);
-  const personalData = /(身分證|電話|手機|地址|住址|個資|肉搜|車牌|私人LINE|銀行帳戶|病歷|家裡|住哪裡|0\d{1,3}[-\s]?\d{3,4}[-\s]?\d{3,4})/i.test(text);
-  const threat = /(殺|打死|弄死|放火|砸店|堵你|找你算帳|威脅|恐嚇|去你家|讓你出事)/.test(text);
-  const seriousClaim = /(貪污|收賄|收回扣|詐騙|偷竊|性侵|販毒|吸毒|洗錢|黑道|外遇|偽造|侵占公款|拿好處)/.test(text);
-  const rumor = /(聽說|有人說|疑似|好像|爆料|未證實|沒證據|大家都知道)/.test(text);
-  const harassment = /(大家去|一起去|抵制他|圍剿|出征|公布他|讓他紅|不要讓他混)/.test(text);
-  const insult = hasTarget && /(垃圾|爛人|騙子|白癡|智障|不要臉|噁心)/.test(text);
-  const heated = /(很扯|太誇張|黑箱|有問題|不合理|氣死|離譜|靠北|幹|爛)/.test(text);
-
-  let localScore = fightMode ? 38 : 12;
-  let judgement = fightMode ? 'Fight 標記：提高討論容忍度，同時保留完整判斷紀錄。' : '一般內容：目前未見明顯高風險訊號。';
-  let recommendation = fightMode ? '觀察討論脈絡' : '正常放行';
-
-  if (personalData || threat) {
-    localScore = 95;
-    judgement = personalData ? '疑似個資、肉搜或私人識別資訊，需要優先處理。' : '疑似威脅或人身安全風險，需要優先處理。';
-    recommendation = '建議立即隔離或移除';
-  } else if (hasTarget && seriousClaim) {
-    localScore = 78;
-    judgement = '對可識別對象提出重大未證實指控，名譽與法律風險偏高。';
-    recommendation = '建議人工覆核';
-  } else if (hasTarget && harassment) {
-    localScore = 74;
-    judgement = '疑似引導群體針對特定對象行動，需防止騷擾或圍剿。';
-    recommendation = '建議人工覆核';
-  } else if (hasTarget && rumor) {
-    localScore = fightMode ? 50 : 58;
-    judgement = '內容含傳聞或影射，尚未達立即移除，但需要站長觀察。';
-    recommendation = '觀察後續發展';
-  } else if (insult) {
-    localScore = 46;
-    judgement = '含針對可識別對象的辱罵或人身攻擊語氣。';
-    recommendation = '觀察或提醒';
-  } else if (heated || fightMode) {
-    localScore = fightMode ? 38 : 28;
-    judgement = fightMode ? 'Fight 討論可保留較高討論容忍度，目前未見明確個資、威脅或重大指控。' : '語氣較強，但目前較像一般意見或抱怨。';
-    recommendation = fightMode ? '觀察討論脈絡' : '正常放行';
-  }
-
-  const riskScore = Math.max(Math.round(storedRiskScore || 0), localScore);
+function getStoredRisk(data: DocumentData) {
+  const score = Number(data.moderationRiskScore || data.riskScore || data.aiRisk || 0);
+  const normalizedScore = Number.isFinite(score) ? Math.max(0, Math.min(100, score <= 10 && score > 0 ? score * 10 : score)) : 0;
+  const level = String(data.moderationRiskLevel || data.riskLevel || '') as RiskLevel;
   return {
-    riskScore,
-    riskLevel: getRiskLevelFromScore(riskScore),
-    judgement,
-    recommendation,
+    score: normalizedScore,
+    level: ['low', 'medium', 'high', 'critical'].includes(level) ? level : riskFromScore(normalizedScore),
   };
 }
 
-function createContentWatchItem({
-  sourceType,
-  sourcePath,
-  postId,
-  commentId,
-  replyId,
-  data,
-  fallbackCategory,
-}: {
-  sourceType: SourceType;
-  sourcePath: string;
-  postId: string;
-  commentId?: string;
-  replyId?: string;
-  data: DocumentData;
-  fallbackCategory?: string;
-}): ContentWatchItem {
-  const fightMode = isFightMarked(data);
-  const preview = safeText(data.content || data.quarantinedContentPreview || data.contentPreview || data.aiSummary);
-  const storedRiskScore = Number(data.moderationRiskScore || getStoredRiskScore(data) || 0);
-  const localJudgement = getLocalJudgement(preview, fightMode, storedRiskScore);
-  const moderationRiskLevel = String(data.moderationRiskLevel || '');
-  const riskLevel = ['critical', 'high', 'medium', 'low'].includes(moderationRiskLevel)
-    ? moderationRiskLevel as RiskLevel
-    : localJudgement.riskLevel;
-  const riskScore = Math.max(localJudgement.riskScore, Math.round(storedRiskScore || 0));
-  const moderationStatus = safeText(data.moderationStatus);
+function localLabelsFor(text: string) {
+  const labels: string[] = [];
+  if (/https?:\/\/|line\.me|lin\.ee|加line|私訊|填資料|匯款/i.test(text)) labels.push('導流');
+  if (/09\d{2}|身分證|車牌|住址|電話|個資|肉搜|公開.*資料/.test(text)) labels.push('個資');
+  if (/圍住|堵人|砸|拖出來|報復|不道歉就/.test(text)) labels.push('安全風險');
+  if (/黑箱|收錢|貪污|包庇|派系|帶風向|未查證|聽說/.test(text)) labels.push('未證實指控');
+  if (/白痴|低能|垃圾|去死|封殺/.test(text)) labels.push('攻擊語氣');
+  return labels;
+}
 
+function makeSiteItem(
+  sourceType: SourceType,
+  sourcePath: string,
+  data: DocumentData,
+  caseData?: DocumentData,
+  ipData?: DocumentData,
+  accountData?: DocumentData,
+): SiteItem | null {
+  const imageUrls = [
+    ...(cleanText(data.imageUrl) ? [cleanText(data.imageUrl)] : []),
+    ...(Array.isArray(data.imageUrls) ? data.imageUrls.map(cleanText) : []),
+    ...(Array.isArray(caseData?.imageUrlsSnapshot) ? caseData.imageUrlsSnapshot.map(cleanText) : []),
+  ].filter(Boolean);
+  const imagePaths = [
+    ...(cleanText(data.imagePath) ? [cleanText(data.imagePath)] : []),
+    ...(Array.isArray(data.imagePaths) ? data.imagePaths.map(cleanText) : []),
+    ...(Array.isArray(caseData?.imagePathsSnapshot) ? caseData.imagePathsSnapshot.map(cleanText) : []),
+  ].filter(Boolean);
+  const text = getContentText(data, caseData) || (imageUrls.length || imagePaths.length ? '[圖片貼文]' : '');
+  if (!text) return null;
+  const parts = sourcePath.split('/');
+  const mergedData = { ...data, ...(caseData || {}) };
+  const risk = getStoredRisk(mergedData);
+  const usesAdminSnapshot = Boolean(cleanText(caseData?.contentSnapshot || caseData?.contentPreview));
+  const authorIpAddress = cleanText(ipData?.ipAddress || accountData?.lastIpAddress);
+  const authorIpKey = cleanText(ipData?.ipKey || accountData?.lastIpKey);
   return {
-    id: compactPathId(sourcePath),
+    id: sourcePath.replace(/[^\w-]+/g, '__'),
     sourceType,
     sourcePath,
-    postId,
-    commentId,
-    replyId,
-    authorId: safeText(data.authorId),
-    authorName: safeText(data.authorName || compactUid(safeText(data.authorId))),
-    category: safeText(data.category || data.aiTag || fallbackCategory),
-    contentPreview: preview || (moderationStatus === 'removed' ? '內容已被移除。' : '無內容預覽。'),
-    riskLevel,
-    riskScore,
-    fightMode,
-    moderationStatus,
-    judgement: moderationStatus === 'removed' ? '此內容已被站長或系統移除。' : localJudgement.judgement,
-    recommendation: moderationStatus === 'removed' ? '已移除' : localJudgement.recommendation,
-    createdAt: data.createdAt,
+    postId: parts[1] || String(data.postId || ''),
+    commentId: sourceType !== 'post' ? parts[3] : undefined,
+    replyId: sourceType === 'reply' ? parts[5] : undefined,
+    authorId: cleanText(mergedData.authorId || mergedData.uid || mergedData.userId),
+    authorName: cleanText(mergedData.authorName || mergedData.displayName || mergedData.islanderId || compactUid(mergedData.authorId)),
+    category: cleanText(mergedData.category || mergedData.aiTag || '???'),
+    text,
+    imageUrl: imageUrls[0] || '',
+    imagePath: imagePaths[0] || '',
+    imageCount: Math.max(imageUrls.length, imagePaths.length, Number(mergedData.imageCount || 0)),
+    createdAt: data.createdAt || caseData?.sourceCreatedAt || caseData?.createdAt,
+    createdAtText: timeText(data.createdAt || caseData?.sourceCreatedAt || caseData?.createdAt),
+    currentRiskLabel: risk.level,
+    currentRiskScore: risk.score,
+    status: cleanText(mergedData.moderationStatus || mergedData.status || 'normal'),
+    localLabels: [...localLabelsFor(text), ...(usesAdminSnapshot ? ['後台原文'] : [])],
+    usesAdminSnapshot,
+    authorIpAddress,
+    authorIpKey,
+    ipSource: ipData?.ipAddress || ipData?.ipKey ? 'content' : authorIpAddress || authorIpKey ? 'account' : 'none',
   };
 }
 
-async function withTimeout<T>(task: Promise<T>, ms: number, label: string): Promise<T> {
-  let timer: number | undefined;
-  const timeout = new Promise<never>((_resolve, reject) => {
-    timer = window.setTimeout(() => reject(new Error(`${label} 讀取逾時`)), ms);
+async function loadSiteItems() {
+  const [postSnap, commentSnap, replySnap, caseSnap, accessSnap, accountSnap] = await Promise.all([
+    getDocs(query(collection(db, 'posts'), orderBy('createdAt', 'desc'), firestoreLimit(MAX_POSTS))),
+    getDocs(query(collectionGroup(db, 'comments'), firestoreLimit(MAX_COMMENTS))),
+    getDocs(query(collectionGroup(db, 'replies'), firestoreLimit(MAX_REPLIES))),
+    getDocs(query(collection(db, 'moderationCases'), orderBy('updatedAt', 'desc'), firestoreLimit(600))),
+    getDocs(query(collection(db, 'contentAccessLogs'), orderBy('createdAt', 'desc'), firestoreLimit(1200))),
+    getDocs(query(collection(db, 'accountControlProfiles'), firestoreLimit(1200))),
+  ]);
+
+  const casesBySourcePath = new Map<string, DocumentData>();
+  caseSnap.docs.forEach(docSnap => {
+    const data = docSnap.data();
+    const sourcePath = cleanText(data.sourcePath);
+    if (sourcePath) casesBySourcePath.set(sourcePath, data);
   });
 
-  try {
-    return await Promise.race([task, timeout]);
-  } finally {
-    if (timer) window.clearTimeout(timer);
-  }
-}
-
-function extractTopics(...parts: Array<unknown>) {
-  const text = parts.map(part => safeText(part)).join(' ');
-  const topics = new Set<string>();
-  const hashMatches = text.match(/#[\p{L}\p{N}_-]+/gu) || [];
-  hashMatches.forEach(match => topics.add(match.replace(/^#/, '')));
-  KNOWN_TOPICS.forEach(topic => {
-    if (text.includes(topic)) topics.add(topic);
+  const accessBySourcePath = new Map<string, DocumentData>();
+  accessSnap.docs.forEach(docSnap => {
+    const data = docSnap.data();
+    const sourcePath = cleanText(data.sourcePath);
+    if (sourcePath) accessBySourcePath.set(sourcePath, data);
   });
-  return Array.from(topics).slice(0, 8);
+
+  const accountByUid = new Map<string, DocumentData>();
+  accountSnap.docs.forEach(docSnap => accountByUid.set(docSnap.id, docSnap.data()));
+
+  const items: SiteItem[] = [];
+  postSnap.docs.forEach(docSnap => {
+    const data = docSnap.data();
+    const item = makeSiteItem('post', docSnap.ref.path, data, casesBySourcePath.get(docSnap.ref.path), accessBySourcePath.get(docSnap.ref.path), accountByUid.get(cleanText(data.authorId)));
+    if (item) items.push(item);
+  });
+  commentSnap.docs.forEach(docSnap => {
+    const data = docSnap.data();
+    const item = makeSiteItem('comment', docSnap.ref.path, data, casesBySourcePath.get(docSnap.ref.path), accessBySourcePath.get(docSnap.ref.path), accountByUid.get(cleanText(data.authorId)));
+    if (item) items.push(item);
+  });
+  replySnap.docs.forEach(docSnap => {
+    const data = docSnap.data();
+    const item = makeSiteItem('reply', docSnap.ref.path, data, casesBySourcePath.get(docSnap.ref.path), accessBySourcePath.get(docSnap.ref.path), accountByUid.get(cleanText(data.authorId)));
+    if (item) items.push(item);
+  });
+
+  return items.sort((a, b) => toMillis(b.createdAt) - toMillis(a.createdAt));
 }
 
-function addWeightedEdge(map: Map<string, GraphLink>, source: string, target: string, weight: number, type: string) {
-  if (!source || !target || source === target) return;
-  const [a, b] = source < target ? [source, target] : [target, source];
-  const key = `${a}::${b}::${type}`;
-  const existing = map.get(key);
-  if (existing) {
-    existing.weight += weight;
-  } else {
-    map.set(key, { source: a, target: b, weight, type });
-  }
+async function loadAccountItems(): Promise<AccountItem[]> {
+  const callable = httpsCallable(functions, 'rangerListAccounts', { timeout: 600000 });
+  const response = await callable({ maxResults: 1000 });
+  const rawAccounts = Array.isArray((response.data as { accounts?: unknown[] })?.accounts)
+    ? (response.data as { accounts: Record<string, unknown>[] }).accounts
+    : [];
+  return rawAccounts.map(account => ({
+    uid: cleanText(account.uid),
+    displayName: cleanText(account.displayName),
+    islanderId: cleanText(account.islanderId),
+    email: cleanText(account.email),
+    emailVerified: account.emailVerified === true,
+    role: cleanText(account.role),
+    photoURL: cleanText(account.photoURL),
+    accountStatus: cleanText(account.accountStatus || 'normal'),
+    isBanned: account.isBanned === true,
+    authDisabled: account.authDisabled === true,
+    postCount: 0,
+    commentCount: 0,
+    replyCount: 0,
+    maxRisk: 0,
+    lastSeenAt: account.lastSeenAt,
+    createdAt: account.createdAt,
+    authCreatedAt: account.authCreatedAt,
+    authLastSignInAt: account.authLastSignInAt,
+    lastIpAddress: cleanText(account.lastIpAddress),
+    lastIpKey: cleanText(account.lastIpKey),
+    lastIpAt: account.lastIpAt,
+    reason: cleanText(account.reason),
+  }));
 }
 
-function addTopicEdges(map: Map<string, GraphLink>, topics: string[], weight: number, type: string) {
-  for (let i = 0; i < topics.length; i += 1) {
-    for (let j = i + 1; j < topics.length; j += 1) {
-      addWeightedEdge(map, topics[i], topics[j], weight, type);
+function buildPaperText(items: SiteItem[]) {
+  const postItems = items
+    .filter(item => item.sourceType === 'post')
+    .sort((a, b) => toMillis(b.createdAt) - toMillis(a.createdAt));
+  const commentItems = items
+    .filter(item => item.sourceType === 'comment')
+    .sort((a, b) => toMillis(a.createdAt) - toMillis(b.createdAt));
+  const replyItems = items
+    .filter(item => item.sourceType === 'reply')
+    .sort((a, b) => toMillis(a.createdAt) - toMillis(b.createdAt));
+  const lines: string[] = [
+    '馬祖小站｜全站貼文紙',
+    `產生時間：${new Date().toLocaleString('zh-TW')}`,
+    `排序：貼文由新到舊，貼文底下留言與回覆由舊到新`,
+    `內容數：${items.length}，貼文 ${postItems.length}，留言 ${commentItems.length}，回覆 ${replyItems.length}`,
+    '用途：請 AI 掃描全站脈絡，從網站、站長處置、用戶行為等角度做法律與社群風險判斷，必要時回寫 riskLevel / riskScore。',
+    '重要：每段都保留 sourcePath。AI 回覆 JSON 必須使用 sourcePath，站長後台才可準確更新風險。',
+    '',
+  ];
+
+  postItems.forEach((post, index) => {
+    const postNo = `P${String(index + 1).padStart(3, '0')}`;
+    lines.push(`===== ${postNo}｜貼文｜${post.sourcePath} =====`);
+    lines.push(`作者：${post.authorName || compactUid(post.authorId)} / UID：${post.authorId || 'unknown'}`);
+    lines.push(`分類：${post.category} / 狀態：${statusLabel(post.status)} / 站務處理：${handlingState(post.status)} / 發布時間：${fullTimeText(post.createdAt)}`);
+    lines.push(`目前風險：${riskLabel(post.currentRiskLabel)} ${post.currentRiskScore} / 後台原文快照：${post.usesAdminSnapshot ? '是' : '否'} / 本地提示：${post.localLabels.join('、') || '無'}`);
+    lines.push(`內容：${post.text}`);
+    const comments = commentItems.filter(item => item.sourcePath.startsWith(`${post.sourcePath}/comments/`));
+    if (!comments.length) {
+      lines.push('留言：無');
     }
-  }
-}
-
-function getComponentClusters(nodes: GraphNode[], links: GraphLink[]) {
-  const adjacency = new Map<string, string[]>();
-  nodes.forEach(node => adjacency.set(node.id, []));
-  links.forEach(link => {
-    adjacency.get(link.source)?.push(link.target);
-    adjacency.get(link.target)?.push(link.source);
-  });
-
-  const clusters = new Map<string, string>();
-  let clusterIndex = 0;
-
-  nodes.forEach(node => {
-    if (clusters.has(node.id)) return;
-    const clusterId = `c${clusterIndex}`;
-    clusterIndex += 1;
-    const stack = [node.id];
-    clusters.set(node.id, clusterId);
-    while (stack.length) {
-      const current = stack.pop() as string;
-      (adjacency.get(current) || []).forEach(next => {
-        if (clusters.has(next)) return;
-        clusters.set(next, clusterId);
-        stack.push(next);
-      });
-    }
-  });
-
-  return clusters;
-}
-
-async function loadUsers() {
-  const users = new Map<string, UserMeta>();
-  try {
-    const snapshot = await withTimeout(getDocs(collection(db, 'users')), 8000, 'users');
-    snapshot.docs.forEach(userDoc => {
-      const data = userDoc.data();
-      users.set(userDoc.id, {
-        uid: userDoc.id,
-        label: safeText(data.displayName || data.islanderId || compactUid(userDoc.id)),
-        role: data.role,
+    comments.forEach((comment, commentIndex) => {
+      const commentNo = `${postNo}-C${String(commentIndex + 1).padStart(2, '0')}`;
+      lines.push(`  --- ${commentNo}｜留言｜${comment.sourcePath}`);
+      lines.push(`  作者：${comment.authorName || compactUid(comment.authorId)} / UID：${comment.authorId || 'unknown'}`);
+      lines.push(`  時間：${fullTimeText(comment.createdAt)} / 狀態：${statusLabel(comment.status)} / 站務處理：${handlingState(comment.status)} / 後台原文快照：${comment.usesAdminSnapshot ? '是' : '否'} / 目前風險：${riskLabel(comment.currentRiskLabel)} ${comment.currentRiskScore}`);
+      lines.push(`  內容：${comment.text}`);
+      const replies = replyItems.filter(item => item.sourcePath.startsWith(`${comment.sourcePath}/replies/`));
+      replies.forEach((reply, replyIndex) => {
+        lines.push(`    - ${commentNo}-R${String(replyIndex + 1).padStart(2, '0')}｜回覆｜${reply.sourcePath}`);
+        lines.push(`      作者：${reply.authorName || compactUid(reply.authorId)} / UID：${reply.authorId || 'unknown'} / 時間：${fullTimeText(reply.createdAt)} / 站務處理：${handlingState(reply.status)} / 後台原文快照：${reply.usesAdminSnapshot ? '是' : '否'} / 風險：${riskLabel(reply.currentRiskLabel)} ${reply.currentRiskScore}`);
+        lines.push(`      內容：${reply.text}`);
       });
     });
-  } catch (error) {
-    console.warn('Users read failed:', error);
-  }
-  return users;
+    lines.push('');
+  });
+
+  return lines.join('\n').slice(0, 120000);
 }
 
-async function loadPatrolCases() {
-  const authUid = auth.currentUser?.uid || null;
-  try {
-    const snapshot = await withTimeout(
-      getDocs(query(collection(db, 'moderationCases'), orderBy('createdAt', 'desc'), firestoreLimit(80))),
-      8000,
-      'moderationCases',
+class LabErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: string }> {
+  state = { error: '' };
+
+  static getDerivedStateFromError(error: unknown) {
+    return { error: error instanceof Error ? error.message : String(error) };
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <main className="lab-root gate-root">
+        <section className="gate-card">
+          <div className="brand-orb"><AlertTriangle size={24} /></div>
+          <p>MATSU STATION</p>
+          <h1>本地後台發生瀏覽器端錯誤，已阻止整頁閃退。</h1>
+          <span>{this.state.error}</span>
+        </section>
+      </main>
     );
-    return {
-      authUid,
-      cases: snapshot.docs.map(caseDoc => ({ id: caseDoc.id, ...caseDoc.data() } as PatrolCase)),
-    };
-  } catch (error) {
-    console.warn('Moderation cases read failed:', error);
-    return {
-      authUid,
-      cases: [] as PatrolCase[],
-      error: formatReadError(error),
-    };
   }
 }
 
-async function collectLabData(scanLimit: number): Promise<LabData> {
-  const startedAt = Date.now();
-  const users = await loadUsers();
-  const postsSnapshot = await withTimeout(
-    getDocs(query(collection(db, 'posts'), orderBy('createdAt', 'desc'), firestoreLimit(scanLimit))),
-    10000,
-    'posts',
-  );
-  const patrolCaseResult = await loadPatrolCases();
-  const patrolFeed = patrolCaseResult.cases.sort((a, b) => getCaseSortScore(b) - getCaseSortScore(a));
+function useStationAuth() {
+  const [user, setUser] = React.useState<User | null>(null);
+  const [ready, setReady] = React.useState(false);
+  const [message, setMessage] = React.useState('');
 
-  const userWeights = new Map<string, number>();
-  const userRisk = new Map<string, number>();
-  const edgeMap = new Map<string, GraphLink>();
-  const topicWeights = new Map<string, number>();
-  const topicRisk = new Map<string, number>();
-  const topicEdgeMap = new Map<string, GraphLink>();
-  const riskTimeline = createTimelineBuckets(startedAt);
-  const categoryStats = new Map<string, { label: string; count: number; riskTotal: number; maxRisk: number }>();
-  const contentItems: ContentWatchItem[] = [];
-  const consoleLines: string[] = [
-    `Firebase 專案 ${firebaseConfig.projectId} / 資料庫 ${firebaseConfig.firestoreDatabaseId || '(default)'}。`,
-  ];
-  let interactions = 0;
-  let fightContentCount = 0;
+  React.useEffect(() => onAuthStateChanged(auth, nextUser => {
+    setUser(nextUser);
+    setReady(true);
+  }), []);
 
-  for (const postDoc of postsSnapshot.docs) {
-    const post = postDoc.data();
-    const postId = postDoc.id;
-    const authorId = safeText(post.authorId);
-    const riskScore = getStoredRiskScore(post);
-    const postFightMode = isFightMarked(post);
-    if (postFightMode) fightContentCount += 1;
-    addTimelineEvent(riskTimeline, post.createdAt, riskScore, postFightMode);
-    addCategoryStat(categoryStats, post.category || post.aiTag || '貼文', riskScore, 1);
-    contentItems.push(createContentWatchItem({
-      sourceType: 'post',
-      sourcePath: `posts/${postId}`,
-      postId,
-      data: post,
-      fallbackCategory: '貼文',
-    }));
-    if (authorId) {
-      userWeights.set(authorId, (userWeights.get(authorId) || 0) + 4);
-      userRisk.set(authorId, Math.max(userRisk.get(authorId) || 0, riskScore));
-      if (!users.has(authorId)) {
-        users.set(authorId, { uid: authorId, label: safeText(post.authorName || compactUid(authorId)) });
-      }
-    }
-
-    const postTopics = extractTopics(post.category, post.aiTag, post.content);
-    postTopics.forEach(topic => {
-      topicWeights.set(topic, (topicWeights.get(topic) || 0) + 3);
-      topicRisk.set(topic, Math.max(topicRisk.get(topic) || 0, riskScore));
-      addCategoryStat(categoryStats, topic, riskScore, 1);
-    });
-    addTopicEdges(topicEdgeMap, postTopics, 2, 'post-context');
-
+  const login = React.useCallback(async () => {
+    setMessage('');
     try {
-      const [postLikesSnapshot, commentsSnapshot] = await Promise.all([
-        withTimeout(getDocs(collection(db, 'posts', postId, 'likes')), 6000, `post likes ${postId}`),
-        withTimeout(getDocs(query(collection(db, 'posts', postId, 'comments'), orderBy('createdAt', 'asc'))), 6000, `post comments ${postId}`),
-      ]);
-
-      postLikesSnapshot.docs.forEach(likeDoc => {
-        interactions += 1;
-        userWeights.set(likeDoc.id, (userWeights.get(likeDoc.id) || 0) + 1);
-        addWeightedEdge(edgeMap, authorId, likeDoc.id, 1, 'post-like');
-      });
-
-      for (const commentDoc of commentsSnapshot.docs) {
-        const comment = commentDoc.data();
-        const commenterId = safeText(comment.authorId);
-        const commentRisk = getStoredRiskScore(comment);
-        const commentFightMode = isFightMarked(comment);
-        if (commentFightMode) fightContentCount += 1;
-        addTimelineEvent(riskTimeline, comment.createdAt, commentRisk, commentFightMode);
-        addCategoryStat(categoryStats, post.category || '留言', commentRisk, 1);
-        contentItems.push(createContentWatchItem({
-          sourceType: 'comment',
-          sourcePath: `posts/${postId}/comments/${commentDoc.id}`,
-          postId,
-          commentId: commentDoc.id,
-          data: comment,
-          fallbackCategory: safeText(post.category || '留言'),
-        }));
-        interactions += 1;
-        userWeights.set(commenterId, (userWeights.get(commenterId) || 0) + 3);
-        userRisk.set(commenterId, Math.max(userRisk.get(commenterId) || 0, commentRisk));
-        if (!users.has(commenterId)) {
-          users.set(commenterId, { uid: commenterId, label: safeText(comment.authorName || compactUid(commenterId)) });
-        }
-        addWeightedEdge(edgeMap, authorId, commenterId, 3, 'comment');
-
-        const commentTopics = extractTopics(post.category, post.aiTag, post.content, comment.content);
-        commentTopics.forEach(topic => {
-          topicWeights.set(topic, (topicWeights.get(topic) || 0) + 1);
-          topicRisk.set(topic, Math.max(topicRisk.get(topic) || 0, commentRisk));
-          addCategoryStat(categoryStats, topic, commentRisk, 1);
-        });
-        addTopicEdges(topicEdgeMap, commentTopics, 1, 'comment-context');
-
-        const [commentLikesSnapshot, repliesSnapshot] = await Promise.all([
-          withTimeout(getDocs(collection(db, 'posts', postId, 'comments', commentDoc.id, 'likes')), 6000, `comment likes ${commentDoc.id}`),
-          withTimeout(getDocs(query(collection(db, 'posts', postId, 'comments', commentDoc.id, 'replies'), orderBy('createdAt', 'asc'))), 6000, `comment replies ${commentDoc.id}`),
-        ]);
-
-        commentLikesSnapshot.docs.forEach(likeDoc => {
-          interactions += 1;
-          userWeights.set(likeDoc.id, (userWeights.get(likeDoc.id) || 0) + 1);
-          addWeightedEdge(edgeMap, commenterId, likeDoc.id, 1, 'comment-like');
-        });
-
-        for (const replyDoc of repliesSnapshot.docs) {
-          const reply = replyDoc.data();
-          const replyAuthorId = safeText(reply.authorId);
-          const replyRisk = getStoredRiskScore(reply);
-          const replyFightMode = isFightMarked(reply);
-          if (replyFightMode) fightContentCount += 1;
-          addTimelineEvent(riskTimeline, reply.createdAt, replyRisk, replyFightMode);
-          addCategoryStat(categoryStats, post.category || '留言回覆', replyRisk, 1);
-          contentItems.push(createContentWatchItem({
-            sourceType: 'reply',
-            sourcePath: `posts/${postId}/comments/${commentDoc.id}/replies/${replyDoc.id}`,
-            postId,
-            commentId: commentDoc.id,
-            replyId: replyDoc.id,
-            data: reply,
-            fallbackCategory: safeText(post.category || '留言回覆'),
-          }));
-          interactions += 1;
-          userWeights.set(replyAuthorId, (userWeights.get(replyAuthorId) || 0) + 2);
-          userRisk.set(replyAuthorId, Math.max(userRisk.get(replyAuthorId) || 0, replyRisk));
-          if (!users.has(replyAuthorId)) {
-            users.set(replyAuthorId, { uid: replyAuthorId, label: safeText(reply.authorName || compactUid(replyAuthorId)) });
-          }
-          addWeightedEdge(edgeMap, commenterId, replyAuthorId, 2, 'reply');
-
-          const replyTopics = extractTopics(post.category, post.aiTag, post.content, comment.content, reply.content);
-          replyTopics.forEach(topic => {
-            topicWeights.set(topic, (topicWeights.get(topic) || 0) + 1);
-            topicRisk.set(topic, Math.max(topicRisk.get(topic) || 0, replyRisk));
-            addCategoryStat(categoryStats, topic, replyRisk, 1);
-          });
-          addTopicEdges(topicEdgeMap, replyTopics, 1, 'reply-context');
-        }
-      }
+      await signInWithPopup(auth, provider);
     } catch (error) {
-      console.warn('Interaction scan failed:', postId, error);
-    }
-  }
-
-  const socialLinks = Array.from(edgeMap.values())
-    .sort((a, b) => b.weight - a.weight)
-    .slice(0, 220);
-  const socialIds = new Set<string>();
-  socialLinks.forEach(link => {
-    socialIds.add(link.source);
-    socialIds.add(link.target);
-  });
-  Array.from(userWeights.keys()).slice(0, 40).forEach(uid => socialIds.add(uid));
-
-  const socialNodes = Array.from(socialIds).map(uid => {
-    const meta = users.get(uid);
-    const weight = userWeights.get(uid) || 1;
-    const risk = userRisk.get(uid) || 0;
-    return {
-      id: uid,
-      label: meta?.label || compactUid(uid),
-      type: 'user' as const,
-      role: meta?.role,
-      weight,
-      risk,
-      cluster: 'c0',
-      color: meta?.role === 'admin' ? STATION_MASTER_NODE_COLOR : USER_COLORS[Math.abs(uid.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0)) % USER_COLORS.length],
-    };
-  });
-  const socialClusters = getComponentClusters(socialNodes, socialLinks);
-  socialNodes.forEach(node => {
-    node.cluster = socialClusters.get(node.id) || 'c0';
-  });
-
-  const topicLinks = Array.from(topicEdgeMap.values())
-    .filter(link => topicWeights.has(link.source) && topicWeights.has(link.target))
-    .sort((a, b) => b.weight - a.weight)
-    .slice(0, 180);
-  const topicIds = new Set<string>();
-  topicLinks.forEach(link => {
-    topicIds.add(link.source);
-    topicIds.add(link.target);
-  });
-  Array.from(topicWeights.entries())
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 50)
-    .forEach(([topic]) => topicIds.add(topic));
-
-  const topicNodes = Array.from(topicIds).map(topic => {
-    const weight = topicWeights.get(topic) || 1;
-    const risk = topicRisk.get(topic) || 0;
-    return {
-      id: topic,
-      label: `#${topic}`,
-      type: 'topic' as const,
-      weight,
-      risk,
-      cluster: 'topic',
-      color: TOPIC_COLORS[Math.abs(topic.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0)) % TOPIC_COLORS.length],
-    };
-  });
-
-  patrolFeed.forEach(item => {
-    const riskScore = Number(item.riskScore || 0);
-    addTimelineEvent(riskTimeline, item.createdAt || item.updatedAt, riskScore, isFightMarked(item));
-    if (item.categories?.length) {
-      item.categories.forEach(category => addCategoryStat(categoryStats, category, riskScore, 1));
-    } else {
-      addCategoryStat(categoryStats, item.category || item.sourceType || 'AI 案件', riskScore, 1);
-    }
-  });
-
-  const riskCounts = patrolFeed.reduce((counts, item) => {
-    const level = ['critical', 'high', 'medium', 'low'].includes(String(item.riskLevel))
-      ? String(item.riskLevel)
-      : getRiskLevelFromScore(Number(item.riskScore || 0));
-    counts[level] = (counts[level] || 0) + 1;
-    return counts;
-  }, {} as Record<string, number>);
-  const caseFightCount = patrolFeed.filter(isFightMarked).length;
-  const visibleFightContentCount = Math.max(fightContentCount, caseFightCount);
-  const sortedContentItems = contentItems
-    .sort((a, b) => {
-      const riskDelta = b.riskScore - a.riskScore;
-      if (riskDelta) return riskDelta;
-      return toMillis(b.createdAt) - toMillis(a.createdAt);
-    })
-    .slice(0, 160);
-  const activeCaseCount = patrolFeed.filter(isActiveCase).length;
-  const highRiskCaseCount = patrolFeed.filter(item => {
-    const level = ['critical', 'high', 'medium', 'low'].includes(String(item.riskLevel))
-      ? String(item.riskLevel)
-      : getRiskLevelFromScore(Number(item.riskScore || 0));
-    return level === 'critical' || level === 'high';
-  }).length;
-  const recentEventCount = riskTimeline.slice(-3).reduce((sum, item) => sum + item.total, 0);
-  const categoryMetrics = Array.from(categoryStats.entries()).map(([id, stat]) => {
-    const averageRisk = stat.count ? stat.riskTotal / stat.count : 0;
-    const riskScore = Math.round(Math.max(averageRisk, stat.maxRisk));
-    return {
-      id,
-      label: stat.label,
-      count: stat.count,
-      riskScore,
-      tone: getRiskTone(getRiskLevelFromScore(riskScore)),
-    };
-  }).sort((a, b) => (b.riskScore + b.count * 2) - (a.riskScore + a.count * 2)).slice(0, 8);
-  const opsMetrics: OpsMetric[] = [
-    {
-      id: 'active-cases',
-      label: '待處理案件',
-      value: String(activeCaseCount),
-      hint: activeCaseCount ? '先看右側案件列' : '目前無明顯積壓',
-      tone: getRiskTone(activeCaseCount ? 'medium' : 'low'),
-    },
-    {
-      id: 'high-risk',
-      label: '高風險以上',
-      value: String(highRiskCaseCount),
-      hint: highRiskCaseCount ? '建議優先人工覆核' : '目前風險曲線平穩',
-      tone: getRiskTone(highRiskCaseCount ? 'high' : 'low'),
-    },
-    {
-      id: 'fight-content',
-      label: 'Fight 內容',
-      value: String(visibleFightContentCount),
-      hint: visibleFightContentCount ? '需要較高治理密度' : '目前沒有標記內容',
-      tone: getRiskTone(visibleFightContentCount ? 'medium' : 'low'),
-    },
-    {
-      id: 'recent-pulse',
-      label: '近 3 小時聲量',
-      value: String(recentEventCount),
-      hint: recentEventCount > 12 ? '討論正在升溫' : '聲量維持可控',
-      tone: getRiskTone(recentEventCount > 12 ? 'medium' : 'low'),
-    },
-    {
-      id: 'content-watch',
-      label: '內容判斷',
-      value: String(sortedContentItems.length),
-      hint: sortedContentItems.length ? '一般貼文也已納入後台' : '等待內容同步',
-      tone: '#38bdf8',
-    },
-  ];
-
-  consoleLines.push(`已掃描 ${postsSnapshot.size} 篇貼文，耗時 ${Date.now() - startedAt}ms。`);
-  consoleLines.push(`已建立 ${socialNodes.length} 個島民節點與 ${socialLinks.length} 條互動連線。`);
-  consoleLines.push(`已建立 ${topicNodes.length} 個話題節點與 ${topicLinks.length} 條語意連線。`);
-  consoleLines.push(`已整理 ${sortedContentItems.length} 筆貼文、留言與回覆判斷項目。`);
-  if (patrolCaseResult.error) {
-    consoleLines.push(`AI 案件讀取失敗：${patrolCaseResult.error}`);
-  } else if (!patrolCaseResult.authUid) {
-    consoleLines.push('尚未登入站長帳號，因此只顯示公開掃描資料。');
-  } else if (patrolCaseResult.authUid !== STATION_MASTER_UID) {
-    consoleLines.push(`目前登入 UID ${compactUid(patrolCaseResult.authUid)} 不是站長 UID，無法讀取全部 AI 案件。`);
-  } else if (!patrolFeed.length) {
-    consoleLines.push('站長權限已確認，但目前 moderationCases 沒有可顯示案件。請確認後端巡邏功能已產生案件。');
-  } else {
-    consoleLines.push(`已讀取 ${patrolFeed.length} 筆 AI 案件。`);
-  }
-
-  return {
-    socialNodes,
-    socialLinks,
-    topicNodes,
-    topicLinks,
-    postsScanned: postsSnapshot.size,
-    interactions,
-    usersSeen: socialNodes.length,
-    topicCount: topicNodes.length,
-    riskCounts,
-    patrolFeed,
-    riskTimeline,
-    categoryMetrics,
-    opsMetrics,
-    fightContentCount: visibleFightContentCount,
-    contentItems: sortedContentItems,
-    consoleLines,
-    caseReadError: patrolCaseResult.error,
-    caseReadAuthUid: patrolCaseResult.authUid,
-  };
-}
-
-function ForceGraph({ nodes, links, mode }: { nodes: GraphNode[]; links: GraphLink[]; mode: GraphMode }) {
-  const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
-  const [hovered, setHovered] = React.useState<GraphNode | null>(null);
-
-  React.useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    let frame = 0;
-    let animationId = 0;
-    const nodeMap = new Map<string, GraphNode>();
-    const graphNodes = nodes.map((node, index) => ({
-      ...node,
-      x: canvas.clientWidth / 2 + Math.cos(index) * 160 + Math.random() * 40,
-      y: canvas.clientHeight / 2 + Math.sin(index) * 160 + Math.random() * 40,
-      vx: 0,
-      vy: 0,
-    }));
-    graphNodes.forEach(node => nodeMap.set(node.id, node));
-
-    const graphLinks = links
-      .map(link => ({
-        ...link,
-        sourceNode: nodeMap.get(link.source),
-        targetNode: nodeMap.get(link.target),
-      }))
-      .filter(link => link.sourceNode && link.targetNode);
-
-    const resize = () => {
-      const rect = canvas.getBoundingClientRect();
-      const ratio = window.devicePixelRatio || 1;
-      canvas.width = rect.width * ratio;
-      canvas.height = rect.height * ratio;
-      const ctx = canvas.getContext('2d');
-      if (ctx) ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-    };
-
-    resize();
-    window.addEventListener('resize', resize);
-
-    const draw = () => {
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-
-      const width = canvas.clientWidth;
-      const height = canvas.clientHeight;
-      frame += 1;
-
-      for (let i = 0; i < graphNodes.length; i += 1) {
-        const a = graphNodes[i];
-        for (let j = i + 1; j < graphNodes.length; j += 1) {
-          const b = graphNodes[j];
-          const dx = (a.x || 0) - (b.x || 0);
-          const dy = (a.y || 0) - (b.y || 0);
-          const distanceSq = Math.max(80, dx * dx + dy * dy);
-          const force = mode === 'social' ? 520 / distanceSq : 720 / distanceSq;
-          const fx = dx * force;
-          const fy = dy * force;
-          a.vx = (a.vx || 0) + fx;
-          a.vy = (a.vy || 0) + fy;
-          b.vx = (b.vx || 0) - fx;
-          b.vy = (b.vy || 0) - fy;
-        }
+      const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
+      if (code === 'auth/popup-blocked' || code === 'auth/unauthorized-domain') {
+        await signInWithRedirect(auth, provider);
+        return;
       }
+      setMessage(error instanceof Error ? error.message : String(error));
+    }
+  }, []);
 
-      graphLinks.forEach(link => {
-        const source = link.sourceNode as GraphNode;
-        const target = link.targetNode as GraphNode;
-        const dx = (target.x || 0) - (source.x || 0);
-        const dy = (target.y || 0) - (source.y || 0);
-        const distance = Math.max(1, Math.sqrt(dx * dx + dy * dy));
-        const desired = Math.max(70, 180 - Math.min(95, link.weight * 12));
-        const pull = (distance - desired) * 0.0028 * Math.min(5, link.weight);
-        const fx = (dx / distance) * pull;
-        const fy = (dy / distance) * pull;
-        source.vx = (source.vx || 0) + fx;
-        source.vy = (source.vy || 0) + fy;
-        target.vx = (target.vx || 0) - fx;
-        target.vy = (target.vy || 0) - fy;
-      });
-
-      graphNodes.forEach(node => {
-        const centerPull = mode === 'social' ? 0.006 : 0.008;
-        node.vx = ((node.vx || 0) + (width / 2 - (node.x || 0)) * centerPull) * 0.86;
-        node.vy = ((node.vy || 0) + (height / 2 - (node.y || 0)) * centerPull) * 0.86;
-        node.x = Math.max(28, Math.min(width - 28, (node.x || width / 2) + node.vx));
-        node.y = Math.max(28, Math.min(height - 28, (node.y || height / 2) + node.vy));
-      });
-
-      ctx.clearRect(0, 0, width, height);
-      const gradient = ctx.createRadialGradient(width / 2, height / 2, 30, width / 2, height / 2, Math.max(width, height) * 0.65);
-      gradient.addColorStop(0, 'rgba(0, 217, 232, 0.11)');
-      gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
-      ctx.fillStyle = gradient;
-      ctx.fillRect(0, 0, width, height);
-
-      ctx.save();
-      ctx.globalCompositeOperation = 'lighter';
-      graphLinks.forEach(link => {
-        const source = link.sourceNode as GraphNode;
-        const target = link.targetNode as GraphNode;
-        const alpha = Math.min(0.55, 0.08 + link.weight * 0.035);
-        ctx.strokeStyle = mode === 'social'
-          ? `rgba(0, 217, 232, ${alpha})`
-          : `rgba(249, 115, 22, ${alpha})`;
-        ctx.lineWidth = Math.min(5, 0.5 + link.weight * 0.35);
-        ctx.beginPath();
-        ctx.moveTo(source.x || 0, source.y || 0);
-        ctx.lineTo(target.x || 0, target.y || 0);
-        ctx.stroke();
-      });
-      ctx.restore();
-
-      graphNodes.forEach(node => {
-        const radius = Math.max(4, Math.min(18, 4 + Math.sqrt(node.weight) * 2.2));
-        const pulse = Math.sin(frame / 18 + radius) * 0.8;
-        const nodeTone = getNodeRiskTone(node.risk, node.color);
-        ctx.save();
-        ctx.shadowColor = nodeTone;
-        ctx.shadowBlur = node.risk >= 35 ? 24 : 14;
-        ctx.fillStyle = nodeTone;
-        ctx.beginPath();
-        ctx.arc(node.x || 0, node.y || 0, radius + pulse, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-
-        ctx.strokeStyle = node.role === 'admin' ? 'rgba(0, 217, 232, 0.95)' : 'rgba(255,255,255,0.45)';
-        ctx.lineWidth = node.role === 'admin' ? 2.5 : 1;
-        ctx.beginPath();
-        ctx.arc(node.x || 0, node.y || 0, radius + 4, 0, Math.PI * 2);
-        ctx.stroke();
-
-        if (node.role === 'admin') {
-          ctx.fillStyle = 'rgba(0, 217, 232, 0.92)';
-          ctx.font = '900 10px Inter, system-ui, sans-serif';
-          ctx.fillText('站長', (node.x || 0) - 11, (node.y || 0) - radius - 8);
-        }
-
-        if (node.weight >= 6 || node.risk >= 35) {
-          ctx.fillStyle = 'rgba(232, 252, 255, 0.82)';
-          ctx.font = '600 11px Inter, system-ui, sans-serif';
-          ctx.fillText(node.label.slice(0, 18), (node.x || 0) + radius + 7, (node.y || 0) + 4);
-        }
-      });
-
-      animationId = requestAnimationFrame(draw);
-    };
-
-    const handlePointerMove = (event: PointerEvent) => {
-      const rect = canvas.getBoundingClientRect();
-      const x = event.clientX - rect.left;
-      const y = event.clientY - rect.top;
-      let nearest: GraphNode | null = null;
-      let nearestDistance = Number.POSITIVE_INFINITY;
-      graphNodes.forEach(node => {
-        const dx = (node.x || 0) - x;
-        const dy = (node.y || 0) - y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        if (distance < nearestDistance && distance < 26) {
-          nearest = node;
-          nearestDistance = distance;
-        }
-      });
-      setHovered(nearest);
-    };
-
-    canvas.addEventListener('pointermove', handlePointerMove);
-    animationId = requestAnimationFrame(draw);
-
-    return () => {
-      cancelAnimationFrame(animationId);
-      canvas.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('resize', resize);
-    };
-  }, [nodes, links, mode]);
-
-  return (
-    <div className="graph-shell">
-      <canvas ref={canvasRef} className="force-canvas" />
-      <div className="scan-ring scan-ring-one" />
-      <div className="scan-ring scan-ring-two" />
-      {hovered && (
-        <div className="node-tooltip">
-          <span>{hovered.type === 'user' ? '島民 UID' : '話題'}</span>
-          <strong>{hovered.label}</strong>
-          <em>權重 {Math.round(hovered.weight)} | {getRiskBandLabel(hovered.risk)}風險 {Math.round(hovered.risk)}</em>
-        </div>
-      )}
-    </div>
-  );
+  return { user, ready, message, login };
 }
 
-function OpsDeck({ metrics }: { metrics: OpsMetric[] }) {
-  const visibleMetrics = metrics.length ? metrics : [
-    { id: 'boot-scan', label: '掃描狀態', value: '--', hint: '等待第一次資料同步', tone: '#00d9e8' },
-    { id: 'boot-case', label: '案件狀態', value: '--', hint: '登入後讀取站長案件', tone: '#38bdf8' },
-    { id: 'boot-topic', label: '熱區狀態', value: '--', hint: '正在建立話題雷達', tone: '#a78bfa' },
-    { id: 'boot-pulse', label: '聲量狀態', value: '--', hint: '同步後顯示近 3 小時', tone: '#30f2a2' },
-  ];
-
-  return (
-    <section className="ops-deck" aria-label="戰情總覽">
-      <div className="ops-deck-title">
-        <span>戰情總覽</span>
-        <strong>即時治理脈搏</strong>
-      </div>
-      {visibleMetrics.map(metric => (
-        <article key={metric.id} className="ops-card" style={{ '--tone': metric.tone } as React.CSSProperties}>
-          <span>{metric.label}</span>
-          <strong>{metric.value}</strong>
-          <p>{metric.hint}</p>
-        </article>
-      ))}
-    </section>
-  );
-}
-
-function RiskTimeline({ buckets }: { buckets: RiskTimelineBucket[] }) {
-  const maxTotal = Math.max(1, ...buckets.map(bucket => bucket.total));
-  const levels: RiskLevel[] = ['critical', 'high', 'medium', 'low'];
-
-  return (
-    <section className="insight-panel timeline-panel">
-      <div className="insight-head">
-        <span>風險時間線</span>
-        <strong>近 12 小時</strong>
-      </div>
-      <div className="timeline-chart">
-        {buckets.map(bucket => {
-          const barHeight = bucket.total ? Math.max(8, Math.round((bucket.total / maxTotal) * 100)) : 2;
-          return (
-            <div key={bucket.start} className="timeline-column">
-              <div
-                className="timeline-bar"
-                style={{ height: `${barHeight}%` }}
-                title={`${bucket.label} / ${bucket.total} 筆 / Fight ${bucket.fight} 筆`}
-              >
-                {levels.map(level => {
-                  const value = bucket[level];
-                  if (!value) return null;
-                  return (
-                    <i
-                      key={level}
-                      style={{
-                        flex: value,
-                        background: getRiskTone(level),
-                      }}
-                    />
-                  );
-                })}
-              </div>
-              <span>{bucket.label}</span>
-            </div>
-          );
-        })}
-      </div>
-      <div className="timeline-legend">
-        {levels.map(level => (
-          <span key={level}><i style={{ background: getRiskTone(level) }} />{getRiskLabel(level)}</span>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function CategoryRadar({ metrics }: { metrics: CategoryMetric[] }) {
-  const maxCount = Math.max(1, ...metrics.map(metric => metric.count));
-
-  return (
-    <section className="insight-panel">
-      <div className="insight-head">
-        <span>言論熱區雷達</span>
-        <strong>話題與風險交會</strong>
-      </div>
-      <div className="radar-list">
-        {metrics.length ? metrics.map(metric => (
-          <article key={metric.id} className="radar-row" style={{ '--tone': metric.tone } as React.CSSProperties}>
-            <div>
-              <strong>{metric.label}</strong>
-              <span>{metric.count} 筆 / 峰值 {metric.riskScore}</span>
-            </div>
-            <div className="radar-track">
-              <i style={{ width: `${Math.max(8, (metric.count / maxCount) * 100)}%` }} />
-            </div>
-          </article>
-        )) : (
-          <div className="insight-empty">目前還沒有足夠資料形成熱區。</div>
-        )}
-      </div>
-    </section>
-  );
-}
-
-function CommanderBrief({
-  selectedCase,
-  activeCaseCount,
-  highRiskCaseCount,
-  fightContentCount,
-}: {
-  selectedCase: PatrolCase | null;
-  activeCaseCount: number;
-  highRiskCaseCount: number;
-  fightContentCount: number;
-}) {
-  const selectedRisk = Number(selectedCase?.riskScore || 0);
-  let headline = '目前站況平穩';
-  let detail = '可以先看互動圖與熱區雷達，確認是否有突然聚集的討論脈絡。';
-
-  if (selectedCase && selectedRisk >= 70) {
-    headline = '優先處理選取案件';
-    detail = `${selectedCase.publicCaseId || selectedCase.id} 已達 ${Math.round(selectedRisk)}/100，建議先確認內容脈絡再決定放行、隔離或移除。`;
-  } else if (highRiskCaseCount) {
-    headline = '高風險案件需要人工覆核';
-    detail = `目前有 ${highRiskCaseCount} 筆高風險以上案件，建議先處理右側案件列最上方項目。`;
-  } else if (activeCaseCount) {
-    headline = '案件量可控，適合批次整理';
-    detail = `目前 ${activeCaseCount} 筆處理中案件，可依狀態逐筆放行、隔離或標記已審。`;
-  } else if (fightContentCount) {
-    headline = 'Fight 討論存在，但尚未升高';
-    detail = `目前掃到 ${fightContentCount} 筆 Fight 內容，建議觀察是否開始集中在同一話題。`;
-  }
-
-  return (
-    <section className="insight-panel commander-brief">
-      <div className="insight-head">
-        <span>站長決策提示</span>
-        <strong>下一步建議</strong>
-      </div>
-      <div className="brief-core">
-        <Shield size={26} />
-        <div>
-          <strong>{headline}</strong>
-          <p>{detail}</p>
-        </div>
-      </div>
-      <div className="brief-pills">
-        <span>處理中 {activeCaseCount}</span>
-        <span>高風險 {highRiskCaseCount}</span>
-        <span>Fight {fightContentCount}</span>
-      </div>
-    </section>
-  );
-}
-
-function AccessGate({
-  user,
-  authReady,
-  isSigningIn,
-  authMessage,
-  onLogin,
-}: {
+function AccessGate({ user, ready, message, onLogin }: {
   user: User | null;
-  authReady: boolean;
-  isSigningIn: boolean;
-  authMessage: string;
+  ready: boolean;
+  message: string;
   onLogin: () => void;
 }) {
   return (
@@ -1364,735 +632,987 @@ function AccessGate({
       <section className="gate-card">
         <div className="brand-orb"><Shield size={24} /></div>
         <p>MATSU STATION</p>
-        <h1>站長後台</h1>
-        <span>此系統只允許站長 Google 帳號進入。</span>
-        {authMessage && <div className="gate-message">{authMessage}</div>}
-        {!authReady ? (
-          <button className="primary" disabled>確認登入狀態中...</button>
+        <h1>AI 游騎兵站長後台</h1>
+        <span>只有站長 Google 帳號可以進入。其他帳號會被擋在這裡。</span>
+        {message && <div className="gate-message">{message}</div>}
+        {!ready ? (
+          <button className="primary" disabled><Loader2 size={16} className="spin" /> 確認登入狀態</button>
         ) : (
-          <button className="primary gate-login" disabled={isSigningIn} onClick={onLogin}>
-            {isSigningIn ? 'Google 登入中...' : 'Google 登入'}
-          </button>
+          <button className="primary gate-login" onClick={onLogin}>Google 登入</button>
         )}
         {user && user.uid !== STATION_MASTER_UID && (
-          <small>目前帳號沒有權限，系統會自動登出並返回登入頁。</small>
+          <small>目前登入的不是站長帳號：{user.email || compactUid(user.uid)}</small>
         )}
       </section>
     </main>
   );
 }
 
-function ContentWatchDesk({
-  items,
-  actionState,
-  onAction,
-}: {
-  items: ContentWatchItem[];
-  actionState: { itemId: string; action: ContentAction } | null;
-  onAction: (item: ContentWatchItem, action: ContentAction) => void;
+function MetricCard({ label, value, hint, tone = '#38bdf8' }: {
+  label: string;
+  value: string | number;
+  hint: string;
+  tone?: string;
 }) {
-  const visibleItems = items.slice(0, 36);
+  return (
+    <article className="ops-card" style={{ '--tone': tone } as React.CSSProperties}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <p>{hint}</p>
+    </article>
+  );
+}
+
+function DrawerCabinet({ activeDrawer, counts, onChange }: {
+  activeDrawer: DrawerKey;
+  counts: Record<DrawerKey, number>;
+  onChange: (drawer: DrawerKey) => void;
+}) {
+  const drawers: Array<{ key: DrawerKey; label: string; hint: string }> = [
+    { key: 'cockpit', label: '站長駕駛艙', hint: '總覽' },
+    { key: 'accounts', label: '帳號抽屜', hint: '管理' },
+    { key: 'articles', label: '文章抽屜', hint: '全站內容' },
+    { key: 'reports', label: '檢舉通報', hint: '回報' },
+    { key: 'aiSheet', label: 'AI 掃描紙', hint: '標籤' },
+    { key: 'cases', label: '治理案件', hint: '裁決' },
+  ];
+
+  return (
+    <nav className="drawer-cabinet" aria-label="後台資料抽屜">
+      {drawers.map(drawer => (
+        <button
+          key={drawer.key}
+          className={activeDrawer === drawer.key ? 'active' : ''}
+          onClick={() => onChange(drawer.key)}
+        >
+          <span>{drawer.hint}</span>
+          <strong>{drawer.label}</strong>
+          <em>{counts[drawer.key] || 0}</em>
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+function SiteSheetPanel({ items, onReload }: { items: SiteItem[]; onReload: () => Promise<void> }) {
+  const [paperText, setPaperText] = React.useState('');
+  const [summary, setSummary] = React.useState("Matsu Station legal-risk scan only.\n\nDo not do public-opinion heat analysis, trend analysis, topic popularity analysis, or account activity analysis unless directly related to legal/platform risk.\n\nFocus only on:\n1. Content that may cause the station master, platform, or users to be sued, complained about, asked to testify, or pulled into legal procedures.\n2. Personal data, doxxing, threats, defamation, insults, unverified serious allegations, scam routing, harassment mobilization, private images, or similar risks.\n3. Hidden, under-review, masked, removed, or handled content, and whether station-master follow-up is still needed.\n4. Content that can safely remain. Keep safe explanations short.\n\nOutput:\n- Priority legal-risk list\n- Safe-to-keep list\n- Risk reason for each risky item\n- Recommended station-master action\n- @@RISK_UPDATES_JSON@@ with valid JSON riskUpdates");
+  const [isRunning, setIsRunning] = React.useState(false);
+  const [isApplyingRisk, setIsApplyingRisk] = React.useState(false);
+  const [result, setResult] = React.useState<LabelResult | null>(null);
+  const [error, setError] = React.useState('');
+  const [scanLimit, setScanLimit] = React.useState(120);
+
+  const rebuildPaper = React.useCallback(() => {
+    setPaperText(buildPaperText(items));
+  }, [items]);
+
+  React.useEffect(() => {
+    rebuildPaper();
+  }, [rebuildPaper]);
+
+  const createPayload = (applyRiskUpdates: boolean) => ({
+    summary,
+    paperText: buildPaperText(items.slice(0, scanLimit)),
+    applyRiskUpdates,
+    items: items.slice(0, scanLimit).map(item => ({
+      sourceType: item.sourceType,
+      sourcePath: item.sourcePath,
+      authorName: item.authorName,
+      category: item.category,
+      createdAtText: item.createdAtText,
+      currentRiskLabel: item.currentRiskLabel,
+      currentRiskScore: item.currentRiskScore,
+      localLabels: item.localLabels,
+      text: item.text,
+    })),
+  });
+
+  const waitForSiteSheetJob = (jobId: string) => new Promise<LabelResult>((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      unsubscribe();
+      reject(new Error('掃描任務仍在背景執行，稍後回來重新整理即可看到結果。'));
+    }, 620000);
+    const unsubscribe = onSnapshot(doc(db, 'rangerSiteSheetJobs', jobId), snapshot => {
+      const data = snapshot.data() as (LabelResult & { status?: string; error?: string }) | undefined;
+      if (!data) return;
+      if (data.status === 'completed') {
+        window.clearTimeout(timeout);
+        unsubscribe();
+        resolve(data);
+      }
+      if (data.status === 'failed') {
+        window.clearTimeout(timeout);
+        unsubscribe();
+        reject(new Error(data.error || '掃描任務失敗。'));
+      }
+    }, nextError => {
+      window.clearTimeout(timeout);
+      unsubscribe();
+      reject(nextError);
+    });
+  });
+
+  const runSiteSheetJob = async (applyRiskUpdates: boolean) => {
+    const callable = httpsCallable(functions, 'rangerStartSiteSheetJob', { timeout: 600000 });
+    const response = await callable(createPayload(applyRiskUpdates));
+    const jobId = String((response.data as { jobId?: string }).jobId || '');
+    if (!jobId) throw new Error('掃描任務沒有回傳 jobId。');
+    return waitForSiteSheetJob(jobId);
+  };
+
+  const scanOnly = async () => {
+    setIsRunning(true);
+    setError('');
+    setResult(null);
+    try {
+      const response = await runSiteSheetJob(false);
+      setResult(response);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
+  const applyRiskUpdate = async () => {
+    setIsApplyingRisk(true);
+    setError('');
+    try {
+      const response = await runSiteSheetJob(true);
+      setResult(response);
+      await onReload();
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    } finally {
+      setIsApplyingRisk(false);
+    }
+  };
+
+  return (
+    <section className="content-watch-panel site-sheet-panel">
+      <div className="content-watch-head">
+        <div>
+          <span className="eyebrow cyber-yellow">全站貼文紙</span>
+          <h2>把貼文與附帶留言排序成一張紙，交給 Gemini 掃描、貼標籤、更新風險</h2>
+        </div>
+        <div className="content-watch-stats">
+          <span>內容 {items.length}</span>
+          <span>紙面 {paperText.length.toLocaleString()} 字</span>
+        </div>
+      </div>
+
+      <div className="site-sheet-toolbar">
+        <label className="site-sheet-limit">
+          <span>{'\u6383\u63cf\u7b46\u6578'}</span>
+          <select value={scanLimit} onChange={event => setScanLimit(Number(event.target.value))} disabled={isRunning || isApplyingRisk}>
+            {[60, 120, 240, 480, 900].map(limit => (
+              <option key={limit} value={limit}>{limit}</option>
+            ))}
+          </select>
+        </label>
+        <button onClick={() => void onReload()} disabled={isRunning || isApplyingRisk}><RefreshCw size={15} /> {'\u91cd\u65b0\u8b80\u53d6\u5168\u7ad9\u5167\u5bb9'}</button>
+        <button onClick={rebuildPaper} disabled={isRunning || isApplyingRisk}><LayoutDashboard size={15} /> {'\u91cd\u65b0\u6574\u7406\u7d19\u9762'}</button>
+        <button className="primary" onClick={() => void scanOnly()} disabled={isRunning || isApplyingRisk || !paperText.trim()}>
+          {isRunning ? <Loader2 size={15} className="spin" /> : <Sparkles size={15} />}
+          {'\u6383\u63cf\u5b8c\u6574\u5831\u544a'}
+        </button>
+        <button className="warn" onClick={() => void applyRiskUpdate()} disabled={isRunning || isApplyingRisk || !paperText.trim()}>
+          {isApplyingRisk ? <Loader2 size={15} className="spin" /> : <FileWarning size={15} />}
+          {'\u66f4\u65b0\u98a8\u96aa\u6a19\u7c64'}
+        </button>
+        <span>{'\u6383\u63cf\u6703\u7522\u751f\u5b8c\u6574\u5831\u544a\uff1b\u66f4\u65b0\u98a8\u96aa\u53ea\u56de\u5beb\u6a19\u7c64\u8207\u5206\u6578\u3002'}</span>
+      </div>
+
+      <div className="site-sheet-grid">
+        <div className="case-text">
+          <label>{'\u6383\u63cf\u4efb\u52d9\u8aaa\u660e'}</label>
+          <textarea value={summary} onChange={event => setSummary(event.target.value)} rows={12} />
+        </div>
+        <div className="site-sheet-report mega">
+          <div>
+            <strong>{'Gemini 掃描報告'}</strong>
+            <span>{result?.model || '尚未執行'}</span>
+          </div>
+          <pre>{result?.reply || error || '\u5c1a\u672a\u57f7\u884c\u3002\u6309\u4e0b\u6383\u63cf\u5b8c\u6574\u5831\u544a\u5f8c\uff0cGemini \u6703\u56de\u50b3\u6cd5\u5f8b\u98a8\u96aa\u5831\u544a\u8207 JSON\u3002'}</pre>
+        </div>
+      </div>
+
+      <textarea
+        className="site-sheet-textarea cyber-paper"
+        value={paperText}
+        onChange={event => setPaperText(event.target.value)}
+        rows={22}
+      />
+      {result && (
+        <>
+          <div className="case-meta-row">
+            <span>{'\u6a21\u578b\uff1a'}{result.model || 'unknown'}</span>
+            <span>{'\u9001\u6383\uff1a'}{result.scannedCount ?? result.analyzedCount ?? 0} {'\u7b46'}</span>
+            <span>{'\u8df3\u904e\u5df2\u6a19\u904e\uff1a'}{result.skippedAlreadyScanned || 0} {'\u7b46'}</span>
+            <span>{'\u5df2\u5957\u7528\uff1a'}{result.riskUpdatesApplied?.length || 0}</span>
+            <span>{'\u7565\u904e\uff1a'}{result.riskUpdatesSkipped?.length || 0}</span>
+          </div>
+
+          {Boolean(result.riskUpdatesApplied?.length || result.riskUpdatesSkipped?.length) && (
+            <div className="site-sheet-apply-log">
+              {result.riskUpdatesApplied?.length ? (
+                <div>
+                  <strong>{'\u5df2\u5957\u7528\u98a8\u96aa\u66f4\u65b0'}</strong>
+                  {result.riskUpdatesApplied.map((update, index) => (
+                    <article key={`applied-${update.sourcePath}-${index}`} className="applied">
+                      <b>{update.sourcePath}</b>
+                      <span>{update.riskLevel || 'unknown'} / {update.riskScore ?? '-'}</span>
+                      <p>{update.reason || '\u0047\u0065\u006d\u0069\u006e\u0069 \u5df2\u66f4\u65b0\u6b64\u9805\u98a8\u96aa\u6a19\u7c64\u3002'}</p>
+                    </article>
+                  ))}
+                </div>
+              ) : null}
+
+              {result.riskUpdatesSkipped?.length ? (
+                <div>
+                  <strong>{'\u672a\u5957\u7528\u9805\u76ee'}</strong>
+                  {result.riskUpdatesSkipped.map((update, index) => (
+                    <article key={`skipped-${update.sourcePath}-${index}`} className="skipped">
+                      <b>{update.sourcePath}</b>
+                      <p>{update.reason || '\u672a\u5957\u7528\u3002'}</p>
+                    </article>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+function ReportsPanel({ reports, onSync, onViewTarget }: {
+  reports: ReportItem[];
+  onSync: (report: ReportItem) => Promise<void>;
+  onViewTarget: (sourcePath: string) => void;
+}) {
+  const [busyId, setBusyId] = React.useState('');
+
+  const sync = async (report: ReportItem) => {
+    setBusyId(report.id);
+    try {
+      await onSync(report);
+    } finally {
+      setBusyId('');
+    }
+  };
 
   return (
     <section className="content-watch-panel">
       <div className="content-watch-head">
         <div>
-          <span className="eyebrow">全站內容判斷台</span>
-          <h2>貼文、留言、回覆都納入治理視野</h2>
+          <span className="eyebrow">檢舉通報</span>
+          <h2>使用者送出的檢舉會集中在這裡，必要時同步成治理案件</h2>
         </div>
-        <div className="content-watch-stats">
-          <span>顯示 {visibleItems.length}</span>
-          <span>總判斷 {items.length}</span>
-        </div>
+        <div className="content-watch-stats"><span>{reports.length} 筆</span></div>
       </div>
 
       <div className="content-watch-list">
-        {visibleItems.length ? visibleItems.map(item => {
-          const isRemoved = item.moderationStatus === 'removed';
-          const sourceLabel = getSourceLabel(item.sourceType);
+        {reports.length ? reports.slice(0, 30).map(report => {
+          const path = sourcePathFromReport(report);
           return (
-            <article key={item.id} className={`content-watch-item ${isRemoved ? 'removed' : ''}`}>
+            <article key={report.id} className="content-watch-item">
               <div className="content-watch-main">
                 <div className="content-watch-line">
-                  <span style={{ color: getRiskTone(item.riskLevel) }}>{getRiskLabel(item.riskLevel)} {Math.round(item.riskScore)}</span>
-                  <em>{sourceLabel}</em>
-                  {item.fightMode && <em className="fight-chip">FIGHT</em>}
-                  {item.moderationStatus && <em>{getStatusLabel(item.moderationStatus)}</em>}
+                  <em>{sourceLabel(report.targetType)}</em>
+                  <em>{statusLabel(report.status)}</em>
+                  <span>{timeText(report.createdAt)}</span>
                 </div>
-                <strong>{item.authorName || compactUid(item.authorId)} / {item.category || '未分類'}</strong>
-                <p>{item.contentPreview}</p>
-                <small>{item.judgement}</small>
+                <strong>{path || report.targetId || report.id}</strong>
+                <p>{report.reason || '使用者未填寫原因。'}</p>
+                <small>檢舉者：{compactUid(report.reporterId)}</small>
               </div>
               <div className="content-watch-action">
-                <span>{item.recommendation}</span>
-                <button
-                  className="warn"
-                  disabled={Boolean(actionState) || isRemoved}
-                  onClick={() => onAction(item, 'hide')}
-                >
-                  <CircleSlash size={14} />
-                  遮蔽
+                <button disabled={!path} onClick={() => onViewTarget(path)}>
+                  <Search size={14} />
+                  查看目標
                 </button>
-                <button
-                  className="danger"
-                  disabled={Boolean(actionState)}
-                  onClick={() => onAction(item, 'delete')}
-                >
-                  <CircleSlash size={14} />
-                  完全移除
+                <button disabled={busyId === report.id || !path} onClick={() => void sync(report)}>
+                  {busyId === report.id ? <Loader2 size={14} className="spin" /> : <Gavel size={14} />}
+                  同步案件
                 </button>
               </div>
             </article>
           );
         }) : (
-          <div className="content-watch-empty">
-            <Activity size={22} />
-            <p>還沒有讀到可判斷的貼文、留言或回覆。登入站長帳號後會自動同步。</p>
-          </div>
+          <div className="empty-feed"><CheckCircle2 size={20} /><p>目前沒有檢舉通報。</p></div>
         )}
       </div>
     </section>
   );
 }
 
-class LabErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: string | null }> {
-  state = { error: null };
+function CasePanel({ cases, selected, sourcePaths, onSelect, onAction }: {
+  cases: ModerationCase[];
+  selected: ModerationCase | null;
+  sourcePaths: Set<string>;
+  onSelect: (id: string) => void;
+  onAction: (item: ModerationCase, action: CaseAction) => Promise<void>;
+}) {
+  const [busy, setBusy] = React.useState('');
+  const [queryText, setQueryText] = React.useState('');
+  const [statusFilter, setStatusFilter] = React.useState<CaseStatusFilter>('open');
+  const isSourceMissing = React.useCallback((item: ModerationCase) => Boolean(item.sourcePath && !sourcePaths.has(item.sourcePath)), [sourcePaths]);
+  const visibleCases = cases
+    .filter(item => {
+      const sourceMissing = isSourceMissing(item);
+      if (!isCaseStatusMatch(item.status, statusFilter, sourceMissing)) return false;
+      const text = [
+        item.publicCaseId,
+        item.sourcePath,
+        item.authorName,
+        item.summary,
+        item.contentPreview,
+        item.contentSnapshot,
+        statusLabel(item.status),
+        caseStatusFilterLabel(getCaseStatusFilter(item.status, sourceMissing)),
+      ].join(' ').toLowerCase();
+      return !queryText || text.includes(queryText.toLowerCase());
+    })
+    .slice(0, 80);
 
-  static getDerivedStateFromError(error: unknown) {
-    return { error: error instanceof Error ? error.message : String(error) };
-  }
+  const visibleSelected = selected && visibleCases.some(item => item.id === selected.id) ? selected : visibleCases[0] || null;
 
-  componentDidCatch(error: unknown) {
-    console.error('Ranger lab runtime error:', error);
-  }
+  React.useEffect(() => {
+    if (visibleSelected && selected?.id !== visibleSelected.id) {
+      onSelect(visibleSelected.id);
+    }
+  }, [onSelect, selected?.id, visibleSelected]);
 
-  render() {
-    if (!this.state.error) return this.props.children;
+  const run = async (item: ModerationCase, action: CaseAction) => {
+    const confirmations: Partial<Record<CaseAction, string>> = {
+      release: '確定要放行 / 恢復這筆內容公開顯示？',
+      quarantine: '確定要遮蔽這筆內容並保留審核原因？',
+      remove: '確定要隱藏這筆內容？原文會保留在後台治理紀錄。',
+      dismiss: '確定要將此案件結案？',
+    };
+    const message = confirmations[action];
+    if (message && !window.confirm(message)) return;
+    setBusy(`${item.id}:${action}`);
+    try {
+      await onAction(item, action);
+    } catch (error) {
+      window.alert(`案件操作失敗：${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setBusy('');
+    }
+  };
 
-    return (
-      <main className="lab-root">
-        <div className="hud-grid" />
-        <section className="case-empty runtime-crash">
-          <AlertTriangle size={22} />
-          <span>本地後台發生瀏覽器端錯誤，已阻止整頁閃退。</span>
-          <code>{this.state.error}</code>
-          <button onClick={() => window.location.reload()}>重新整理</button>
-        </section>
-      </main>
-    );
-  }
+  const selectedBucket = visibleSelected ? getCaseStatusFilter(visibleSelected.status, isSourceMissing(visibleSelected)) : 'open';
+  const isBusy = Boolean(busy);
+
+  return (
+    <section className="lab-layout">
+      <aside className="panel right-panel">
+        <div className="panel-title"><Shield size={18} /><span>治理案件</span></div>
+        <div className="case-search">
+          <Search size={15} />
+          <input value={queryText} onChange={event => setQueryText(event.target.value)} placeholder="搜尋案件、作者、來源路徑、狀態" />
+        </div>
+        <div className="case-filter-row">
+          {(['open', 'masked', 'hidden', 'approved', 'reviewed', 'dismissed', 'deleted', 'all'] as CaseStatusFilter[]).map(filter => (
+            <button
+              key={filter}
+              className={statusFilter === filter ? 'active' : ''}
+              onClick={() => setStatusFilter(filter)}
+            >
+              {caseStatusFilterLabel(filter)}
+            </button>
+          ))}
+        </div>
+        <div className="feed-list">
+          {visibleCases.length ? visibleCases.map(item => (
+            <button
+              key={item.id}
+              className={`feed-item case-card ${visibleSelected?.id === item.id ? 'selected' : ''}`}
+              onClick={() => onSelect(item.id)}
+            >
+              <div>
+                <span style={{ color: riskTone(item.riskLevel) }}>{riskLabel(item.riskLevel)}</span>
+                <em>{item.publicCaseId || item.id.slice(0, 12)}</em>
+                <em>{caseStatusFilterLabel(getCaseStatusFilter(item.status, isSourceMissing(item)))}</em>
+              </div>
+              <small>{sourceLabel(item.sourceType)} / {statusLabel(item.status)} / {timeText(item.updatedAt || item.createdAt)}</small>
+              <p>{item.summary || item.contentPreview || item.contentSnapshot || '尚無摘要。'}</p>
+            </button>
+          )) : (
+            <div className="empty-feed"><Activity size={20} /><p>目前沒有符合條件的案件。</p></div>
+          )}
+        </div>
+      </aside>
+
+      <section className="case-inspector">
+        {visibleSelected ? (
+          <>
+            <div className="case-inspector-head">
+              <div>
+                <span className="eyebrow">案件檢視</span>
+                <h2>{visibleSelected.publicCaseId || visibleSelected.id}</h2>
+              </div>
+              <div className="case-badges">
+                <span style={{ borderColor: riskTone(visibleSelected.riskLevel), color: riskTone(visibleSelected.riskLevel) }}>
+                  {riskLabel(visibleSelected.riskLevel)} {Math.round(Number(visibleSelected.riskScore || 0))}/100
+                </span>
+                <span>{sourceLabel(visibleSelected.sourceType)}</span>
+                <span>{statusLabel(visibleSelected.status)}</span>
+              </div>
+            </div>
+
+            <div className="case-detail-grid">
+              <div className="case-text"><label>AI 摘要</label><p>{visibleSelected.summary || '尚無摘要。'}</p></div>
+              <div className="case-text"><label>內容預覽</label><p>{visibleSelected.contentPreview || visibleSelected.contentSnapshot || '沒有可顯示的內容。'}</p></div>
+              <div className="case-text"><label>法律 / 社群風險</label><p>{visibleSelected.legalRisk || visibleSelected.rationale || '未提供。'}</p></div>
+              <div className="case-text"><label>建議動作</label><p>{visibleSelected.recommendedAction || '未提供。'}</p></div>
+            </div>
+
+            <div className="case-meta-row">
+              <span>作者：{visibleSelected.authorName || compactUid(visibleSelected.authorId)}</span>
+              <span>分類：{visibleSelected.category || '未分類'}</span>
+              <span>來源：{visibleSelected.sourcePath || 'unknown'}</span>
+              <span>更新：{timeText(visibleSelected.updatedAt || visibleSelected.createdAt)}</span>
+            </div>
+
+            <div className="case-actions case-action-grid">
+              <button className="ok" disabled={isBusy || !visibleSelected.contentSnapshot || selectedBucket === 'approved'} onClick={() => void run(visibleSelected, 'release')} title="恢復或放行內容">
+                <CheckCircle2 size={15} /> {selectedBucket === 'approved' ? '已放行' : '放行 / 恢復'}
+              </button>
+              <button className="warn" disabled={isBusy || !visibleSelected.contentSnapshot || selectedBucket === 'masked'} onClick={() => void run(visibleSelected, 'quarantine')} title="遮蔽內容，但保留後台原文與治理紀錄">
+                <FileWarning size={15} /> {selectedBucket === 'masked' ? '已遮蔽' : '遮蔽留紀錄'}
+              </button>
+              <button className="danger" disabled={isBusy || selectedBucket === 'hidden' || selectedBucket === 'deleted'} onClick={() => void run(visibleSelected, 'remove')} title="前台隱藏，不刪除治理紀錄">
+                <CircleSlash size={15} /> {selectedBucket === 'hidden' ? '已隱藏' : selectedBucket === 'deleted' ? '已刪除' : '隱藏不公開'}
+              </button>
+              <button disabled={isBusy || selectedBucket === 'reviewed'} onClick={() => void run(visibleSelected, 'mark_reviewed')} title="站長已查看，保留案件">
+                <Gavel size={15} /> {selectedBucket === 'reviewed' ? '已查看' : '標記已看'}
+              </button>
+              <button disabled={isBusy || selectedBucket === 'dismissed'} onClick={() => void run(visibleSelected, 'dismiss')} title="完成處理，案件結案">
+                <RefreshCw size={15} /> {selectedBucket === 'dismissed' ? '已結案' : '結案'}
+              </button>
+              {busy && <span className="action-state"><Loader2 size={14} className="spin" /> 處理中</span>}
+            </div>
+          </>
+        ) : (
+          <div className="case-empty"><AlertTriangle size={18} /><span>尚未選取案件。</span></div>
+        )}
+      </section>
+    </section>
+  );
+}
+
+function ContentTable({ items, selectedPath, onAction }: {
+  items: SiteItem[];
+  selectedPath: string;
+  onAction: (item: SiteItem, action: ContentAction) => Promise<void>;
+}) {
+  const [busy, setBusy] = React.useState('');
+  const [queryText, setQueryText] = React.useState('');
+  const [typeFilter, setTypeFilter] = React.useState<'all' | SourceType>('all');
+  const [decisionFilter, setDecisionFilter] = React.useState<ContentDecisionFilter>('all');
+  const [sortKey, setSortKey] = React.useState<ContentSortKey>('risk_desc');
+
+  React.useEffect(() => {
+    if (selectedPath) setQueryText(selectedPath);
+  }, [selectedPath]);
+
+  const visible = items
+    .filter(item => {
+      if (typeFilter !== 'all' && item.sourceType !== typeFilter) return false;
+      if (!isContentDecisionMatch(item.status, decisionFilter)) return false;
+      const text = [
+        item.sourcePath,
+        item.authorName,
+        item.authorId,
+        item.authorIpAddress,
+        item.authorIpKey,
+        item.imageUrl,
+        item.imagePath,
+        item.imageCount ? 'has image 有圖片 圖片' : 'no image 無圖片',
+        item.category,
+        item.status,
+        statusLabel(item.status),
+        handlingState(item.status),
+        contentDecisionFilterLabel(getContentDecisionFilter(item.status)),
+        item.text,
+        item.localLabels.join(' '),
+        sourceLabel(item.sourceType),
+      ].join(' ').toLowerCase();
+      return !queryText || text.includes(queryText.toLowerCase());
+    })
+    .sort((left, right) => {
+      if (sortKey === 'risk_desc') return right.currentRiskScore - left.currentRiskScore || toMillis(right.createdAt) - toMillis(left.createdAt);
+      if (sortKey === 'risk_asc') return left.currentRiskScore - right.currentRiskScore || toMillis(right.createdAt) - toMillis(left.createdAt);
+      if (sortKey === 'newest') return toMillis(right.createdAt) - toMillis(left.createdAt);
+      if (sortKey === 'oldest') return toMillis(left.createdAt) - toMillis(right.createdAt);
+      if (sortKey === 'author') return (left.authorName || left.authorId).localeCompare(right.authorName || right.authorId, 'zh-Hant') || toMillis(right.createdAt) - toMillis(left.createdAt);
+      if (sortKey === 'type') return sourceLabel(left.sourceType).localeCompare(sourceLabel(right.sourceType), 'zh-Hant') || right.currentRiskScore - left.currentRiskScore;
+      return 0;
+    })
+    .slice(0, 90);
+
+  const run = async (item: SiteItem, action: ContentAction) => {
+    if (action === 'delete' && !window.confirm('確定要完全移除這筆內容？這會刪除來源文件，只保留後台治理紀錄。')) return;
+    if (action === 'restore' && !window.confirm('確定恢復這筆內容公開顯示？')) return;
+    setBusy(`${item.id}:${action}`);
+    try {
+      await onAction(item, action);
+    } catch (error) {
+      window.alert(`內容操作失敗：${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setBusy('');
+    }
+  };
+
+  return (
+    <section className="content-watch-panel">
+      <div className="content-watch-head">
+        <div>
+          <span className="eyebrow">全站內容抽屜</span>
+          <h2>貼文、留言與回覆會照風險程度排序，方便快速巡視</h2>
+        </div>
+        <div className="content-watch-stats"><span>{visible.length} / {items.length} 筆</span></div>
+      </div>
+      <div className="content-watch-controls">
+        <input
+          value={queryText}
+          onChange={event => setQueryText(event.target.value)}
+          placeholder="搜尋內容、作者、分類、sourcePath、UID、IP"
+        />
+        <button className={typeFilter === 'all' ? 'active' : ''} onClick={() => setTypeFilter('all')}>全部</button>
+        <button className={typeFilter === 'post' ? 'active' : ''} onClick={() => setTypeFilter('post')}>貼文</button>
+        <button className={typeFilter === 'comment' ? 'active' : ''} onClick={() => setTypeFilter('comment')}>留言</button>
+        <button className={typeFilter === 'reply' ? 'active' : ''} onClick={() => setTypeFilter('reply')}>回覆</button>
+        <select value={decisionFilter} onChange={event => setDecisionFilter(event.target.value as ContentDecisionFilter)}>
+          <option value="all">全部裁決</option>
+          <option value="open">待裁決</option>
+          <option value="decided">已裁決</option>
+          <option value="hidden">已隱藏</option>
+          <option value="masked">已遮蔽</option>
+          <option value="approved">已放行</option>
+          <option value="deleted">已刪除</option>
+        </select>
+        <select value={sortKey} onChange={event => setSortKey(event.target.value as ContentSortKey)}>
+          <option value="risk_desc">風險高到低</option>
+          <option value="risk_asc">風險低到高</option>
+          <option value="newest">時間新到舊</option>
+          <option value="oldest">時間舊到新</option>
+          <option value="author">作者排序</option>
+          <option value="type">類型排序</option>
+        </select>
+        {queryText && <button onClick={() => setQueryText('')}>清除搜尋</button>}
+      </div>
+      <div className="content-watch-list">
+        {visible.map(item => (
+          (() => {
+            const bucket = getContentDecisionFilter(item.status);
+            const disabled = Boolean(busy);
+            return (
+              <article key={item.id} className={`content-watch-item ${selectedPath && item.sourcePath === selectedPath ? 'selected' : ''}`}>
+                <div className="content-watch-main">
+                  <div className="content-watch-line">
+                    <span style={{ color: riskTone(item.currentRiskLabel) }}>{riskLabel(item.currentRiskLabel)} {Math.round(item.currentRiskScore)}</span>
+                    <em>{sourceLabel(item.sourceType)}</em>
+                    <em>{statusLabel(item.status)}</em>
+                    <em>{contentDecisionFilterLabel(bucket)}</em>
+                    {item.usesAdminSnapshot && <em>後台原文快照</em>}
+                    {item.imageCount > 0 && <em>有圖片</em>}
+                    {item.localLabels.map(label => <em key={label}>{label}</em>)}
+                  </div>
+                  <strong>{item.authorName || compactUid(item.authorId)} / {item.category}</strong>
+                  <div className="content-watch-meta" aria-label="內容作者資訊">
+                    <span>作者：{item.authorName || '未記錄'}</span>
+                    <span>Firebase UID：{item.authorId || 'unknown'}</span>
+                    <span>時間：{item.createdAtText}</span>
+                    <span>圖片：{item.imageCount > 0 ? `${item.imageCount} 張` : '無'}</span>
+                  </div>
+                  {item.imageCount > 0 && (
+                    <div className="content-watch-meta" aria-label="內容圖片資訊">
+                      <span>imagePath：{item.imagePath || '未記錄'}</span>
+                      <span>imageUrl：{item.imageUrl ? '已儲存' : '未記錄'}</span>
+                    </div>
+                  )}
+                  <small>IP：{item.authorIpAddress || '未記錄'}{item.authorIpKey ? ` / key ${item.authorIpKey}` : ''}{item.ipSource === 'account' ? ' / 帳號最後 IP' : item.ipSource === 'content' ? ' / 發內容當下 IP' : ''}</small>
+                  {item.imageUrl && <img className="content-watch-thumb" src={item.imageUrl} alt="貼文圖片預覽" loading="lazy" />}
+                  <p>{item.text}</p>
+                  <small>{item.sourcePath}</small>
+                </div>
+                <div className="content-watch-action">
+                  <button disabled={disabled || bucket === 'open'} onClick={() => void run(item, 'review')}><Gavel size={14} /> {bucket === 'open' ? '審核中' : '轉審核'}</button>
+                  <button className="danger" disabled={disabled || ['hidden', 'deleted'].includes(bucket)} onClick={() => void run(item, 'hide')}><CircleSlash size={14} /> {bucket === 'hidden' ? '已隱藏' : bucket === 'deleted' ? '已刪除' : '隱藏'}</button>
+                  <button className="warn" disabled={disabled || bucket === 'masked'} onClick={() => void run(item, 'mask')}><FileWarning size={14} /> {bucket === 'masked' ? '已遮蔽' : '遮蔽'}</button>
+                  <button className="ok" disabled={disabled || !item.usesAdminSnapshot || bucket === 'approved'} onClick={() => void run(item, 'restore')}><CheckCircle2 size={14} /> {bucket === 'approved' ? '已放行' : '恢復'}</button>
+                  <button className="danger" disabled={disabled || bucket === 'deleted'} onClick={() => void run(item, 'delete')}><Trash2 size={14} /> {bucket === 'deleted' ? '已刪除' : '完全移除'}</button>
+                </div>
+              </article>
+            );
+          })()
+        ))}
+        {!visible.length && (
+          <div className="empty-feed"><Search size={20} /><p>找不到符合條件的內容。</p></div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function AccountDrawer({ accounts, onReload, onAction }: {
+  accounts: AccountItem[];
+  onReload: () => Promise<void>;
+  onAction: (account: AccountItem, action: AccountAction, reason: string) => Promise<void>;
+}) {
+  const [queryText, setQueryText] = React.useState('');
+  const [filter, setFilter] = React.useState<'all' | 'watch' | 'restricted'>('all');
+  const [sortKey, setSortKey] = React.useState<AccountSortKey>('risk_desc');
+  const [busy, setBusy] = React.useState('');
+
+  const visibleAccounts = accounts
+    .filter(account => {
+      if (filter === 'watch' && account.accountStatus !== 'watch') return false;
+      if (filter === 'restricted' && !account.isBanned && account.accountStatus !== 'posting_suspended') return false;
+      const text = [account.displayName, account.islanderId, account.uid, account.email, account.lastIpAddress, account.lastIpKey, account.reason].join(' ').toLowerCase();
+      return !queryText || text.includes(queryText.toLowerCase());
+    })
+    .sort((left, right) => {
+      if (sortKey === 'risk_desc') return right.maxRisk - left.maxRisk || toMillis(right.lastSeenAt || right.authLastSignInAt) - toMillis(left.lastSeenAt || left.authLastSignInAt);
+      if (sortKey === 'newest') return toMillis(right.lastSeenAt || right.authLastSignInAt || right.createdAt || right.authCreatedAt) - toMillis(left.lastSeenAt || left.authLastSignInAt || left.createdAt || left.authCreatedAt);
+      if (sortKey === 'oldest') return toMillis(left.createdAt || left.authCreatedAt) - toMillis(right.createdAt || right.authCreatedAt);
+      if (sortKey === 'status') return accountStatusLabel(left.accountStatus, left.isBanned).localeCompare(accountStatusLabel(right.accountStatus, right.isBanned), 'zh-Hant') || right.maxRisk - left.maxRisk;
+      if (sortKey === 'name') return (left.displayName || left.islanderId || left.uid).localeCompare(right.displayName || right.islanderId || right.uid, 'zh-Hant');
+      return 0;
+    })
+    .slice(0, 120);
+
+  const run = async (account: AccountItem, action: AccountAction) => {
+    const labels: Record<AccountAction, string> = {
+      watch: '觀察帳號',
+      clear_watch: '解除觀察',
+      ban: '停權帳號',
+      unban: '解除停權',
+      suspend_posting: '暫停發文',
+      restore_posting: '恢復發文',
+    };
+    const reason = window.prompt(`請輸入「${labels[action]}」原因，這會留下站務紀錄。`, account.reason || '站務安全處理');
+    if (reason === null) return;
+    setBusy(`${account.uid}:${action}`);
+    try {
+      await onAction(account, action, reason);
+      await onReload();
+    } finally {
+      setBusy('');
+    }
+  };
+
+  return (
+    <section className="account-control-desk">
+      <div className="section-heading">
+        <div>
+          <span className="eyebrow">帳號抽屜</span>
+          <h2>站長帳號管理</h2>
+          <p>這裡只在後台顯示。可把帳號標記觀察、暫停發文或停權，動作會走站長 Cloud Function 並留下紀錄。</p>
+        </div>
+        <button onClick={() => void onReload()}><RefreshCw size={15} /> 重新讀取帳號</button>
+      </div>
+
+      <div className="account-toolbar">
+        <input value={queryText} onChange={event => setQueryText(event.target.value)} placeholder="搜尋暱稱、島內 ID、UID、Email、IP" />
+        <button className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}>全部 <b>{accounts.length}</b></button>
+        <button className={filter === 'watch' ? 'active' : ''} onClick={() => setFilter('watch')}>觀察 <b>{accounts.filter(account => account.accountStatus === 'watch').length}</b></button>
+        <button className={filter === 'restricted' ? 'active' : ''} onClick={() => setFilter('restricted')}>限制 <b>{accounts.filter(account => account.isBanned || account.accountStatus === 'posting_suspended').length}</b></button>
+        <select value={sortKey} onChange={event => setSortKey(event.target.value as AccountSortKey)}>
+          <option value="risk_desc">風險高到低</option>
+          <option value="newest">最近活動</option>
+          <option value="oldest">加入時間舊到新</option>
+          <option value="status">狀態排序</option>
+          <option value="name">名稱排序</option>
+        </select>
+      </div>
+
+      <div className="account-list">
+        {visibleAccounts.map(account => {
+          const isStationMaster = account.uid === STATION_MASTER_UID;
+          const tone = accountStatusTone(account.accountStatus, account.isBanned);
+          return (
+            <article key={account.uid} className="account-card">
+              <div className="account-main">
+                <div>
+                  <strong>{account.displayName || compactUid(account.uid)}</strong>
+                  <span>{account.islanderId ? `島內 ID：${account.islanderId}` : '尚未設定島內 ID'}</span>
+                </div>
+                <em style={{ color: tone }}>{accountStatusLabel(account.accountStatus, account.isBanned)}</em>
+              </div>
+              <div className="account-identity">
+                <div>
+                  <span>Firebase UID</span>
+                  <code>{account.uid}</code>
+                </div>
+                <div>
+                  <span>Email</span>
+                  <code>{account.email ? `${account.email}${account.emailVerified ? ' / 已驗證' : ' / 未驗證'}` : 'Firebase Auth 未提供'}</code>
+                </div>
+              </div>
+              <div className="account-stat-grid">
+                <div><span>貼文</span><strong>{account.postCount}</strong></div>
+                <div><span>留言</span><strong>{account.commentCount}</strong></div>
+                <div><span>回覆</span><strong>{account.replyCount}</strong></div>
+                <div><span>最高風險</span><strong>{Math.round(account.maxRisk)}</strong></div>
+              </div>
+              <div className="account-meta">
+                <span>角色：{account.role || 'user'}</span>
+                <span>加入日期：{fullTimeText(account.createdAt || account.authCreatedAt)}</span>
+                <span>最後活動：{fullTimeText(account.lastSeenAt || account.authLastSignInAt)}</span>
+                <span>最後 IP：{account.lastIpAddress || '未記錄'}{account.lastIpKey ? ` / key ${account.lastIpKey}` : ''}</span>
+                <span>IP 時間：{fullTimeText(account.lastIpAt)}</span>
+                <span>狀態碼：{account.accountStatus || 'normal'}</span>
+                <span>Auth：{account.authDisabled ? 'disabled' : 'enabled'}</span>
+              </div>
+              {account.reason && <p>{account.reason}</p>}
+              <div className="account-actions">
+                <button disabled={Boolean(busy) || isStationMaster || account.accountStatus === 'watch'} onClick={() => void run(account, 'watch')}>觀察</button>
+                <button disabled={Boolean(busy) || isStationMaster || account.accountStatus !== 'watch'} onClick={() => void run(account, 'clear_watch')}>解除觀察</button>
+                <button disabled={Boolean(busy) || isStationMaster || account.accountStatus === 'posting_suspended'} onClick={() => void run(account, 'suspend_posting')}>暫停發文</button>
+                <button disabled={Boolean(busy) || isStationMaster || account.accountStatus !== 'posting_suspended'} onClick={() => void run(account, 'restore_posting')}>恢復發文</button>
+                <button className="danger" disabled={Boolean(busy) || isStationMaster || account.isBanned} onClick={() => void run(account, 'ban')}>停權</button>
+                <button disabled={Boolean(busy) || isStationMaster || !account.isBanned} onClick={() => void run(account, 'unban')}>解除停權</button>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
 }
 
 function App() {
-  const [user, setUser] = React.useState<User | null>(null);
-  const [authReady, setAuthReady] = React.useState(false);
-  const [mode, setMode] = React.useState<GraphMode>('social');
-  const [caseFilter, setCaseFilter] = React.useState<CaseStatusFilter>('active');
-  const [selectedCaseId, setSelectedCaseId] = React.useState<string | null>(null);
-  const [actionState, setActionState] = React.useState<{ caseId: string; action: RangerAction } | null>(null);
-  const [contentActionState, setContentActionState] = React.useState<{ itemId: string; action: ContentAction } | null>(null);
-  const [scanLimit, setScanLimit] = React.useState(60);
-  const [data, setData] = React.useState<LabData>(EMPTY_DATA);
+  const { user, ready, message, login } = useStationAuth();
+  const [items, setItems] = React.useState<SiteItem[]>([]);
+  const [cases, setCases] = React.useState<ModerationCase[]>([]);
+  const [reports, setReports] = React.useState<ReportItem[]>([]);
+  const [accounts, setAccounts] = React.useState<AccountItem[]>([]);
+  const [activeDrawer, setActiveDrawer] = React.useState<DrawerKey>('cockpit');
+  const [selectedCaseId, setSelectedCaseId] = React.useState('');
+  const [selectedContentPath, setSelectedContentPath] = React.useState('');
   const [isLoading, setIsLoading] = React.useState(false);
-  const [isSigningIn, setIsSigningIn] = React.useState(false);
-  const [authMessage, setAuthMessage] = React.useState('');
+  const [isLoadingAccounts, setIsLoadingAccounts] = React.useState(false);
   const [lastLoadedAt, setLastLoadedAt] = React.useState<Date | null>(null);
-  const [liveStatus, setLiveStatus] = React.useState('即時監看準備中');
-  const isLoadInFlightRef = React.useRef(false);
-  const queuedLoadRef = React.useRef(false);
-  const queuedReasonRef = React.useRef('背景同步');
-  const liveRefreshTimerRef = React.useRef<number | null>(null);
+  const [consoleLines, setConsoleLines] = React.useState<string[]>(['後台已啟動，等待站長登入。']);
 
-  React.useEffect(() => {
-    let settled = false;
-    const timer = window.setTimeout(() => {
-      if (settled) return;
-      setAuthReady(true);
-      setAuthMessage('登入狀態確認較久，已先啟動本地後台；若 AI 案件仍未出現，請重新登入站長帳號。');
-    }, 3500);
+  const isStationMaster = ready && user?.uid === STATION_MASTER_UID;
 
-    const unsubscribe = onAuthStateChanged(auth, nextUser => {
-      settled = true;
-      window.clearTimeout(timer);
-      setUser(nextUser);
-      setAuthReady(true);
-      if (nextUser) setAuthMessage('');
-    });
-
-    return () => {
-      settled = true;
-      window.clearTimeout(timer);
-      unsubscribe();
-    };
+  const pushLog = React.useCallback((line: string) => {
+    setConsoleLines(previous => [line, ...previous].slice(0, 8));
   }, []);
 
-  React.useEffect(() => {
-    void getRedirectResult(auth).catch(error => {
-      setAuthMessage(formatAuthError(error));
-    });
-  }, []);
-
-  React.useEffect(() => {
-    if (!authReady || !user || user.uid === STATION_MASTER_UID) return;
-    setAuthMessage(`此 Google 帳號沒有站長權限，已拒絕進入：${user.email || compactUid(user.uid)}`);
-    void signOut(auth);
-  }, [authReady, user]);
-
-  const loadData = React.useCallback(async (reason = '手動刷新') => {
-    if (isLoadInFlightRef.current) {
-      queuedLoadRef.current = true;
-      queuedReasonRef.current = reason;
-      setLiveStatus(`${reason} 已排入下一輪同步`);
-      return;
-    }
-
-    isLoadInFlightRef.current = true;
+  const reloadSiteItems = React.useCallback(async () => {
     setIsLoading(true);
-    setLiveStatus(`${reason}中...`);
     try {
-      const nextData = await withTimeout(collectLabData(scanLimit), 18000, '本地掃描');
-      setData(nextData);
+      const nextItems = await loadSiteItems();
+      setItems(nextItems.sort((a, b) => b.currentRiskScore - a.currentRiskScore || toMillis(b.createdAt) - toMillis(a.createdAt)));
       setLastLoadedAt(new Date());
-      setLiveStatus('即時監看中');
+      pushLog(`已讀取全站內容 ${nextItems.length} 筆。`);
     } catch (error) {
-      console.error(error);
-      setLiveStatus('同步失敗，等待下一輪更新');
-      setData(previous => ({
-        ...previous,
-        consoleLines: ['掃描失敗，請檢查 Firebase 權限與網路。', String(error)],
-      }));
+      pushLog(`讀取全站內容失敗：${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setIsLoading(false);
-      isLoadInFlightRef.current = false;
-      if (queuedLoadRef.current) {
-        const nextReason = queuedReasonRef.current;
-        queuedLoadRef.current = false;
-        window.setTimeout(() => void loadData(nextReason), 350);
-      }
     }
-  }, [scanLimit]);
+  }, [pushLog]);
+
+  const reloadAccounts = React.useCallback(async () => {
+    setIsLoadingAccounts(true);
+    try {
+      const nextAccounts = await loadAccountItems();
+      setAccounts(nextAccounts);
+      pushLog(`已讀取帳號 ${nextAccounts.length} 筆。`);
+    } catch (error) {
+      pushLog(`讀取帳號抽屜失敗：${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setIsLoadingAccounts(false);
+    }
+  }, [pushLog]);
 
   React.useEffect(() => {
-    if (!authReady || user?.uid !== STATION_MASTER_UID) return;
-    void loadData('初始同步');
-  }, [authReady, user?.uid, loadData]);
-
-  React.useEffect(() => {
-    if (!authReady || user?.uid !== STATION_MASTER_UID) return;
-
-    const scheduleLiveRefresh = (reason: string, delay = 900) => {
-      setLiveStatus(`${reason}，等待同步`);
-      if (liveRefreshTimerRef.current) {
-        window.clearTimeout(liveRefreshTimerRef.current);
-      }
-      liveRefreshTimerRef.current = window.setTimeout(() => {
-        liveRefreshTimerRef.current = null;
-        void loadData(reason);
-      }, delay);
-    };
-
-    const unsubscribeList: Array<() => void> = [];
-
-    let skippedInitialPosts = false;
-    unsubscribeList.push(onSnapshot(
-      query(collection(db, 'posts'), orderBy('createdAt', 'desc'), firestoreLimit(scanLimit)),
-      () => {
-        if (!skippedInitialPosts) {
-          skippedInitialPosts = true;
-          setLiveStatus('即時監看中');
-          return;
-        }
-        scheduleLiveRefresh('前台內容更新');
-      },
-      error => {
-        console.warn('Posts live listener failed:', error);
-        setLiveStatus(`前台監看暫停：${formatReadError(error)}`);
-      },
-    ));
-
-    let skippedInitialCases = false;
-    unsubscribeList.push(onSnapshot(
-      query(collection(db, 'moderationCases'), orderBy('createdAt', 'desc'), firestoreLimit(80)),
-      () => {
-        if (!skippedInitialCases) {
-          skippedInitialCases = true;
-          setLiveStatus('站長案件監看中');
-          return;
-        }
-        scheduleLiveRefresh('AI 案件更新');
-      },
-      error => {
-        console.warn('Moderation cases live listener failed:', error);
-        setLiveStatus(`AI 案件監看暫停：${formatReadError(error)}`);
-      },
-    ));
-
-    const intervalId = window.setInterval(() => {
-      scheduleLiveRefresh('定時同步', 250);
-    }, 30000);
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        scheduleLiveRefresh('回到後台', 250);
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
+    if (!isStationMaster) return undefined;
+    void reloadSiteItems();
+    void reloadAccounts();
+    const timer = window.setInterval(() => void reloadSiteItems(), 45000);
+    const accountTimer = window.setInterval(() => void reloadAccounts(), 90000);
     return () => {
-      unsubscribeList.forEach(unsubscribe => unsubscribe());
-      window.clearInterval(intervalId);
-      if (liveRefreshTimerRef.current) {
-        window.clearTimeout(liveRefreshTimerRef.current);
-        liveRefreshTimerRef.current = null;
-      }
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.clearInterval(timer);
+      window.clearInterval(accountTimer);
     };
-  }, [authReady, user?.uid, scanLimit, loadData]);
-
-  const nodes = mode === 'social' ? data.socialNodes : data.topicNodes;
-  const links = mode === 'social' ? data.socialLinks : data.topicLinks;
-  const highestRisk = Math.max(0, ...data.patrolFeed.map(item => Number(item.riskScore || 0)));
-  const filteredCases = data.patrolFeed.filter(item => matchesCaseFilter(item, caseFilter));
-  const selectedCase = data.patrolFeed.find(item => item.id === selectedCaseId) || filteredCases[0] || null;
-  const activeCaseCount = data.patrolFeed.filter(isActiveCase).length;
-  const highRiskCaseCount = data.patrolFeed.filter(item => {
-    const level = ['critical', 'high', 'medium', 'low'].includes(String(item.riskLevel))
-      ? String(item.riskLevel)
-      : getRiskLevelFromScore(Number(item.riskScore || 0));
-    return level === 'critical' || level === 'high';
-  }).length;
+  }, [isStationMaster, reloadAccounts, reloadSiteItems]);
 
   React.useEffect(() => {
-    if (!selectedCaseId && filteredCases[0]) {
-      setSelectedCaseId(filteredCases[0].id);
-    }
-    if (selectedCaseId && !data.patrolFeed.some(item => item.id === selectedCaseId)) {
-      setSelectedCaseId(filteredCases[0]?.id || null);
-    }
-  }, [data.patrolFeed, filteredCases, selectedCaseId]);
+    if (!isStationMaster) return undefined;
+    const caseQuery = query(collection(db, 'moderationCases'), orderBy('updatedAt', 'desc'), firestoreLimit(160));
+    return onSnapshot(caseQuery, snapshot => {
+      const nextCases = snapshot.docs
+        .map(docSnap => ({ id: docSnap.id, ...docSnap.data() }) as ModerationCase)
+        .sort((a, b) => casePriority(b) - casePriority(a));
+      setCases(nextCases);
+      setSelectedCaseId(current => current || nextCases[0]?.id || '');
+    }, error => pushLog(`治理案件讀取失敗：${error.message}`));
+  }, [isStationMaster, pushLog]);
 
-  const handleLogin = React.useCallback(async () => {
-    setAuthMessage('');
-    if (window.location.hostname === '127.0.0.1') {
-      const port = window.location.port || '4321';
-      const nextUrl = `http://localhost:${port}${window.location.pathname}${window.location.search}${window.location.hash}`;
-      setAuthMessage('Google 登入需要使用 localhost，正在切換網址。');
-      window.location.assign(nextUrl);
-      return;
-    }
+  React.useEffect(() => {
+    if (!isStationMaster) return undefined;
+    const reportQuery = query(collection(db, 'reports'), orderBy('createdAt', 'desc'), firestoreLimit(80));
+    return onSnapshot(reportQuery, snapshot => {
+      setReports(snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }) as ReportItem));
+    }, error => pushLog(`檢舉通報讀取失敗：${error.message}`));
+  }, [isStationMaster, pushLog]);
 
-    setIsSigningIn(true);
-    try {
-      await signInWithPopup(auth, provider);
-    } catch (error) {
-      if (getAuthErrorCode(error) === 'auth/popup-blocked') {
-        setAuthMessage(formatAuthError(error));
-        await signInWithRedirect(auth, provider);
-        return;
-      }
-      setAuthMessage(formatAuthError(error));
-    } finally {
-      setIsSigningIn(false);
-    }
-  }, []);
+  const selectedCase = React.useMemo(
+    () => cases.find(item => item.id === selectedCaseId) || cases[0] || null,
+    [cases, selectedCaseId],
+  );
 
-  const runCaseAction = React.useCallback(async (caseItem: PatrolCase, action: RangerAction) => {
-    if (!user) return;
+  const riskCounts = React.useMemo(() => {
+    const counts: Record<RiskLevel, number> = { low: 0, medium: 0, high: 0, critical: 0 };
+    items.forEach(item => { counts[item.currentRiskLabel] += 1; });
+    cases.forEach(item => { counts[item.riskLevel || riskFromScore(Number(item.riskScore || 0))] += 1; });
+    return counts;
+  }, [items, cases]);
 
-    const actionLabel = getActionLabel(action);
-
-    if ((action === 'remove' || action === 'release') && !window.confirm(`確定要「${actionLabel}」案件 ${caseItem.publicCaseId || caseItem.id} 嗎？`)) {
-      return;
-    }
-
-    setActionState({ caseId: caseItem.id, action });
-    try {
-      const callable = httpsCallable(functions, 'rangerModerationAction');
-      await callable({ caseId: caseItem.id, action });
-      setData(previous => ({
-        ...previous,
-        consoleLines: [
-          `已完成「${actionLabel}」：${caseItem.publicCaseId || caseItem.id}。`,
-          ...previous.consoleLines,
-        ].slice(0, 8),
-      }));
-      await loadData('處置後同步');
-    } catch (error) {
-      console.error(error);
-      setData(previous => ({
-        ...previous,
-        consoleLines: [
-          `執行「${actionLabel}」失敗：${caseItem.publicCaseId || caseItem.id}。`,
-          String(error),
-          ...previous.consoleLines,
-        ].slice(0, 8),
-      }));
-    } finally {
-      setActionState(null);
-    }
-  }, [loadData, user]);
-
-  const runContentAction = React.useCallback(async (item: ContentWatchItem, action: ContentAction) => {
-    if (!user || user.uid !== STATION_MASTER_UID) return;
-
-    const sourceLabel = getSourceLabel(item.sourceType);
-    let reason = '';
-
-    if (action === 'hide') {
-      const input = window.prompt(`請輸入遮蔽這筆${sourceLabel}的原因：`, item.judgement);
-      if (!input || !input.trim()) return;
-      reason = input.trim().slice(0, 240);
-    }
-
-    if (action === 'delete' && !window.confirm(`確定要完全移除這筆${sourceLabel}嗎？\n\n這會刪除目標文件，前台不會再顯示墓碑。\n\n${item.contentPreview.slice(0, 90)}`)) {
-      return;
-    }
-
-    setContentActionState({ itemId: item.id, action });
-    try {
-      const callable = httpsCallable(functions, 'rangerContentAction');
-      await callable({
-        sourcePath: item.sourcePath,
-        action,
-        reason,
+  const accountsWithStats = React.useMemo(() => {
+    const stats = new Map<string, { postCount: number; commentCount: number; replyCount: number; maxRisk: number }>();
+    items.forEach(item => {
+      if (!item.authorId) return;
+      const next = stats.get(item.authorId) || { postCount: 0, commentCount: 0, replyCount: 0, maxRisk: 0 };
+      if (item.sourceType === 'post') next.postCount += 1;
+      if (item.sourceType === 'comment') next.commentCount += 1;
+      if (item.sourceType === 'reply') next.replyCount += 1;
+      next.maxRisk = Math.max(next.maxRisk, item.currentRiskScore);
+      stats.set(item.authorId, next);
+    });
+    return accounts
+      .map(account => ({ ...account, ...(stats.get(account.uid) || {}) }))
+      .sort((a, b) => {
+        const bWeight = (b.isBanned ? 1000 : 0) + (b.accountStatus !== 'normal' ? 300 : 0) + b.maxRisk;
+        const aWeight = (a.isBanned ? 1000 : 0) + (a.accountStatus !== 'normal' ? 300 : 0) + a.maxRisk;
+        return bWeight - aWeight;
       });
-      const actionLabel = action === 'hide' ? '已遮蔽' : '已完全移除';
-      setData(previous => ({
-        ...previous,
-        consoleLines: [
-          `${actionLabel}：${item.sourcePath}。`,
-          ...previous.consoleLines,
-        ].slice(0, 8),
-      }));
-      await loadData(action === 'hide' ? '遮蔽後同步' : '完全移除後同步');
-    } catch (error) {
-      console.error(error);
-      setData(previous => ({
-        ...previous,
-        consoleLines: [
-          `${action === 'hide' ? '遮蔽' : '完全移除'}失敗：${item.sourcePath}。`,
-          String(error),
-          ...previous.consoleLines,
-        ].slice(0, 8),
-      }));
-    } finally {
-      setContentActionState(null);
-    }
-  }, [loadData, user]);
+  }, [accounts, items]);
 
-  if (!authReady || user?.uid !== STATION_MASTER_UID) {
-    return (
-      <AccessGate
-        user={user}
-        authReady={authReady}
-        isSigningIn={isSigningIn}
-        authMessage={authMessage}
-        onLogin={() => void handleLogin()}
-      />
-    );
+  const contentSourcePaths = React.useMemo(
+    () => new Set(items.map(item => item.sourcePath).filter(Boolean)),
+    [items],
+  );
+
+  const drawerCounts: Record<DrawerKey, number> = {
+    cockpit: riskCounts.high + riskCounts.critical,
+    accounts: accountsWithStats.length,
+    articles: items.length,
+    reports: reports.length,
+    aiSheet: items.length,
+    cases: cases.length,
+  };
+
+  const runCaseAction = async (item: ModerationCase, action: CaseAction) => {
+    const callable = httpsCallable(functions, 'rangerModerationAction');
+    await callable({ caseId: item.id, action, adminNote: '站長於本地後台處理。' });
+    pushLog(`案件 ${item.publicCaseId || item.id} 已執行 ${action}。`);
+  };
+
+  const runContentAction = async (item: SiteItem, action: ContentAction) => {
+    const callable = httpsCallable(functions, 'rangerContentAction');
+    await callable({ sourcePath: item.sourcePath, action, reason: '站長於本地後台處理。' });
+    pushLog(`${sourceLabel(item.sourceType)} ${item.sourcePath} 已執行 ${action}。`);
+    await reloadSiteItems();
+  };
+
+  const runAccountAction = async (account: AccountItem, action: AccountAction, reason: string) => {
+    const callable = httpsCallable(functions, 'rangerAccountAction');
+    await callable({ uid: account.uid, action, reason });
+    pushLog(`帳號 ${account.displayName || compactUid(account.uid)} 已執行 ${action}。`);
+  };
+
+  const syncReport = async (report: ReportItem) => {
+    const callable = httpsCallable(functions, 'rangerSyncReportCase');
+    await callable({ reportId: report.id, sourcePath: sourcePathFromReport(report) });
+    pushLog(`檢舉 ${report.id} 已同步成治理案件。`);
+  };
+
+  const viewReportTarget = (sourcePath: string) => {
+    setSelectedContentPath(sourcePath);
+    setActiveDrawer('articles');
+    pushLog(`已切到文章抽屜查看目標：${sourcePath}`);
+  };
+
+  if (!isStationMaster) {
+    return <AccessGate user={user} ready={ready} message={message} onLogin={() => void login()} />;
   }
 
   return (
-    <main className="lab-root">
+    <main className={`lab-root drawer-${activeDrawer}`}>
       <div className="hud-grid" />
       <header className="topbar">
         <div className="brand">
-          <div className="brand-orb"><Cpu size={22} /></div>
+          <div className="brand-orb"><Shield size={22} /></div>
           <div>
             <p>MATSU STATION</p>
             <h1>AI 游騎兵本地後台</h1>
           </div>
         </div>
         <div className="top-actions">
-          <span className="local-badge">本機限定</span>
-          <span className="local-badge live-badge">{liveStatus}</span>
-          {user ? (
-            <>
-              <span className="user-chip"><UserCircle2 size={15} />{user.displayName || user.email}</span>
-              <button onClick={() => void signOut(auth)}>登出</button>
-            </>
-          ) : (
-            <button className="primary" disabled={isSigningIn} onClick={() => void handleLogin()}>
-              {isSigningIn ? '登入中...' : 'Google 登入'}
-            </button>
-          )}
+          <span className="local-badge">本機站長後台</span>
+          <span className="local-badge live-badge">即時同步</span>
+          <span className="local-badge">更新 {lastLoadedAt ? lastLoadedAt.toLocaleTimeString('zh-TW') : '待命'}</span>
+          <span className="user-chip">{user?.displayName || user?.email}</span>
+          <button onClick={() => void signOut(auth)}><LogOut size={15} /> 登出</button>
         </div>
       </header>
-      {authMessage && <div className="auth-message">{authMessage}</div>}
-      <OpsDeck metrics={data.opsMetrics} />
 
-      <section className="lab-layout">
-        <aside className="panel left-panel">
-          <div className="panel-title">
-            <Radar size={18} />
-            <span>游騎兵遙測</span>
-          </div>
-          <div className="metric-grid">
-            <div><strong>{data.postsScanned}</strong><span>掃描貼文</span></div>
-            <div><strong>{data.interactions}</strong><span>互動連線</span></div>
-            <div><strong>{data.usersSeen}</strong><span>島民節點</span></div>
-            <div><strong>{data.topicCount}</strong><span>話題節點</span></div>
-          </div>
+      <section className="ops-strip">
+        <MetricCard label="全站內容" value={items.length} hint="貼文、留言、回覆總數" />
+        <MetricCard label="治理案件" value={cases.length} hint="moderationCases 即時同步" tone="#facc15" />
+        <MetricCard label="檢舉通報" value={reports.length} hint="reports collection" tone="#ff7a18" />
+        <MetricCard label="高風險" value={riskCounts.high + riskCounts.critical} hint="高與極高風險合計" tone="#ff2d55" />
+      </section>
 
-          <div className="connection-card">
-            <span>Firebase 連線</span>
-            <strong>{firebaseConfig.projectId}</strong>
-            <em>{firebaseConfig.firestoreDatabaseId || '(default)'}</em>
-            <p>
-              {!authReady
-                ? '正在確認登入狀態...'
-                : !user
-                  ? '目前使用公開讀取掃描；請登入站長帳號解鎖 AI 案件。'
-                  : user.uid === STATION_MASTER_UID
-                    ? '站長帳號已登入；可讀 AI 案件與執行處置。'
-                    : `目前登入的不是站長帳號：${user.email || compactUid(user.uid)}`}
-            </p>
-          </div>
-
-          <div className="control-block">
-            <label>圖譜模式</label>
-            <div className="segmented">
-              <button className={mode === 'social' ? 'active' : ''} onClick={() => setMode('social')}>
-                <Network size={15} /> 島民網絡
-              </button>
-              <button className={mode === 'topics' ? 'active' : ''} onClick={() => setMode('topics')}>
-                <Tags size={15} /> 話題脈絡
-              </button>
-            </div>
-          </div>
-
-          <div className="control-block">
-            <label>掃描深度：{scanLimit} 篇貼文</label>
-            <input
-              type="range"
-              min="20"
-              max="140"
-              step="20"
-              value={scanLimit}
-              onChange={event => setScanLimit(Number(event.target.value))}
-            />
-          </div>
-
-          <button className="wide-action" disabled={isLoading} onClick={() => void loadData()}>
-            <RefreshCw size={16} className={isLoading ? 'spin' : ''} />
-            {isLoading ? '掃描中' : '重新掃描'}
+      <section className="panel left-panel">
+        <div className="panel-title"><Activity size={18} /><span>站務狀態</span></div>
+        <div className="risk-stack">
+          {(['critical', 'high', 'medium', 'low'] as RiskLevel[]).map(level => (
+            <div key={level}><span style={{ color: riskTone(level) }}>{riskLabel(level)}</span><strong>{riskCounts[level]}</strong></div>
+          ))}
+        </div>
+        <div className="case-actions">
+          <button className="wide-action" disabled={isLoading} onClick={() => void reloadSiteItems()}>
+            {isLoading ? <Loader2 size={16} className="spin" /> : <RefreshCw size={16} />}
+            重新整理後台資料
           </button>
-
-          <div className="risk-stack">
-            {(['critical', 'high', 'medium', 'low'] as const).map(level => (
-              <div key={level}>
-                <span style={{ color: getRiskTone(level) }}>{getRiskLabel(level)}</span>
-                <strong>{data.riskCounts[level] || 0}</strong>
-              </div>
-            ))}
-          </div>
-
-          <div className="mission-note">
-            <TerminalSquare size={15} />
-            <p>本地後台只跑在你的電腦上。公開前台不會顯示這些站長操作。</p>
-          </div>
-        </aside>
-
-        <section className="graph-panel">
-          <div className="graph-status">
-            <span><Eye size={15} /> {mode === 'social' ? '力導向島民互動圖' : '話題語意脈絡圖'}</span>
-            <span>{nodes.length} 節點 / {links.length} 連線</span>
-          </div>
-          <div className="graph-legend" aria-label="圖例">
-            <span><i style={{ background: '#ff2d55' }} />極高 90+</span>
-            <span><i style={{ background: '#ff7a18' }} />高 70-89</span>
-            <span><i style={{ background: '#facc15' }} />中 35-69</span>
-            <span><i className="rainbow-dot" />低風險：冷色分群</span>
-            <span><i className="station-dot" />站長節點</span>
-          </div>
-          <ForceGraph nodes={nodes} links={links} mode={mode} />
-        </section>
-
-        <aside className="panel right-panel">
-          <div className="panel-title">
-            <Shield size={18} />
-            <span>AI 巡邏案件</span>
-          </div>
-          <div className="threat-card">
-            <span>最高風險</span>
-            <strong>{highestRisk}</strong>
-            <em>/100</em>
-          </div>
-
-          <div className="case-filter">
-            <Filter size={14} />
-            {(['active', 'all', 'fight', 'escalated', 'downgraded', 'pending', 'quarantined', 'released', 'removed'] as CaseStatusFilter[]).map(filter => (
-              <button
-                key={filter}
-                className={caseFilter === filter ? 'active' : ''}
-                onClick={() => setCaseFilter(filter)}
-              >
-                {filter === 'active'
-                  ? '處理中'
-                  : filter === 'all'
-                    ? '全部'
-                    : filter === 'fight' || filter === 'escalated'
-                      ? getGovernanceLabel(filter)
-                      : getStatusLabel(filter)}
-              </button>
-            ))}
-          </div>
-
-          <div className="case-summary-strip">
-            <div>
-              <span>處理中</span>
-              <strong>{activeCaseCount}</strong>
-            </div>
-            <div>
-              <span>目前顯示</span>
-              <strong>{filteredCases.length}</strong>
-            </div>
-          </div>
-
-          <div className="feed-list">
-            {filteredCases.length ? filteredCases.slice(0, 12).map(item => (
-              <button
-                key={item.id}
-                className={`feed-item case-card ${selectedCase?.id === item.id ? 'selected' : ''}`}
-                onClick={() => setSelectedCaseId(item.id)}
-              >
-                <div>
-                  <span style={{ color: getRiskTone(item.riskLevel) }}>{getRiskLabel(item.riskLevel)}</span>
-                  <em>{item.publicCaseId || item.id.slice(0, 12)}</em>
-                </div>
-                <small>
-                  {getSourceLabel(item.sourceType)} / {getStatusLabel(item.status)} / {getGovernanceLabel(item.aiGovernanceMode)}
-                  {item.fightMode ? ' / FIGHT' : ''}
-                </small>
-                <p>{item.summary || item.contentPreview || 'AI 案件尚無摘要'}</p>
-              </button>
-            )) : (
-              <div className="empty-feed">
-                <Activity size={22} />
-                <p>
-                  {!authReady
-                    ? '正在確認登入狀態，稍後會自動讀取 AI 案件。'
-                    : data.caseReadError
-                      ? `AI 案件讀取失敗：${data.caseReadError}`
-                      : !user
-                        ? '請先登入站長帳號以讀取 AI 案件。'
-                        : user.uid !== STATION_MASTER_UID
-                          ? '目前登入的不是站長帳號，無法讀取全部 AI 案件。'
-                          : '站長權限已確認，但目前沒有可顯示的 AI 案件。請確認後端巡邏功能已產生 moderationCases。'}
-                </p>
-              </div>
-            )}
-          </div>
-        </aside>
+        </div>
       </section>
 
-      <section className="insight-grid">
-        <RiskTimeline buckets={data.riskTimeline} />
-        <CategoryRadar metrics={data.categoryMetrics} />
-        <CommanderBrief
-          selectedCase={selectedCase}
-          activeCaseCount={activeCaseCount}
-          highRiskCaseCount={highRiskCaseCount}
-          fightContentCount={data.fightContentCount}
-        />
-      </section>
+      <DrawerCabinet activeDrawer={activeDrawer} counts={drawerCounts} onChange={setActiveDrawer} />
 
-      <ContentWatchDesk
-        items={data.contentItems}
-        actionState={contentActionState}
-        onAction={(item, action) => void runContentAction(item, action)}
-      />
+      {activeDrawer === 'accounts' && (
+        <AccountDrawer accounts={accountsWithStats} onReload={reloadAccounts} onAction={runAccountAction} />
+      )}
 
-      <section className="case-inspector">
-        {selectedCase ? (
-          <>
-            <div className="case-inspector-head">
-              <div>
-                <span className="eyebrow">案件檢視</span>
-                <h2>{selectedCase.publicCaseId || selectedCase.id}</h2>
-              </div>
-              <div className="case-badges">
-                <span style={{ borderColor: getRiskTone(selectedCase.riskLevel), color: getRiskTone(selectedCase.riskLevel) }}>
-                  {getRiskLabel(selectedCase.riskLevel)} {Math.round(Number(selectedCase.riskScore || 0))}/100
-                </span>
-                <span>{getSourceLabel(selectedCase.sourceType)}</span>
-                <span>{getStatusLabel(selectedCase.status)}</span>
-                <span>{getGovernanceLabel(selectedCase.aiGovernanceMode)}</span>
-                {selectedCase.fightMode && <span>FIGHT</span>}
-              </div>
-            </div>
-
-            <div className="case-detail-grid">
-              <div className="case-text">
-                <label>AI 摘要</label>
-                <p>{selectedCase.summary || '尚無摘要。'}</p>
-              </div>
-              <div className="case-text">
-                <label>內容預覽</label>
-                <p>{selectedCase.contentPreview || selectedCase.contentSnapshot || '內容已被遮罩或尚未同步。'}</p>
-              </div>
-              <div className="case-text">
-                <label>法律風險</label>
-                <p>{selectedCase.legalRisk || '未提供。'}</p>
-              </div>
-              <div className="case-text">
-                <label>AI 建議</label>
-                <p>{selectedCase.recommendedAction || selectedCase.rationale || '未提供。'}</p>
-              </div>
-            </div>
-
-            <div className="case-meta-row">
-              <span>作者：{selectedCase.authorName || compactUid(selectedCase.authorId || '')}</span>
-              <span>分類：{selectedCase.category || '未分類'}</span>
-              <span>模式：{getGovernanceLabel(selectedCase.aiGovernanceMode)}</span>
-              {selectedCase.policyVersion && <span>規範版本：{selectedCase.policyVersion}</span>}
-              <span>路徑：{selectedCase.sourcePath || 'unknown'}</span>
-              {selectedCase.categories?.slice(0, 5).map(label => (
-                <em key={label}>{label}</em>
-              ))}
-              {selectedCase.policyRefs?.map(ref => (
-                <em key={`${selectedCase.id}-${ref.code}`}>{ref.code}：{ref.label}</em>
-              ))}
-            </div>
-
-            <div className="case-actions">
-              <button disabled={Boolean(actionState)} onClick={() => void runCaseAction(selectedCase, 'release')} className="ok">
-                <CheckCircle2 size={15} /> 放行
-              </button>
-              <button disabled={Boolean(actionState)} onClick={() => void runCaseAction(selectedCase, 'quarantine')} className="warn">
-                <FileWarning size={15} /> 隔離
-              </button>
-              <button disabled={Boolean(actionState)} onClick={() => void runCaseAction(selectedCase, 'remove')} className="danger">
-                <CircleSlash size={15} /> 移除
-              </button>
-              <button disabled={Boolean(actionState)} onClick={() => void runCaseAction(selectedCase, 'mark_reviewed')}>
-                <Gavel size={15} /> 已審
-              </button>
-              <button disabled={Boolean(actionState)} onClick={() => void runCaseAction(selectedCase, 'dismiss')}>
-                <RotateCcw size={15} /> 忽略
-              </button>
-              {actionState && (
-                <span className="action-state">
-                  <RefreshCw size={14} className="spin" />
-                  {getActionLabel(actionState.action)} / {actionState.caseId.slice(0, 10)}
-                </span>
-              )}
-            </div>
-          </>
-        ) : (
-          <div className="case-empty">
-            <AlertTriangle size={18} />
-            <span>尚未選取案件。</span>
-          </div>
-        )}
-      </section>
+      {activeDrawer === 'articles' && (
+        <ContentTable items={items} selectedPath={selectedContentPath} onAction={runContentAction} />
+      )}
+      {activeDrawer === 'reports' && (
+        <ReportsPanel reports={reports} onSync={syncReport} onViewTarget={viewReportTarget} />
+      )}
+      {activeDrawer === 'aiSheet' && <SiteSheetPanel items={items} onReload={reloadSiteItems} />}
+      {activeDrawer === 'cases' && (
+        <CasePanel cases={cases} selected={selectedCase} sourcePaths={contentSourcePaths} onSelect={setSelectedCaseId} onAction={runCaseAction} />
+      )}
 
       <footer className="console-panel">
         <div>
           <span>游騎兵主控台</span>
-          <em>{lastLoadedAt ? lastLoadedAt.toLocaleTimeString() : '待命'}</em>
+          <em>{firebaseConfig.projectId} / {firebaseConfig.firestoreDatabaseId || '(default)'}</em>
         </div>
-        <pre>{data.consoleLines.join('\n')}</pre>
+        <pre>{consoleLines.join('\n')}</pre>
       </footer>
     </main>
   );
