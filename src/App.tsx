@@ -33,6 +33,8 @@ const DAILY_POST_LIMIT = 20;
 const DAILY_COMMENT_LIMIT = 120;
 const ANTI_ABUSE_NOTICE = '為了防止洗文、機器濫用與大量複製垃圾文，馬祖小站會限制發文頻率。';
 const LINE_OFFICIAL_URL = 'https://lin.ee/nn0RaOc';
+const MATSU_AIRPORT_URL = 'https://msa.gov.tw/';
+const TAIMA_STAR_URL = 'https://www.alsealand.com/';
 const REACTION_OPTIONS = ['❤️', '😂', '😭', '🔥', '👍', '👎', '😡', '😍', '🤔', '😮'];
 const DEFAULT_REACTION = '❤️';
 const REPORT_REASON_OPTIONS = ['人身攻擊', '誹謗/不實指控', '個資/肉搜', '威脅/暴力', '騷擾/圍剿', '詐騙', '色情/私密影像', '垃圾訊息/洗版', '其他'];
@@ -1174,7 +1176,7 @@ export default function App() {
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [discussionTarget, setDiscussionTarget] = useState<DiscussionTarget | null>(null);
-  const [weather, setWeather] = useState<{ temp: number; icon: string; text: string; wind: number; dir: string; aqi: number; vis: number; humidity: number } | null>(null);
+  const [weather, setWeather] = useState<{ temp: number; icon: string; text: string; wind: number; dir: string; vis: number | null; humidity: number | null } | null>(null);
   const [showWeatherModal, setShowWeatherModal] = useState(false);
   const [showTransportModal, setShowTransportModal] = useState<'flight' | 'ferry' | null>(null);
   const [isCopied, setIsCopied] = useState(false);
@@ -1256,6 +1258,12 @@ useEffect(() => {
           else if (code >= 51 && code <= 67) { text = '有雨'; icon = 'CloudRain'; }
           else if (code >= 71 && code <= 86) { text = '有雪'; icon = 'Snowflake'; }
           else if (code >= 95 && code <= 99) { text = '雷雨'; icon = 'CloudLightning'; }
+
+          const hourlyTimes: string[] = data.hourly?.time || [];
+          const currentIndex = hourlyTimes.indexOf(data.current_weather.time);
+          const weatherIndex = currentIndex >= 0 ? currentIndex : 0;
+          const visibilityMeters = data.hourly?.visibility?.[weatherIndex];
+          const humidityValue = data.hourly?.relativehumidity_2m?.[weatherIndex];
           
           setWeather({ 
             temp, 
@@ -1263,9 +1271,8 @@ useEffect(() => {
             text, 
             wind, 
             dir, 
-            aqi: 45 + Math.floor(Math.random() * 20), // Simulation
-            vis: 10,
-            humidity: data.hourly?.relativehumidity_2m?.[0] || 75
+            vis: typeof visibilityMeters === 'number' ? Math.round(visibilityMeters / 1000) : null,
+            humidity: typeof humidityValue === 'number' ? humidityValue : null
           });
         }
       } catch (err) {
@@ -4519,8 +4526,8 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                   <span className="text-xl font-mono font-bold text-text-main">{weather.temp}°C</span>
                 </div>
                 <div className="p-4 rounded-2xl bg-mist border border-line">
-                  <span className="text-[0.625rem] text-text-muted font-bold uppercase tracking-widest block mb-1">空氣品質</span>
-                  <span className={`text-xl font-mono font-bold ${weather.aqi < 50 ? 'text-emerald-400' : 'text-amber-400'}`}>{weather.aqi} AQI</span>
+                  <span className="text-[0.625rem] text-text-muted font-bold uppercase tracking-widest block mb-1">天氣概況</span>
+                  <span className="text-xl font-bold text-text-main">{weather.text}</span>
                 </div>
                 <div className="p-4 rounded-2xl bg-mist border border-line">
                   <span className="text-[0.625rem] text-text-muted font-bold uppercase tracking-widest block mb-1">目前風向</span>
@@ -4532,11 +4539,11 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                 </div>
                 <div className="p-4 rounded-2xl bg-mist border border-line">
                   <span className="text-[0.625rem] text-text-muted font-bold uppercase tracking-widest block mb-1">相對濕度</span>
-                  <span className="text-xl font-mono font-bold text-text-main">{weather.humidity}%</span>
+                  <span className="text-xl font-mono font-bold text-text-main">{weather.humidity != null ? `${weather.humidity}%` : '查詢中'}</span>
                 </div>
                 <div className="p-4 rounded-2xl bg-mist border border-line">
                   <span className="text-[0.625rem] text-text-muted font-bold uppercase tracking-widest block mb-1">能見度</span>
-                  <span className="text-xl font-bold text-text-main flex items-center gap-1"><Eye className="w-4 h-4 text-bio-glow" /> 10KM+</span>
+                  <span className="text-xl font-bold text-text-main flex items-center gap-1"><Eye className="w-4 h-4 text-bio-glow" /> {weather.vis != null ? `${weather.vis} KM` : '查詢中'}</span>
                 </div>
               </div>
 
@@ -4551,7 +4558,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                       <p className="text-[0.6875rem] text-indigo-400/60">Nangan Airport Ceiling</p>
                     </div>
                   </div>
-                  <span className="text-lg font-mono font-bold text-text-main">20,000 FT</span>
+                  <span className="text-right text-xs font-bold leading-relaxed text-text-muted">以航空站<br />公告為準</span>
                 </div>
 
                 <div className="p-5 rounded-2xl bg-blue-500/5 border border-blue-500/10 flex items-center justify-between">
@@ -4564,13 +4571,13 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                       <p className="text-[0.6875rem] text-blue-400/60">Beigan Airport Ceiling</p>
                     </div>
                   </div>
-                  <span className="text-lg font-mono font-bold text-text-main">20,000 FT</span>
+                  <span className="text-right text-xs font-bold leading-relaxed text-text-muted">以航空站<br />公告為準</span>
                 </div>
               </div>
 
               <div className="mt-8 text-center">
                 <p className="text-[0.625rem] text-text-muted opacity-60 font-mono italic">
-                  資料來源：中央氣象署與天氣服務 • 每 10 分鐘自動更新
+                  氣象基礎資料由天氣服務估算；飛航條件請以馬祖航空站公告為準
                 </p>
               </div>
             </motion.div>
@@ -4608,9 +4615,9 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                   {showTransportModal === 'flight' ? <Plane className="w-8 h-8 text-indigo-400" /> : <Ship className="w-8 h-8 text-emerald-400" />}
                 </div>
                 <div>
-                  <h2 className="text-2xl font-bold text-text-main">{showTransportModal === 'flight' ? '馬祖空運即時狀態' : '馬祖海運即時狀態'}</h2>
+                  <h2 className="text-2xl font-bold text-text-main">{showTransportModal === 'flight' ? '馬祖空運官方查詢' : '馬祖海運官方查詢'}</h2>
                   <p className="text-text-muted text-sm font-mono uppercase tracking-widest flex items-center gap-2">
-                    <Activity className="w-3 h-3 text-bio-glow" /> {new Date().toLocaleTimeString('zh-TW')} 更新
+                    <Activity className="w-3 h-3 text-bio-glow" /> {new Date().toLocaleTimeString('zh-TW')} 開啟
                   </p>
                 </div>
               </div>
@@ -4623,9 +4630,9 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                             <span className="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-400 text-[0.625rem] font-bold">LZN</span>
                             <span className="text-sm font-bold text-text-main">南竿機場 (Nangan)</span>
                          </div>
-                         <span className="flex items-center gap-1.5 text-xs text-emerald-400 font-bold">
-                            <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                             正常起降
+                         <span className="flex items-center gap-1.5 text-xs text-amber-300 font-bold">
+                            <Info className="h-3.5 w-3.5" />
+                            以官方為準
                          </span>
                       </div>
                       <div className="flex items-center justify-between">
@@ -4633,32 +4640,21 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                             <span className="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-400 text-[0.625rem] font-bold">MFK</span>
                             <span className="text-sm font-bold text-text-main">北竿機場 (Beigan)</span>
                          </div>
-                         <span className="flex items-center gap-1.5 text-xs text-emerald-400 font-bold">
-                            <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                             正常起降
+                         <span className="flex items-center gap-1.5 text-xs text-amber-300 font-bold">
+                            <Info className="h-3.5 w-3.5" />
+                            以官方為準
                          </span>
                       </div>
                    </div>
 
-                   <div className="p-4 rounded-xl border border-white/5 bg-white/5">
-                      <h4 className="text-[0.625rem] font-bold text-text-muted uppercase tracking-widest mb-3">今日重點航班</h4>
-                      <div className="space-y-2">
-                         {[
-                           { fl: 'UN8789', to: '松山', time: '14:30', st: '準點' },
-                           { fl: 'UN8791', to: '台中', time: '15:10', st: '準點' }
-                         ].map(f => (
-                           <div key={f.fl} className="flex items-center justify-between text-xs py-1 border-b border-white/5 last:border-0">
-                              <div className="flex items-center gap-4">
-                                 <span className="font-mono text-indigo-400">{f.fl}</span>
-                                 <span className="text-text-main/80">往 {f.to}</span>
-                              </div>
-                              <div className="flex items-center gap-4">
-                                 <span className="font-mono text-text-muted">{f.time}</span>
-                                 <span className="text-emerald-400 font-bold">{f.st}</span>
-                              </div>
-                           </div>
-                         ))}
-                      </div>
+                   <div className="rounded-xl border border-amber-400/15 bg-amber-500/5 p-4">
+                      <h4 className="mb-2 flex items-center gap-2 text-xs font-bold text-amber-200">
+                        <AlertCircle className="h-4 w-4" />
+                        飛航狀態不由本站判定
+                      </h4>
+                      <p className="text-xs leading-relaxed text-text-muted">
+                        馬祖航班常受低雲、濃霧、能見度與機場關場影響。本站不硬寫準點或正常起降，請開啟馬祖航空站查看南竿、北竿即時航班。
+                      </p>
                    </div>
                 </div>
               ) : (
@@ -4669,9 +4665,9 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                             <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 text-[0.625rem] font-bold">TPE-LZN</span>
                             <span className="text-sm font-bold text-text-main">台馬之星 (基隆-馬祖)</span>
                          </div>
-                         <span className="flex items-center gap-1.5 text-xs text-emerald-400 font-bold">
-                            <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                             開航 (南竿-東引)
+                         <span className="flex items-center gap-1.5 text-xs text-amber-300 font-bold">
+                            <Info className="h-3.5 w-3.5" />
+                            以公告為準
                          </span>
                       </div>
                       <div className="flex items-center justify-between">
@@ -4679,24 +4675,35 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                             <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 text-[0.625rem] font-bold">ISL</span>
                             <span className="text-sm font-bold text-text-main">島際交通 (各離島)</span>
                          </div>
-                         <span className="flex items-center gap-1.5 text-xs text-emerald-400 font-bold">
-                            <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                             全線正常
+                         <span className="flex items-center gap-1.5 text-xs text-amber-300 font-bold">
+                            <Info className="h-3.5 w-3.5" />
+                            以公告為準
                          </span>
                       </div>
                    </div>
 
-                   <div className="p-4 rounded-xl border border-white/5 bg-white/5">
-                      <h4 className="text-[0.625rem] font-bold text-text-muted uppercase tracking-widest mb-3">最新海象公告</h4>
+                   <div className="rounded-xl border border-amber-400/15 bg-amber-500/5 p-4">
+                      <h4 className="mb-2 flex items-center gap-2 text-xs font-bold text-amber-200">
+                        <AlertCircle className="h-4 w-4" />
+                        船班會因歲修與海象異動
+                      </h4>
                       <p className="text-xs text-text-muted leading-relaxed italic">
-                        目前海象平穩，最大陣風 5 級。所有客貨輪均依航次正常行駛。
+                        本站不硬寫開航或全線正常。臺馬之星、新臺馬輪與島際船班請以船公司、訂位系統與官方公告為準。
                       </p>
                    </div>
                 </div>
               )}
 
               <div className="mt-8 flex gap-3">
-                 <button className="flex-1 py-3 bg-mist-medium hover:bg-mist text-text-main rounded-xl text-xs font-bold transition-all border border-line">官網詳情</button>
+                 <a
+                   href={showTransportModal === 'flight' ? MATSU_AIRPORT_URL : TAIMA_STAR_URL}
+                   target="_blank"
+                   rel="noreferrer"
+                   className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-line bg-mist-medium py-3 text-xs font-bold text-text-main transition-all hover:bg-mist"
+                 >
+                   官網詳情
+                   <ExternalLink className="h-3.5 w-3.5" />
+                 </a>
                  <button onClick={() => setShowTransportModal(null)} className="flex-1 py-3 bg-mist/50 hover:bg-mist text-text-muted hover:text-text-main rounded-xl text-xs font-bold transition-all border border-line">關閉視窗</button>
               </div>
             </motion.div>
