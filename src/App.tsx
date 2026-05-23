@@ -4597,7 +4597,10 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                       <p className="text-[0.6875rem] text-indigo-400/60">Nangan Airport Ceiling</p>
                     </div>
                   </div>
-                  <span className="text-right text-xs font-bold leading-relaxed text-text-main">{weather.airports?.nangan?.ceilingText || '未提供'}<br />{weather.airports?.nangan?.flightAllowed ? '符合標準' : '注意條件'}</span>
+                  <div className="text-right text-xs font-bold leading-relaxed">
+                    <div className="text-text-main">雲冪：{weather.airports?.nangan?.ceilingText || '未提供'}</div>
+                    <div className="text-text-muted">氣象門檻：{weather.airports?.nangan?.flightAllowed ? '目前未低於標準' : '注意條件'}</div>
+                  </div>
                 </div>
 
                 <div className="p-5 rounded-2xl bg-blue-500/5 border border-blue-500/10 flex items-center justify-between">
@@ -4610,7 +4613,10 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                       <p className="text-[0.6875rem] text-blue-400/60">Beigan Airport Ceiling</p>
                     </div>
                   </div>
-                  <span className="text-right text-xs font-bold leading-relaxed text-text-main">{weather.airports?.beigan?.ceilingText || '未提供'}<br />{weather.airports?.beigan?.flightAllowed ? '符合標準' : '注意條件'}</span>
+                  <div className="text-right text-xs font-bold leading-relaxed">
+                    <div className="text-text-main">雲冪：{weather.airports?.beigan?.ceilingText || '未提供'}</div>
+                    <div className="text-text-muted">氣象門檻：{weather.airports?.beigan?.flightAllowed ? '目前未低於標準' : '注意條件'}</div>
+                  </div>
                 </div>
               </div>
 
