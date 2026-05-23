@@ -3131,7 +3131,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                 <div className="flex flex-col items-start gap-0.5">
                   <span className="weather-chip-label text-[0.625rem] font-bold uppercase tracking-tighter leading-none text-left">馬祖氣象</span>
                   <span className="text-[0.75rem] font-mono font-bold text-text-main leading-none">{weather.temp != null ? `${weather.temp}°C` : '--°C'}</span>
-                  <span className="text-[0.5rem] font-mono font-bold leading-none text-text-muted">更新 {formatWeatherUpdatedAt(weather.fetchedAtIso)}</span>
+                  <span className="text-[0.5rem] font-mono font-bold leading-none text-text-muted">更新 {formatWeatherUpdatedAt(weather.fetchedAtIso)}｜約 5 分鐘</span>
                 </div>
               </motion.button>
             )}
@@ -4555,7 +4555,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                     <MapPin className="w-3 h-3" /> 南竿 / 北竿機場
                   </p>
                   <p className="mt-1 text-[0.6875rem] font-mono font-bold text-bio-glow/80">
-                    最近更新：{formatWeatherUpdatedAt(weather.fetchedAtIso, 'full')}
+                    最近更新：{formatWeatherUpdatedAt(weather.fetchedAtIso, 'full')}｜約每 5 分鐘更新
                   </p>
                 </div>
               </div>
