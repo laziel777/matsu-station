@@ -2368,7 +2368,16 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
     if (Array.isArray(directRows)) return directRows.slice(0, 10);
     return getFlightRows(airport).filter((row: any) => row.direction === direction).slice(0, 10);
   };
-  const getFerryScheduleRows = () => Array.isArray(ferryStatus?.rows) ? ferryStatus.rows.slice(0, 30) : [];
+  const getFerryScheduleRows = () => Array.isArray(ferryStatus?.rows) ? ferryStatus.rows.slice(0, 80) : [];
+  const getFerryQueryRangeText = () => {
+    const rows = getFerryScheduleRows();
+    const dates = rows
+      .flatMap((row: any) => [row.departureDate, row.arrivalDate])
+      .filter(Boolean)
+      .sort();
+    if (!dates.length) return '尚未取得查詢區間';
+    return `查詢條件：${dates[0]} ~ ${dates[dates.length - 1]}`;
+  };
   const getFerrySummaryText = () => {
     const summary = ferryStatus?.summary || {};
     const parts = [
@@ -4684,7 +4693,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="relative flex max-h-[88vh] w-full max-w-lg flex-col glass-card rounded-[32px] p-8 border-white/10 shadow-2xl"
+              className="relative flex max-h-[88vh] w-full max-w-5xl flex-col glass-card rounded-[32px] p-8 border-white/10 shadow-2xl"
             >
               <div className="absolute top-0 right-0 p-6">
                 <button onClick={() => setShowTransportModal(null)} className="p-2 text-text-muted hover:text-text-main transition-colors">
@@ -4850,29 +4859,44 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
 
                    {ferryStatus?.ok && (
                      <div className="rounded-xl border border-white/5 bg-white/5 p-4">
-                       <h4 className="mb-3 text-[0.625rem] font-bold uppercase tracking-widest text-text-muted">基隆-馬祖船班表</h4>
-                       <div className="overflow-hidden rounded-lg border border-white/5 bg-mist/30">
-                         <div className="grid grid-cols-[0.85fr_0.9fr_0.9fr_0.9fr_0.9fr_0.9fr] gap-2 border-b border-white/5 px-3 py-2 text-[0.5625rem] font-bold uppercase tracking-wider text-text-muted">
-                           <span>日期</span>
-                           <span>船舶</span>
-                           <span>出發</span>
-                           <span>目的</span>
-                           <span>開航</span>
-                           <span>抵達</span>
-                         </div>
-                         {ferryScheduleRows.length > 0 ? ferryScheduleRows.map((row: any) => (
-                           <div key={`${row.ship}-${row.departureDate}-${row.departureTime}-${row.from}-${row.to}`} className="grid grid-cols-[0.85fr_0.9fr_0.9fr_0.9fr_0.9fr_0.9fr] gap-2 px-3 py-2 text-[0.6875rem] text-text-main odd:bg-black/5">
-                             <span className="font-mono text-text-muted">{String(row.departureDate || '').slice(5)}</span>
-                             <span className="font-bold text-emerald-300">{row.ship}</span>
-                             <span className="text-text-muted">{row.from}</span>
-                             <span className="text-text-muted">{row.to}</span>
-                             <span className="font-mono">{row.departureTime}</span>
-                             <span className="font-mono text-text-muted">{row.arrivalDate && row.arrivalDate !== row.departureDate ? `${String(row.arrivalDate).slice(5)} ` : ''}{row.arrivalTime}</span>
-                           </div>
-                         )) : (
-                           <p className="px-3 py-2 text-[0.6875rem] text-text-muted">尚未取得船班表資料</p>
-                         )}
+                       <div className="mb-3 space-y-1">
+                         <h4 className="text-[0.625rem] font-bold uppercase tracking-widest text-text-muted">基隆-馬祖船班表</h4>
+                         <p className="text-xs font-bold text-text-main">{getFerryQueryRangeText()}，航線名稱：基隆-馬祖</p>
+                         <p className="text-[0.6875rem] leading-relaxed text-amber-200">*航班表為定期班表，僅供參考，如欲查詢最新航班資訊，請逕洽各航運業者。</p>
                        </div>
+                       <div className="overflow-x-auto rounded-lg border border-white/5 bg-mist/30 custom-scrollbar">
+                         <div className="min-w-[980px]">
+                           <div className="grid grid-cols-[1.45fr_0.9fr_1.55fr_0.9fr_1.05fr_1.05fr_0.9fr_1.15fr_0.8fr] gap-2 border-b border-white/5 bg-white/5 px-3 py-2 text-[0.5625rem] font-bold uppercase tracking-wider text-text-muted">
+                             <span>營運公司</span>
+                             <span>聯絡方式</span>
+                             <span>航線</span>
+                             <span>船舶</span>
+                             <span>開航時間</span>
+                             <span>抵達時間</span>
+                             <span>有效期限</span>
+                             <span>出發港 → 目的港</span>
+                             <span>備註</span>
+                           </div>
+                           {ferryScheduleRows.length > 0 ? ferryScheduleRows.map((row: any) => (
+                             <div key={`${row.ship}-${row.departureDate}-${row.departureTime}-${row.from}-${row.to}`} className="grid grid-cols-[1.45fr_0.9fr_1.55fr_0.9fr_1.05fr_1.05fr_0.9fr_1.15fr_0.8fr] gap-2 px-3 py-2 text-[0.6875rem] text-text-main odd:bg-black/5">
+                               <span className="text-text-muted">{row.company || '未提供'}</span>
+                               <span className="font-mono text-text-muted">{row.contact || '-'}</span>
+                               <span className="text-text-muted">{row.route || '-'}</span>
+                               <span className="font-bold text-emerald-300">{row.ship}</span>
+                               <span className="font-mono">{row.departureDate}<br />{row.departureTime}</span>
+                               <span className="font-mono text-text-muted">{row.arrivalDate}<br />{row.arrivalTime}</span>
+                               <span className="text-text-muted">{row.validUntil || '-'}</span>
+                               <span className="font-bold">{row.from}<br /><span className="text-emerald-300">↓</span><br />{row.to}</span>
+                               <span className="text-text-muted">{row.note || '-'}</span>
+                             </div>
+                           )) : (
+                             <p className="px-3 py-2 text-[0.6875rem] text-text-muted">尚未取得船班表資料</p>
+                           )}
+                         </div>
+                       </div>
+                       <p className="mt-3 text-[0.6875rem] font-bold text-text-muted">
+                         共 {ferryStatus?.summary?.total || ferryScheduleRows.length} 筆資料，已整合官方分頁資料
+                       </p>
                      </div>
                    )}
 
