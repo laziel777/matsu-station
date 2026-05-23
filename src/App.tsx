@@ -16,7 +16,7 @@ import { createPortal } from 'react-dom';
 import { formatDistanceToNow, addMonths, isAfter } from 'date-fns';
 import { zhTW } from 'date-fns/locale';
 import { db, collection, query, orderBy, onSnapshot, serverTimestamp, updateDoc, doc, setDoc, deleteDoc, getDoc, getDocs, where, handleFirestoreError, OperationType, storage, functions, httpsCallable } from './lib/firebase';
-import { deleteObject, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { SITE_POLICY_PAGES, SITE_POLICY_SECTIONS, SitePolicyPage, SitePolicySectionId } from './lib/sitePolicies';
 
 const STATION_MASTER_UID = 'gHHxF8p1DnbMkoeVmU5XpB18Elz2';
@@ -5744,23 +5744,10 @@ function PostCard({
     setIsDeleting(true);
     setShowDeleteConfirm(false);
     try {
-      const imagePathsToDelete = getPostImagePaths(post);
       await submitRemoveCommunityContent({
         sourceType: 'post',
         postId: post.id,
       });
-      if (imagePathsToDelete.length > 0) {
-        try {
-          await Promise.all(imagePathsToDelete.map(imagePath => deleteObject(ref(storage, imagePath))));
-        } catch (storageError) {
-          if ((storageError as any)?.code === 'storage/object-not-found') {
-            console.info('Post image already removed from Storage.');
-            return;
-          }
-          console.warn('Post deleted but image storage cleanup failed:', storageError);
-          alert('貼文已刪除，但圖片檔案清理失敗。請稍後再試或透過官方 LINE 回報。');
-        }
-      }
       console.log('Post deleted successfully');
     } catch (err: any) {
       console.error('Delete post error:', err);
