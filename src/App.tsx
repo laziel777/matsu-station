@@ -868,6 +868,8 @@ const ReactionButton = ({
   const [isOpen, setIsOpen] = useState(false);
   const [reactionCounts, setReactionCounts] = useState<Record<string, number>>({});
   const rootRef = React.useRef<HTMLDivElement | null>(null);
+  const menuRef = React.useRef<HTMLDivElement | null>(null);
+  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number; placement: 'top' | 'bottom' } | null>(null);
   const displayReaction = currentReaction || '☺';
   const reactionIconSizeClass = compact ? 'h-6 w-6 text-sm' : 'h-7 w-7 text-base';
   const visibleReactionCounts = REACTION_OPTIONS
@@ -880,11 +882,42 @@ const ReactionButton = ({
     const closeOnOutsideClick = (event: PointerEvent) => {
       const target = event.target;
       if (target instanceof Node && rootRef.current?.contains(target)) return;
+      if (target instanceof Node && menuRef.current?.contains(target)) return;
       setIsOpen(false);
     };
 
     document.addEventListener('pointerdown', closeOnOutsideClick);
     return () => document.removeEventListener('pointerdown', closeOnOutsideClick);
+  }, [isOpen]);
+
+  React.useEffect(() => {
+    if (!isOpen) {
+      setMenuPosition(null);
+      return;
+    }
+
+    const updateMenuPosition = () => {
+      const rect = rootRef.current?.getBoundingClientRect();
+      if (!rect) return;
+
+      const menuWidth = 248;
+      const menuHeight = 116;
+      const left = Math.min(Math.max(rect.left + rect.width / 2 - menuWidth / 2, 12), window.innerWidth - menuWidth - 12);
+      const placement = rect.top < 150 ? 'bottom' : 'top';
+      setMenuPosition({
+        left,
+        top: placement === 'top' ? Math.max(12, rect.top - menuHeight - 8) : rect.bottom + 8,
+        placement,
+      });
+    };
+
+    updateMenuPosition();
+    window.addEventListener('resize', updateMenuPosition);
+    window.addEventListener('scroll', updateMenuPosition, true);
+    return () => {
+      window.removeEventListener('resize', updateMenuPosition);
+      window.removeEventListener('scroll', updateMenuPosition, true);
+    };
   }, [isOpen]);
 
   React.useEffect(() => {
@@ -975,13 +1008,20 @@ const ReactionButton = ({
         </div>
       )}
 
+      {typeof document !== 'undefined' && createPortal((
       <AnimatePresence>
         {isOpen && (
           <motion.div
-            initial={{ opacity: 0, y: 8, x: '-50%', scale: 0.96 }}
-            animate={{ opacity: 1, y: 0, x: '-50%', scale: 1 }}
-            exit={{ opacity: 0, y: 8, x: '-50%', scale: 0.96 }}
-            className="absolute bottom-full left-1/2 z-[80] mb-2 grid w-max max-w-[calc(100vw-2rem)] grid-cols-5 gap-1.5 rounded-2xl border border-line bg-mist-medium/95 p-2.5 shadow-2xl backdrop-blur-xl"
+            ref={menuRef}
+            initial={{ opacity: 0, y: menuPosition?.placement === 'bottom' ? -8 : 8, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: menuPosition?.placement === 'bottom' ? -8 : 8, scale: 0.96 }}
+            style={{
+              left: menuPosition?.left ?? 0,
+              top: menuPosition?.top ?? 0,
+              transformOrigin: menuPosition?.placement === 'bottom' ? 'top center' : 'bottom center',
+            }}
+            className="fixed z-[9998] grid w-max max-w-[calc(100vw-2rem)] grid-cols-5 gap-1.5 rounded-2xl border border-line bg-mist-medium/95 p-2.5 shadow-2xl backdrop-blur-xl"
           >
             {REACTION_OPTIONS.map(reaction => (
               <button
@@ -1002,6 +1042,7 @@ const ReactionButton = ({
           </motion.div>
         )}
       </AnimatePresence>
+      ), document.body)}
     </div>
   );
 };
