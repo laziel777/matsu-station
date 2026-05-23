@@ -2389,8 +2389,6 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
     return parts.join(' / ');
   };
   const ferryScheduleRows = getFerryScheduleRows();
-  const ferryAnnouncements = Array.isArray(ferryStatus?.announcements) ? ferryStatus.announcements.slice(0, 4) : [];
-
   if (loading) {
     return (
       <div className="min-h-screen bg-deep-ocean flex flex-col items-center justify-center gap-6 p-4">
@@ -4897,19 +4895,6 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                        <p className="mt-3 text-[0.6875rem] font-bold text-text-muted">
                          共 {ferryStatus?.summary?.total || ferryScheduleRows.length} 筆資料，已整合官方分頁資料
                        </p>
-                     </div>
-                   )}
-
-                   {ferryAnnouncements.length > 0 && (
-                     <div className="rounded-xl border border-white/5 bg-white/5 p-4">
-                       <h4 className="mb-3 text-[0.625rem] font-bold uppercase tracking-widest text-text-muted">近期船班公告</h4>
-                       <div className="space-y-2">
-                         {ferryAnnouncements.map((title: string) => (
-                           <div key={title} className="rounded-lg border border-white/5 bg-mist/30 px-3 py-2 text-[0.6875rem] font-bold text-text-main">
-                             {title}
-                           </div>
-                         ))}
-                       </div>
                      </div>
                    )}
 
