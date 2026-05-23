@@ -33,7 +33,7 @@ const DAILY_POST_LIMIT = 20;
 const DAILY_COMMENT_LIMIT = 120;
 const ANTI_ABUSE_NOTICE = '為了防止洗文、機器濫用與大量複製垃圾文，馬祖小站會限制發文頻率。';
 const LINE_OFFICIAL_URL = 'https://lin.ee/nn0RaOc';
-const MATSU_AIRPORT_URL = 'https://msa.gov.tw/';
+const MATSU_AIRPORT_URL = 'https://msa.gov.tw/flights/nangan';
 const TAIMA_STAR_URL = 'https://www.alsealand.com/';
 const REACTION_OPTIONS = ['❤️', '😂', '😭', '🔥', '👍', '👎', '😡', '😍', '🤔', '😮'];
 const DEFAULT_REACTION = '❤️';
@@ -3135,6 +3135,17 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
               </motion.button>
             )}
 
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setShowTransportModal('flight')}
+              className="flight-chip flex items-center gap-2 px-3.5 py-1.5 rounded-full border transition-all cursor-pointer"
+              title="航班資訊"
+            >
+              <Plane className="flight-chip-icon w-3.5 h-3.5 drop-shadow-sm" />
+              <span className="flight-chip-label text-[0.625rem] font-bold uppercase tracking-tighter">航班</span>
+            </motion.button>
+
             <div className="flex-1 max-w-full sm:max-w-[320px] relative group hidden sm:block">
                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-bio-glow/80" />
              <input 
@@ -4728,11 +4739,11 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                                <div key={`${group.label}-${row.flightNo}-${row.time}`} className="flex items-center justify-between gap-3 rounded-lg border border-white/5 bg-mist/30 px-3 py-2 text-[0.6875rem]">
                                  <div className="min-w-0">
                                    <span className="font-mono font-bold text-indigo-300">{row.flightNo}</span>
-                                   <span className="ml-2 text-text-muted">{row.place}</span>
+                                   <span className="ml-2 text-text-muted">{row.directionText ? `${row.directionText} ` : ''}{row.place}</span>
                                  </div>
                                  <div className="flex shrink-0 items-center gap-2">
                                    <span className="font-mono text-text-muted">{row.time}</span>
-                                   <span className="font-bold text-text-main">{row.status}</span>
+                                   <span className="font-bold text-text-main">{row.statusText || row.status}</span>
                                  </div>
                                </div>
                              )) : (
