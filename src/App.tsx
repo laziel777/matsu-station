@@ -3131,7 +3131,6 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                 <div className="flex flex-col items-start gap-0.5">
                   <span className="weather-chip-label text-[0.625rem] font-bold uppercase tracking-tighter leading-none text-left">馬祖氣象</span>
                   <span className="text-[0.75rem] font-mono font-bold text-text-main leading-none">{weather.temp != null ? `${weather.temp}°C` : '--°C'}</span>
-                  <span className="text-[0.5rem] font-mono font-bold leading-none text-text-muted">更新 {formatWeatherUpdatedAt(weather.fetchedAtIso)}｜約 5 分鐘</span>
                 </div>
               </motion.button>
             )}
