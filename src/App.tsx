@@ -845,8 +845,8 @@ const ReactionButton = ({
   const [isOpen, setIsOpen] = useState(false);
   const [reactionCounts, setReactionCounts] = useState<Record<string, number>>({});
   const rootRef = React.useRef<HTMLDivElement | null>(null);
-  const displayReaction = currentReaction || '☻';
-  const sealSizeClass = compact ? 'h-7 w-7 text-sm' : 'h-8 w-8 text-base';
+  const displayReaction = currentReaction || '☺';
+  const reactionIconSizeClass = compact ? 'h-6 w-6 text-sm' : 'h-7 w-7 text-base';
   const visibleReactionCounts = REACTION_OPTIONS
     .map(reaction => ({ reaction, count: reactionCounts[reaction] || 0 }))
     .filter(item => item.count > 0);
@@ -892,23 +892,29 @@ const ReactionButton = ({
       <button
         type="button"
         onClick={() => setIsOpen(previous => !previous)}
-        className={`group flex items-center gap-1.5 font-bold transition-all cursor-pointer active:scale-110 ${
-          compact ? 'text-[0.6875rem]' : 'text-xs'
-        } text-text-muted hover:text-amber-200`}
+        className={`group inline-flex items-center rounded-full border border-line bg-mist/35 font-bold text-text-muted shadow-sm transition-all hover:border-bio-glow/30 hover:bg-mist-light/70 hover:text-text-main active:scale-105 ${
+          compact ? 'gap-1 px-1 py-0.5 text-[0.6875rem]' : 'gap-1.5 px-1.5 py-1 text-xs'
+        }`}
         title="選擇表情反應"
       >
         <span
-          className={`relative inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full border border-amber-200/25 bg-[radial-gradient(circle_at_30%_22%,rgba(255,244,199,0.22),rgba(172,103,43,0.34)_34%,rgba(47,32,24,0.94)_72%)] text-amber-100 shadow-[inset_0_1px_1px_rgba(255,255,255,0.24),inset_0_-5px_10px_rgba(0,0,0,0.38),0_4px_12px_rgba(0,0,0,0.32)] transition-all group-hover:-translate-y-0.5 group-hover:border-amber-200/45 group-hover:text-amber-50 group-hover:shadow-[inset_0_1px_1px_rgba(255,255,255,0.28),inset_0_-5px_10px_rgba(0,0,0,0.34),0_6px_16px_rgba(217,119,6,0.22)] ${
-            sealSizeClass
-          } ${currentReaction ? 'ring-1 ring-amber-200/35' : 'opacity-85'}`}
+          className={`inline-flex shrink-0 items-center justify-center rounded-full border shadow-inner transition-all group-hover:-translate-y-px ${
+            reactionIconSizeClass
+          } ${
+            currentReaction
+              ? 'border-bio-glow/25 bg-bio-glow/10 text-bio-glow'
+              : 'border-white/10 bg-deep-ocean/55 text-text-muted/90 group-hover:text-bio-glow'
+          }`}
         >
-          <span className="absolute left-1 top-1 h-1.5 w-2 rounded-full bg-white/18 blur-[1px]" />
-          <span className="absolute -bottom-0.5 left-1.5 h-2 w-2.5 rounded-full bg-amber-950/45" />
-          <span className="absolute -right-0.5 bottom-1 h-2 w-2 rounded-full bg-amber-900/40" />
-          <span className="relative leading-none drop-shadow-[0_1px_1px_rgba(0,0,0,0.65)]">
+          <span className="leading-none">
             {displayReaction}
           </span>
         </span>
+        {!currentReaction && !compact && (
+          <span className="hidden pr-1 text-[0.625rem] font-black tracking-widest text-text-muted/70 transition-colors group-hover:text-bio-glow/90 sm:inline">
+            反應
+          </span>
+        )}
         {visibleReactionCounts.length === 0 && count > 0 && <span>{count}</span>}
       </button>
 
