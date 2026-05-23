@@ -7559,9 +7559,11 @@ async function applyDirectContentAction({ sourcePath, action, reviewerId, reason
       ? "hidden"
       : action === "delete"
         ? "deleted"
-        : action === "mask"
-          ? "masked"
-          : "approved";
+        : action === "delete_image"
+          ? "image_deleted"
+          : action === "mask"
+            ? "masked"
+            : "approved";
   const actionSummary = {
     review: "站長 AI 控制台已將內容轉入審核中，原文暫不公開。",
     hide: `站長隱藏此內容：${moderationReason}`,
@@ -7580,19 +7582,23 @@ async function applyDirectContentAction({ sourcePath, action, reviewerId, reason
   const resolvedActionSummary = actionSummary || (
     action === "hide_image"
       ? `站長只遮蔽圖片，貼文文字保留。${moderationReason}`
-      : "站長恢復圖片欄位，貼文文字不變。"
+      : action === "delete_image"
+        ? `站長刪除圖片原檔，貼文文字保留。${moderationReason}`
+        : "站長恢復圖片欄位，貼文文字不變。"
   );
   const resolvedActionLegalRisk = actionLegalRisk || (
     action === "hide_image"
       ? "圖片已從前台移除，文字內容仍公開；適用於圖片本身有個資、截圖或其他風險，但文字可保留的情境。"
-      : "圖片已由站長復原，後續仍保留裁決紀錄與風險快照。"
+      : action === "delete_image"
+        ? "圖片原檔已從 Storage 刪除，前台不再載入圖片；治理紀錄保留供後續查核。"
+        : "圖片已由站長復原，後續仍保留裁決紀錄與風險快照。"
   );
 
-  if (!["review", "hide", "delete", "restore", "mask", "hide_image", "restore_image"].includes(action)) {
+  if (!["review", "hide", "delete", "restore", "mask", "hide_image", "restore_image", "delete_image"].includes(action)) {
     throw new HttpsError("invalid-argument", "Unsupported content action.");
   }
 
-  if (["review", "hide", "hide_image"].includes(action) && !moderationReason) {
+  if (["review", "hide", "hide_image", "delete_image"].includes(action) && !moderationReason) {
     throw new HttpsError("invalid-argument", "A moderation reason is required for this content action.");
   }
 
@@ -7609,12 +7615,15 @@ async function applyDirectContentAction({ sourcePath, action, reviewerId, reason
     throw new HttpsError("failed-precondition", "No preserved content or image snapshot is available for this action.");
   }
 
-  if (action === "hide_image" || action === "restore_image") {
+  if (action === "hide_image" || action === "restore_image" || action === "delete_image") {
     if (sourceMeta.sourceType !== "post") {
       throw new HttpsError("invalid-argument", "Image actions are only supported for posts.");
     }
     if (action === "restore_image" && !imageUrlsSnapshot.length && !imagePathsSnapshot.length) {
       throw new HttpsError("failed-precondition", "No preserved image snapshot is available for this action.");
+    }
+    if (action === "restore_image" && (sourceData.moderationStatus === "image_deleted" || existingCase.status === "image_deleted")) {
+      throw new HttpsError("failed-precondition", "This image was permanently deleted and cannot be restored.");
     }
   }
 
@@ -7653,6 +7662,21 @@ async function applyDirectContentAction({ sourcePath, action, reviewerId, reason
       imagePath: "",
       imageUrls: [],
       imagePaths: [],
+    }, { merge: true });
+  }
+
+  if (action === "delete_image") {
+    await deleteStoragePaths(imagePathsSnapshot);
+    await sourceRef.set({
+      ...basePatch,
+      moderationStatus: "image_deleted",
+      moderationReason,
+      imageUrl: "",
+      imagePath: "",
+      imageUrls: [],
+      imagePaths: [],
+      imageDeletedAt: now,
+      imageDeletedBy: reviewerId,
     }, { merge: true });
   }
 
@@ -7822,7 +7846,7 @@ exports.rangerContentAction = onCall(
     const action = String(request.data?.action || "").trim();
     const reason = String(request.data?.reason || "").trim();
 
-    if (!sourcePath || !["review", "hide", "delete", "restore", "mask", "hide_image", "restore_image"].includes(action)) {
+    if (!sourcePath || !["review", "hide", "delete", "restore", "mask", "hide_image", "restore_image", "delete_image"].includes(action)) {
       throw new HttpsError("invalid-argument", "Invalid content action.");
     }
 

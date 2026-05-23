@@ -185,6 +185,7 @@ type ModerationStatus =
   | 'approved'
   | 'hidden'
   | 'image_hidden'
+  | 'image_deleted'
   | 'deleted'
   | 'appealed'
   | 'quarantined'
@@ -417,7 +418,7 @@ const INTERNAL_MODERATION_TERMS =
   /\b(AI|Gemini|Regex|regex|Ranger|queue|precheck|lightguard|moderation|spam|fallback)\b|語意|本地防呆|防呆|輕量|巡邏|模型|演算法|第一人稱|優先送|候選|命中|底線|技術|敏感格式|完整判讀|無法完整判讀|LR\d|CR\d|SR\d|風險分數/i;
 
 const isModerationMasked = (status?: string) => status === 'masked';
-const isImageModerationHidden = (status?: string) => status === 'image_hidden';
+const isImageModerationHidden = (status?: string) => status === 'image_hidden' || status === 'image_deleted';
 
 const isModerationRestricted = (status?: string) => {
   return ['pending_review', 'hidden', 'deleted', 'quarantined', 'removed'].includes(String(status || ''));
@@ -563,7 +564,7 @@ function ImageModerationTombstone({ reason }: { reason?: string }) {
           <Shield className="h-6 w-6" />
         </div>
         <div>
-          <p className="text-sm font-black text-amber-200">圖片已由站方遮蔽</p>
+          <p className="text-sm font-black text-amber-200">圖片已由站方處理</p>
           <p className="mt-1 max-w-md text-xs font-bold leading-relaxed text-amber-100/80">
             此圖片可能涉及個資、截圖、未確認資訊或其他需要站方處理的內容，原圖目前不公開。
           </p>

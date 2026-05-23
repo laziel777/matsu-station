@@ -45,7 +45,7 @@ import './styles.css';
 type RiskLevel = 'low' | 'medium' | 'high' | 'critical';
 type SourceType = 'post' | 'comment' | 'reply';
 type CaseAction = 'mark_reviewed' | 'dismiss' | 'release' | 'quarantine' | 'remove';
-type ContentAction = 'review' | 'hide' | 'mask' | 'delete' | 'restore' | 'hide_image' | 'restore_image';
+type ContentAction = 'review' | 'hide' | 'mask' | 'delete' | 'restore' | 'hide_image' | 'restore_image' | 'delete_image';
 type AccountAction = 'watch' | 'clear_watch' | 'ban' | 'unban' | 'suspend_posting' | 'restore_posting';
 type DrawerKey = 'cockpit' | 'accounts' | 'articles' | 'images' | 'reports' | 'aiSheet' | 'cases';
 type ContentSortKey = 'risk_desc' | 'risk_asc' | 'newest' | 'oldest' | 'author' | 'type';
@@ -251,6 +251,7 @@ function statusLabel(status?: string) {
   if (status === 'approved' || status === 'released') return '\u5df2\u653e\u884c';
   if (status === 'masked' || status === 'quarantined' || status === 'pending_review') return '\u5be9\u6838\u4e2d';
   if (status === 'image_hidden') return '圖片已遮蔽';
+  if (status === 'image_deleted') return '圖片已刪除';
   if (status === 'hidden' || status === 'removed') return '\u5df2\u96b1\u85cf';
   if (status === 'deleted') return '\u5df2\u522a\u9664';
   if (status === 'dismissed') return '\u5df2\u7d50\u6848';
@@ -263,6 +264,7 @@ function statusLabel(status?: string) {
 function handlingState(status?: string) {
   if (status === 'approved' || status === 'released') return '\u7ad9\u52d9\u5df2\u653e\u884c';
   if (status === 'image_hidden') return '圖片已遮蔽，文字仍保留';
+  if (status === 'image_deleted') return '圖片已刪除，文字仍保留';
   if (status === 'hidden' || status === 'removed') return '\u524d\u53f0\u5df2\u96b1\u85cf';
   if (status === 'deleted') return '\u5df2\u522a\u9664';
   if (status === 'dismissed') return '\u5df2\u7d50\u6848';
@@ -285,6 +287,7 @@ function contentDecisionFilterLabel(filter: ContentDecisionFilter) {
 
 function getContentDecisionFilter(status?: string): ContentDecisionFilter {
   if (status === 'image_hidden') return 'hidden';
+  if (status === 'image_deleted') return 'hidden';
   if (status === 'hidden' || status === 'removed') return 'hidden';
   if (status === 'masked' || status === 'quarantined') return 'masked';
   if (status === 'approved' || status === 'released') return 'approved';
@@ -1321,6 +1324,7 @@ function ImageWall({ items, onAction, onOpenSource }: {
 
   const run = async (item: SiteItem, action: ContentAction) => {
     if (action === 'delete' && !window.confirm('確定要完全移除這則內容嗎？這個動作不可逆。')) return;
+    if (action === 'delete_image' && !window.confirm('確定要刪除這張圖片原檔嗎？刪除後不能恢復，只會保留文字與治理紀錄。')) return;
     if (action === 'hide' && !window.confirm('確定要遮蔽整篇內容嗎？')) return;
     if (action === 'restore' && !window.confirm('確定要恢復整篇內容嗎？')) return;
     setBusy(`${item.id}:${action}`);
@@ -1381,11 +1385,14 @@ function ImageWall({ items, onAction, onOpenSource }: {
                 <small>{item.imagePath || '無 imagePath'}</small>
               </div>
               <div className="image-wall-actions">
-                <button className="warn" disabled={disabled || item.usesImageSnapshot || bucket === 'deleted'} onClick={() => void run(item, 'hide_image')}>
+                <button className="warn" disabled={disabled || item.usesImageSnapshot || item.status === 'image_deleted' || bucket === 'deleted'} onClick={() => void run(item, 'hide_image')}>
                   <FileWarning size={14} /> {item.usesImageSnapshot ? '圖片已遮蔽' : '只遮圖片'}
                 </button>
-                <button className="ok" disabled={disabled || !item.usesImageSnapshot || bucket === 'deleted'} onClick={() => void run(item, 'restore_image')}>
-                  <CheckCircle2 size={14} /> {item.usesImageSnapshot ? '恢復圖片' : '圖片公開中'}
+                <button className="ok" disabled={disabled || !item.usesImageSnapshot || item.status === 'image_deleted' || bucket === 'deleted'} onClick={() => void run(item, 'restore_image')}>
+                  <CheckCircle2 size={14} /> {item.status === 'image_deleted' ? '已刪除' : item.usesImageSnapshot ? '恢復圖片' : '圖片公開中'}
+                </button>
+                <button className="danger" disabled={disabled || item.status === 'image_deleted' || bucket === 'deleted'} onClick={() => void run(item, 'delete_image')}>
+                  <Trash2 size={14} /> {item.status === 'image_deleted' ? '圖片已刪除' : '刪除圖片'}
                 </button>
                 <button className="danger" disabled={disabled || ['hidden', 'deleted'].includes(bucket)} onClick={() => void run(item, 'hide')}>
                   <CircleSlash size={14} /> {bucket === 'hidden' ? '整篇已遮蔽' : bucket === 'deleted' ? '已刪除' : '遮蔽整篇'}
