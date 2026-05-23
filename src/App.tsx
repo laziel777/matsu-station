@@ -846,7 +846,7 @@ const ReactionButton = ({
   const [reactionCounts, setReactionCounts] = useState<Record<string, number>>({});
   const rootRef = React.useRef<HTMLDivElement | null>(null);
   const displayReaction = currentReaction || '☺';
-  const reactionIconSizeClass = compact ? 'h-6 w-6 text-sm' : 'h-7 w-7 text-base';
+  const reactionIconSizeClass = compact ? 'h-7 w-7 text-base' : 'h-8 w-8 text-lg';
   const visibleReactionCounts = REACTION_OPTIONS
     .map(reaction => ({ reaction, count: reactionCounts[reaction] || 0 }))
     .filter(item => item.count > 0);
@@ -911,8 +911,8 @@ const ReactionButton = ({
           </span>
         </span>
         {!currentReaction && !compact && (
-          <span className="hidden pr-1 text-[0.625rem] font-black tracking-widest text-text-muted/70 transition-colors group-hover:text-bio-glow/90 sm:inline">
-            反應
+          <span className="pr-1 text-sm font-black leading-none text-text-muted/70 transition-colors group-hover:text-bio-glow/90">
+            +
           </span>
         )}
         {visibleReactionCounts.length === 0 && count > 0 && <span>{count}</span>}
