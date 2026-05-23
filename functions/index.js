@@ -8046,3 +8046,219 @@ exports.rangerExecuteAiControlPlan = onCall(
     };
   }
 );
+
+const MATSU_AIRPORT_STATUS_URL = "https://msa.gov.tw/";
+const TAIMA_STAR_STATUS_URL = "https://www.alsealand.com/";
+
+function decodeSimpleHtmlEntities(text) {
+  return String(text || "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;/g, "'");
+}
+
+function htmlToVisibleLines(html) {
+  return decodeSimpleHtmlEntities(html)
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>|<\/div>|<\/li>|<\/tr>|<\/td>|<\/th>|<\/h\d>/gi, "\n")
+    .replace(/<[^>]+>/g, "\n")
+    .split(/\n+/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+}
+
+function parseAirportFlightRows(sectionLines) {
+  const rows = [];
+  for (let index = 0; index < sectionLines.length - 4; index += 1) {
+    const airline = sectionLines[index];
+    const flightNo = sectionLines[index + 1];
+    const place = sectionLines[index + 2];
+    const time = sectionLines[index + 3];
+    const status = sectionLines[index + 4];
+
+    if (
+      /^\d{3,5}$/.test(flightNo) &&
+      /^\d{3,4}$/.test(time) &&
+      !/^\d+$/.test(airline) &&
+      !["Status", "狀態"].includes(status)
+    ) {
+      rows.push({
+        airline: String(airline).slice(0, 40),
+        flightNo: String(flightNo).slice(0, 12),
+        place: String(place).slice(0, 40),
+        time: String(time).replace(/^(\d{1,2})(\d{2})$/, "$1:$2"),
+        status: String(status).slice(0, 40),
+      });
+      index += 4;
+    }
+  }
+  return rows.slice(0, 24);
+}
+
+function getFlightSummary(rows) {
+  const counts = rows.reduce(
+    (acc, row) => {
+      const status = String(row.status || "").toLowerCase();
+      if (status.includes("cancel") || row.status.includes("取消")) acc.cancelled += 1;
+      else if (status.includes("closed") || row.status.includes("關閉")) acc.closed += 1;
+      else if (status.includes("ontime") || row.status.includes("準時") || row.status.includes("準點")) acc.onTime += 1;
+      else acc.other += 1;
+      return acc;
+    },
+    { total: rows.length, onTime: 0, cancelled: 0, closed: 0, other: 0 }
+  );
+
+  return counts;
+}
+
+function parseAirportSection(lines, startTerms, endTerms) {
+  const start = lines.findIndex((line) => startTerms.some((term) => line.includes(term)));
+  if (start < 0) return { rows: [], summary: getFlightSummary([]) };
+  const end = lines.findIndex((line, index) => index > start && endTerms.some((term) => line.includes(term)));
+  const rows = parseAirportFlightRows(lines.slice(start, end > start ? end : undefined));
+  return { rows, summary: getFlightSummary(rows) };
+}
+
+async function fetchMatsuAirportStatus() {
+  const response = await fetch(MATSU_AIRPORT_STATUS_URL, {
+    headers: {
+      "accept-language": "zh-TW,zh;q=0.9,en;q=0.6",
+      "user-agent": "MatsuStationBot/1.0 (+https://www.matsustation.com/)",
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`Matsu airport fetch failed: ${response.status}`);
+  }
+
+  const html = await response.text();
+  const lines = htmlToVisibleLines(html);
+  const nangan = parseAirportSection(lines, ["南竿機場", "Nangan Airport"], ["北竿機場", "Beigan Airport"]);
+  const beigan = parseAirportSection(lines, ["北竿機場", "Beigan Airport"], ["候補資訊", "Waiting Information", "OPEN"]);
+
+  return {
+    ok: nangan.rows.length > 0 || beigan.rows.length > 0,
+    source: "馬祖航空站",
+    sourceUrl: MATSU_AIRPORT_STATUS_URL,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    fetchedAtIso: new Date().toISOString(),
+    notice: "航班資訊由馬祖航空站公開頁面擷取；實際搭乘仍以航空公司與航空站現場公告為準。",
+    airports: {
+      nangan,
+      beigan,
+    },
+  };
+}
+
+function extractAnnouncementTitles(html) {
+  const withoutScripts = decodeSimpleHtmlEntities(html)
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "");
+  return Array.from(withoutScripts.matchAll(/<h[23][^>]*>([\s\S]*?)<\/h[23]>/gi))
+    .map((match) => match[1].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .slice(0, 8);
+}
+
+async function fetchTaimaStarAnnouncements() {
+  const response = await fetch(TAIMA_STAR_STATUS_URL, {
+    headers: {
+      "accept-language": "zh-TW,zh;q=0.9,en;q=0.6",
+      "user-agent": "MatsuStationBot/1.0 (+https://www.matsustation.com/)",
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`Taima Star fetch failed: ${response.status}`);
+  }
+
+  const html = await response.text();
+  const announcements = extractAnnouncementTitles(html);
+  return {
+    ok: announcements.length > 0,
+    source: "臺馬之星／洋民集團",
+    sourceUrl: TAIMA_STAR_STATUS_URL,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    fetchedAtIso: new Date().toISOString(),
+    notice: "船班公告由臺馬之星公開頁面擷取；實際航班、歲修、停航與替代航班請以船公司與官方訂位系統公告為準。",
+    announcements,
+  };
+}
+
+async function refreshPublicTransportStatus() {
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const [flightResult, ferryResult] = await Promise.allSettled([
+    fetchMatsuAirportStatus(),
+    fetchTaimaStarAnnouncements(),
+  ]);
+
+  const batch = db.batch();
+  const flightRef = db.collection("transportStatus").doc("flight");
+  const ferryRef = db.collection("transportStatus").doc("ferry");
+
+  if (flightResult.status === "fulfilled") {
+    batch.set(flightRef, flightResult.value, { merge: true });
+  } else {
+    batch.set(
+      flightRef,
+      {
+        ok: false,
+        source: "馬祖航空站",
+        sourceUrl: MATSU_AIRPORT_STATUS_URL,
+        updatedAt: now,
+        fetchedAtIso: new Date().toISOString(),
+        error: String(flightResult.reason?.message || flightResult.reason).slice(0, 300),
+      },
+      { merge: true }
+    );
+  }
+
+  if (ferryResult.status === "fulfilled") {
+    batch.set(ferryRef, ferryResult.value, { merge: true });
+  } else {
+    batch.set(
+      ferryRef,
+      {
+        ok: false,
+        source: "臺馬之星／洋民集團",
+        sourceUrl: TAIMA_STAR_STATUS_URL,
+        updatedAt: now,
+        fetchedAtIso: new Date().toISOString(),
+        error: String(ferryResult.reason?.message || ferryResult.reason).slice(0, 300),
+      },
+      { merge: true }
+    );
+  }
+
+  await batch.commit();
+  return {
+    flightOk: flightResult.status === "fulfilled" && flightResult.value.ok,
+    ferryOk: ferryResult.status === "fulfilled" && ferryResult.value.ok,
+  };
+}
+
+exports.scheduledPublicTransportStatusRefresh = onSchedule(
+  {
+    region: REGION,
+    schedule: "every 5 minutes",
+    timeZone: "Asia/Taipei",
+    timeoutSeconds: 120,
+    memory: "512MiB",
+  },
+  async () => refreshPublicTransportStatus()
+);
+
+exports.rangerRefreshPublicTransportStatus = onCall(
+  {
+    region: REGION,
+    timeoutSeconds: 120,
+    memory: "512MiB",
+  },
+  async (request) => {
+    await assertStationMasterCallable(request);
+    return refreshPublicTransportStatus();
+  }
+);

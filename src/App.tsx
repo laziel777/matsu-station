@@ -1177,6 +1177,7 @@ export default function App() {
   const [notifications, setNotifications] = useState<any[]>([]);
   const [discussionTarget, setDiscussionTarget] = useState<DiscussionTarget | null>(null);
   const [weather, setWeather] = useState<{ temp: number; icon: string; text: string; wind: number; dir: string; vis: number | null; humidity: number | null } | null>(null);
+  const [transportStatus, setTransportStatus] = useState<{ flight: any | null; ferry: any | null }>({ flight: null, ferry: null });
   const [showWeatherModal, setShowWeatherModal] = useState(false);
   const [showTransportModal, setShowTransportModal] = useState<'flight' | 'ferry' | null>(null);
   const [isCopied, setIsCopied] = useState(false);
@@ -1282,6 +1283,27 @@ useEffect(() => {
     fetchWeather();
     const interval = setInterval(fetchWeather, 600000); // Update every 10 mins
     return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    const unsubscribeFlight = onSnapshot(doc(db, 'transportStatus', 'flight'), (snapshot) => {
+      setTransportStatus(previous => ({ ...previous, flight: snapshot.exists() ? snapshot.data() : null }));
+    }, (error) => {
+      console.warn('Flight status listener failed:', error.message);
+      setTransportStatus(previous => ({ ...previous, flight: null }));
+    });
+
+    const unsubscribeFerry = onSnapshot(doc(db, 'transportStatus', 'ferry'), (snapshot) => {
+      setTransportStatus(previous => ({ ...previous, ferry: snapshot.exists() ? snapshot.data() : null }));
+    }, (error) => {
+      console.warn('Ferry status listener failed:', error.message);
+      setTransportStatus(previous => ({ ...previous, ferry: null }));
+    });
+
+    return () => {
+      unsubscribeFlight();
+      unsubscribeFerry();
+    };
   }, []);
 
   const getNotificationDeletedLabel = async (notification: any) => {
@@ -2303,6 +2325,26 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
   const canViewProfileSocialLists = Boolean(viewingProfile && (isViewingOwnProfile || isFollowingProfile));
   const isViewingStationMaster = viewingProfile?.uid === STATION_MASTER_UID;
   const accountRestrictionNotice = getAccountRestrictionNotice(profile);
+  const flightStatus = transportStatus.flight;
+  const ferryStatus = transportStatus.ferry;
+  const formatTransportUpdatedAt = (value: any) => {
+    const date = value?.toDate?.() || (value ? new Date(value) : null);
+    if (!date || Number.isNaN(date.getTime())) return '尚未更新';
+    return date.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
+  };
+  const getAirportSummaryText = (airport: any) => {
+    const summary = airport?.summary || {};
+    const parts = [
+      `共 ${summary.total || 0} 筆`,
+      summary.onTime ? `準時 ${summary.onTime}` : '',
+      summary.cancelled ? `取消 ${summary.cancelled}` : '',
+      summary.closed ? `關閉 ${summary.closed}` : '',
+      summary.other ? `其他 ${summary.other}` : '',
+    ].filter(Boolean);
+    return parts.join(' / ');
+  };
+  const getFlightRows = (airport: any) => Array.isArray(airport?.rows) ? airport.rows.slice(0, 5) : [];
+  const ferryAnnouncements = Array.isArray(ferryStatus?.announcements) ? ferryStatus.announcements.slice(0, 4) : [];
 
   if (loading) {
     return (
@@ -4624,21 +4666,43 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
 
               {showTransportModal === 'flight' ? (
                 <div className="space-y-4">
+                   {flightStatus?.ok && (
+                     <div className="rounded-2xl border border-indigo-400/10 bg-indigo-500/5 p-4">
+                       <div className="mb-3 flex items-center justify-between gap-3">
+                         <span className="text-xs font-bold text-indigo-200">馬祖航空站快取</span>
+                         <span className="text-[0.625rem] font-mono text-text-muted">
+                           {formatTransportUpdatedAt(flightStatus.updatedAt)} 更新
+                         </span>
+                       </div>
+                       <p className="text-xs leading-relaxed text-text-muted">{flightStatus.notice}</p>
+                     </div>
+                   )}
+
                    <div className="p-5 rounded-2xl bg-white/5 border border-white/5 space-y-4">
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-start justify-between gap-4">
                          <div className="flex items-center gap-3">
                             <span className="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-400 text-[0.625rem] font-bold">LZN</span>
-                            <span className="text-sm font-bold text-text-main">南竿機場 (Nangan)</span>
+                            <div>
+                              <span className="text-sm font-bold text-text-main">南竿機場 (Nangan)</span>
+                              {flightStatus?.ok && (
+                                <p className="mt-1 text-[0.6875rem] text-text-muted">{getAirportSummaryText(flightStatus.airports?.nangan)}</p>
+                              )}
+                            </div>
                          </div>
                          <span className="flex items-center gap-1.5 text-xs text-amber-300 font-bold">
                             <Info className="h-3.5 w-3.5" />
                             以官方為準
                          </span>
                       </div>
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-start justify-between gap-4">
                          <div className="flex items-center gap-3">
                             <span className="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-400 text-[0.625rem] font-bold">MFK</span>
-                            <span className="text-sm font-bold text-text-main">北竿機場 (Beigan)</span>
+                            <div>
+                              <span className="text-sm font-bold text-text-main">北竿機場 (Beigan)</span>
+                              {flightStatus?.ok && (
+                                <p className="mt-1 text-[0.6875rem] text-text-muted">{getAirportSummaryText(flightStatus.airports?.beigan)}</p>
+                              )}
+                            </div>
                          </div>
                          <span className="flex items-center gap-1.5 text-xs text-amber-300 font-bold">
                             <Info className="h-3.5 w-3.5" />
@@ -4646,6 +4710,36 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                          </span>
                       </div>
                    </div>
+
+                   {flightStatus?.ok && (
+                     <div className="rounded-xl border border-white/5 bg-white/5 p-4">
+                       <h4 className="mb-3 text-[0.625rem] font-bold uppercase tracking-widest text-text-muted">航空站公開航班摘要</h4>
+                       <div className="space-y-3">
+                         {[
+                           { label: '南竿', rows: getFlightRows(flightStatus.airports?.nangan) },
+                           { label: '北竿', rows: getFlightRows(flightStatus.airports?.beigan) },
+                         ].map(group => (
+                           <div key={group.label} className="space-y-1.5">
+                             <p className="text-[0.625rem] font-bold text-indigo-300">{group.label}</p>
+                             {group.rows.length > 0 ? group.rows.map((row: any) => (
+                               <div key={`${group.label}-${row.flightNo}-${row.time}`} className="flex items-center justify-between gap-3 rounded-lg border border-white/5 bg-mist/30 px-3 py-2 text-[0.6875rem]">
+                                 <div className="min-w-0">
+                                   <span className="font-mono font-bold text-indigo-300">{row.flightNo}</span>
+                                   <span className="ml-2 text-text-muted">{row.place}</span>
+                                 </div>
+                                 <div className="flex shrink-0 items-center gap-2">
+                                   <span className="font-mono text-text-muted">{row.time}</span>
+                                   <span className="font-bold text-text-main">{row.status}</span>
+                                 </div>
+                               </div>
+                             )) : (
+                               <p className="rounded-lg border border-white/5 bg-mist/30 px-3 py-2 text-[0.6875rem] text-text-muted">尚未取得航班列資料</p>
+                             )}
+                           </div>
+                         ))}
+                       </div>
+                     </div>
+                   )}
 
                    <div className="rounded-xl border border-amber-400/15 bg-amber-500/5 p-4">
                       <h4 className="mb-2 flex items-center gap-2 text-xs font-bold text-amber-200">
@@ -4659,6 +4753,18 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                 </div>
               ) : (
                 <div className="space-y-4">
+                   {ferryStatus?.ok && (
+                     <div className="rounded-2xl border border-emerald-400/10 bg-emerald-500/5 p-4">
+                       <div className="mb-3 flex items-center justify-between gap-3">
+                         <span className="text-xs font-bold text-emerald-200">臺馬之星公告快取</span>
+                         <span className="text-[0.625rem] font-mono text-text-muted">
+                           {formatTransportUpdatedAt(ferryStatus.updatedAt)} 更新
+                         </span>
+                       </div>
+                       <p className="text-xs leading-relaxed text-text-muted">{ferryStatus.notice}</p>
+                     </div>
+                   )}
+
                    <div className="p-5 rounded-2xl bg-white/5 border border-white/5 space-y-4">
                       <div className="flex items-center justify-between">
                          <div className="flex items-center gap-3">
@@ -4681,6 +4787,19 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                          </span>
                       </div>
                    </div>
+
+                   {ferryAnnouncements.length > 0 && (
+                     <div className="rounded-xl border border-white/5 bg-white/5 p-4">
+                       <h4 className="mb-3 text-[0.625rem] font-bold uppercase tracking-widest text-text-muted">近期船班公告</h4>
+                       <div className="space-y-2">
+                         {ferryAnnouncements.map((title: string) => (
+                           <div key={title} className="rounded-lg border border-white/5 bg-mist/30 px-3 py-2 text-[0.6875rem] font-bold text-text-main">
+                             {title}
+                           </div>
+                         ))}
+                       </div>
+                     </div>
+                   )}
 
                    <div className="rounded-xl border border-amber-400/15 bg-amber-500/5 p-4">
                       <h4 className="mb-2 flex items-center gap-2 text-xs font-bold text-amber-200">
