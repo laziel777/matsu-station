@@ -8048,6 +8048,8 @@ exports.rangerExecuteAiControlPlan = onCall(
 );
 
 const MATSU_AIRPORT_STATUS_URL = "https://msa.gov.tw/";
+const MATSU_AIRPORT_NANGAN_FLIGHTS_URL = "https://msa.gov.tw/flights/nangan";
+const MATSU_AIRPORT_BEIGAN_FLIGHTS_URL = "https://msa.gov.tw/flights/beigan";
 const TAIMA_STAR_STATUS_URL = "https://www.alsealand.com/";
 const AOAWS_HOME_URL = "https://aoaws.anws.gov.tw/";
 const AOAWS_METAR_URL = "https://aoaws.anws.gov.tw/Home/get_metar_data";
@@ -8102,13 +8104,114 @@ function parseAirportFlightRows(sectionLines) {
   return rows.slice(0, 24);
 }
 
+
+function isAirportFlightNo(value) {
+  return /^[A-Z0-9]{1,3}\s?\d{3,5}$/.test(String(value || "").trim());
+}
+
+function isAirportFlightTime(value) {
+  return /^\d{3,4}$/.test(String(value || "").trim());
+}
+
+function translateFlightStatus(status) {
+  const text = String(status || "").trim();
+  const lower = text.toLowerCase();
+  if (lower.includes("cancel")) return "\u53d6\u6d88";
+  if (lower.includes("ontime")) return "\u6e96\u6642";
+  if (lower.includes("departed")) return "\u5df2\u98db";
+  if (lower.includes("arrived")) return "\u5df2\u62b5\u9054";
+  if (lower.includes("delayed")) return "\u5ef6\u8aa4";
+  return text.slice(0, 40);
+}
+
+function translateAirlineName(airline) {
+  const text = String(airline || "").trim();
+  if (/Uni Airways/i.test(text)) return "\u7acb\u69ae";
+  if (/Mandarin Airlines/i.test(text)) return "\u83ef\u4fe1";
+  return text.slice(0, 40);
+}
+
+function normalizeFlightPlace(place) {
+  return String(place || "")
+    .replace(/\s+/g, " ")
+    .replace(/Taipei\s*TSA/i, "\u53f0\u5317TSA")
+    .replace(/TaipeiTSA/i, "\u53f0\u5317TSA")
+    .replace(/Taichung\s*RMQ/i, "\u53f0\u4e2dRMQ")
+    .replace(/TaichungRMQ/i, "\u53f0\u4e2dRMQ")
+    .trim()
+    .slice(0, 40);
+}
+
+function parseDirectAirportFlightRows(tableLines, direction) {
+  const rows = [];
+  for (let index = 0; index < tableLines.length - 4; index += 1) {
+    const airline = tableLines[index];
+    const flightNo = tableLines[index + 1];
+    const place = tableLines[index + 2];
+    const time = tableLines[index + 3];
+    const status = tableLines[index + 4];
+
+    if (
+      isAirportFlightNo(flightNo) &&
+      isAirportFlightTime(time) &&
+      !/^Airline$/i.test(airline) &&
+      !/^Status$/i.test(status)
+    ) {
+      rows.push({
+        direction,
+        directionText: direction === "departure" ? "\u96e2\u7ad9" : "\u5230\u7ad9",
+        airline: translateAirlineName(airline),
+        airlineOriginal: String(airline).slice(0, 40),
+        flightNo: String(flightNo).replace(/\s+/g, " ").trim().slice(0, 12),
+        place: normalizeFlightPlace(place),
+        time: String(time).replace(/^(\d{1,2})(\d{2})$/, "$1:$2"),
+        rawTime: String(time).slice(0, 8),
+        status: translateFlightStatus(status),
+        statusOriginal: String(status).slice(0, 40),
+      });
+      index += 4;
+    }
+  }
+  return rows;
+}
+
+function parseDirectAirportFlightPage(lines) {
+  const statusHeaderIndexes = lines
+    .map((line, index) => ({ line, index }))
+    .filter(({ line, index }) => {
+      if (!/^Status$/i.test(line)) return false;
+      const nearby = lines.slice(Math.max(0, index - 5), index + 1).join(" ");
+      return /Flight No/i.test(nearby);
+    })
+    .map(({ index }) => index);
+
+  const rows = [];
+  statusHeaderIndexes.slice(0, 2).forEach((statusIndex, tableIndex) => {
+    const end = lines.findIndex((line, index) => {
+      if (index <= statusIndex) return false;
+      return /^Airline$/i.test(line) || line === "?" || /^OPEN$/i.test(line);
+    });
+    const tableLines = lines.slice(statusIndex + 1, end > statusIndex ? end : undefined);
+    rows.push(...parseDirectAirportFlightRows(tableLines, tableIndex === 0 ? "departure" : "arrival"));
+  });
+
+  return {
+    rows: rows.slice(0, 32),
+    departureRows: rows.filter((row) => row.direction === "departure").slice(0, 20),
+    arrivalRows: rows.filter((row) => row.direction === "arrival").slice(0, 20),
+    summary: getFlightSummary(rows),
+  };
+}
+
 function getFlightSummary(rows) {
   const counts = rows.reduce(
     (acc, row) => {
-      const status = String(row.status || "").toLowerCase();
-      if (status.includes("cancel") || row.status.includes("取消")) acc.cancelled += 1;
-      else if (status.includes("closed") || row.status.includes("關閉")) acc.closed += 1;
-      else if (status.includes("ontime") || row.status.includes("準時") || row.status.includes("準點")) acc.onTime += 1;
+      const rawStatus = String(row.status || "");
+      const displayStatus = String(row.statusText || row.status || "");
+      const status = `${rawStatus} ${displayStatus}`.toLowerCase();
+      if (status.includes("cancel") || displayStatus.includes("??") || rawStatus.includes("??")) acc.cancelled += 1;
+      else if (status.includes("closed") || displayStatus.includes("??") || rawStatus.includes("??")) acc.closed += 1;
+      else if (status.includes("ontime") || displayStatus.includes("??") || displayStatus.includes("??") || displayStatus.includes("???")) acc.onTime += 1;
       else acc.other += 1;
       return acc;
     },
@@ -8250,28 +8353,40 @@ async function fetchAoawsWeatherStatus() {
 }
 
 async function fetchMatsuAirportStatus() {
-  const response = await fetch(MATSU_AIRPORT_STATUS_URL, {
-    headers: {
-      "accept-language": "zh-TW,zh;q=0.9,en;q=0.6",
-      "user-agent": "MatsuStationBot/1.0 (+https://www.matsustation.com/)",
-    },
-  });
-  if (!response.ok) {
-    throw new Error(`Matsu airport fetch failed: ${response.status}`);
+  const headers = {
+    "accept-language": "en-US,en;q=0.9",
+    "user-agent": "MatsuStationBot/1.0 (+https://www.matsustation.com/)",
+  };
+  const [nanganResponse, beiganResponse] = await Promise.all([
+    fetch(MATSU_AIRPORT_NANGAN_FLIGHTS_URL, { headers }),
+    fetch(MATSU_AIRPORT_BEIGAN_FLIGHTS_URL, { headers }),
+  ]);
+  if (!nanganResponse.ok) {
+    throw new Error(`Nangan flights fetch failed: ${nanganResponse.status}`);
+  }
+  if (!beiganResponse.ok) {
+    throw new Error(`Beigan flights fetch failed: ${beiganResponse.status}`);
   }
 
-  const html = await response.text();
-  const lines = htmlToVisibleLines(html);
-  const nangan = parseAirportSection(lines, ["Nangan Airport"], ["Beigan Airport"]);
-  const beigan = parseAirportSection(lines, ["Beigan Airport"], ["Waiting Information", "OPEN"]);
+  const [nanganHtml, beiganHtml] = await Promise.all([
+    nanganResponse.text(),
+    beiganResponse.text(),
+  ]);
+  const nangan = parseDirectAirportFlightPage(htmlToVisibleLines(nanganHtml));
+  const beigan = parseDirectAirportFlightPage(htmlToVisibleLines(beiganHtml));
 
   return {
     ok: nangan.rows.length > 0 || beigan.rows.length > 0,
-    source: "馬祖航空站",
-    sourceUrl: MATSU_AIRPORT_STATUS_URL,
+    source: "\u99ac\u7956\u822a\u7a7a\u7ad9",
+    sourceUrl: MATSU_AIRPORT_NANGAN_FLIGHTS_URL,
+    sourceUrls: {
+      nangan: MATSU_AIRPORT_NANGAN_FLIGHTS_URL,
+      beigan: MATSU_AIRPORT_BEIGAN_FLIGHTS_URL,
+    },
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     fetchedAtIso: new Date().toISOString(),
-    notice: "航班資訊由馬祖航空站公開頁面擷取；實際搭乘仍以航空公司與航空站現場公告為準。",
+    error: admin.firestore.FieldValue.delete(),
+    notice: "\u822a\u73ed\u8cc7\u6599\u6bcf 5 \u5206\u9418\u7531\u99ac\u7956\u822a\u7a7a\u7ad9\u4eca\u65e5\u822a\u73ed\u9801\u5feb\u53d6\uff1b\u5be6\u969b\u8d77\u964d\u3001\u5ef6\u8aa4\u8207\u53d6\u6d88\u4ecd\u4ee5\u822a\u7a7a\u516c\u53f8\u53ca\u822a\u7a7a\u7ad9\u516c\u544a\u70ba\u6e96\u3002",
     airports: {
       nangan,
       beigan,

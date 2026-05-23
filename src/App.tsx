@@ -2362,7 +2362,12 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
     ].filter(Boolean);
     return parts.join(' / ');
   };
-  const getFlightRows = (airport: any) => Array.isArray(airport?.rows) ? airport.rows.slice(0, 5) : [];
+  const getFlightRows = (airport: any) => Array.isArray(airport?.rows) ? airport.rows.slice(0, 8) : [];
+  const getFlightRowsByDirection = (airport: any, direction: 'departure' | 'arrival') => {
+    const directRows = direction === 'departure' ? airport?.departureRows : airport?.arrivalRows;
+    if (Array.isArray(directRows)) return directRows.slice(0, 10);
+    return getFlightRows(airport).filter((row: any) => row.direction === direction).slice(0, 10);
+  };
   const ferryAnnouncements = Array.isArray(ferryStatus?.announcements) ? ferryStatus.announcements.slice(0, 4) : [];
 
   if (loading) {
@@ -4727,28 +4732,40 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
 
                    {flightStatus?.ok && (
                      <div className="rounded-xl border border-white/5 bg-white/5 p-4">
-                       <h4 className="mb-3 text-[0.625rem] font-bold uppercase tracking-widest text-text-muted">航空站公開航班摘要</h4>
-                       <div className="space-y-3">
+                       <h4 className="mb-3 text-[0.625rem] font-bold uppercase tracking-widest text-text-muted">航空站今日航班</h4>
+                       <div className="space-y-5">
                          {[
-                           { label: '南竿', rows: getFlightRows(flightStatus.airports?.nangan) },
-                           { label: '北竿', rows: getFlightRows(flightStatus.airports?.beigan) },
+                           { label: '南竿', airport: flightStatus.airports?.nangan },
+                           { label: '北竿', airport: flightStatus.airports?.beigan },
                          ].map(group => (
-                           <div key={group.label} className="space-y-1.5">
-                             <p className="text-[0.625rem] font-bold text-indigo-300">{group.label}</p>
-                             {group.rows.length > 0 ? group.rows.map((row: any) => (
-                               <div key={`${group.label}-${row.flightNo}-${row.time}`} className="flex items-center justify-between gap-3 rounded-lg border border-white/5 bg-mist/30 px-3 py-2 text-[0.6875rem]">
-                                 <div className="min-w-0">
-                                   <span className="font-mono font-bold text-indigo-300">{row.flightNo}</span>
-                                   <span className="ml-2 text-text-muted">{row.directionText ? `${row.directionText} ` : ''}{row.place}</span>
+                           <div key={group.label} className="space-y-3">
+                             <p className="text-[0.6875rem] font-bold text-indigo-300">{group.label}機場</p>
+                             {[
+                               { title: '離站班機', placeLabel: '飛往', timeLabel: '實際起飛', rows: getFlightRowsByDirection(group.airport, 'departure') },
+                               { title: '到站班機', placeLabel: '來自', timeLabel: '實際抵達', rows: getFlightRowsByDirection(group.airport, 'arrival') },
+                             ].map(section => (
+                               <div key={`${group.label}-${section.title}`} className="overflow-hidden rounded-lg border border-white/5 bg-mist/30">
+                                 <div className="border-b border-white/5 bg-white/5 px-3 py-2 text-[0.6875rem] font-bold text-text-main">{section.title}</div>
+                                 <div className="grid grid-cols-[1.1fr_1fr_1fr_0.9fr_0.9fr] gap-2 border-b border-white/5 px-3 py-2 text-[0.5625rem] font-bold uppercase tracking-wider text-text-muted">
+                                   <span>航空公司</span>
+                                   <span>航班編號</span>
+                                   <span>{section.placeLabel}</span>
+                                   <span>{section.timeLabel}</span>
+                                   <span>狀態</span>
                                  </div>
-                                 <div className="flex shrink-0 items-center gap-2">
-                                   <span className="font-mono text-text-muted">{row.time}</span>
-                                   <span className="font-bold text-text-main">{row.statusText || row.status}</span>
-                                 </div>
+                                 {section.rows.length > 0 ? section.rows.map((row: any) => (
+                                   <div key={`${group.label}-${section.title}-${row.flightNo}-${row.time}`} className="grid grid-cols-[1.1fr_1fr_1fr_0.9fr_0.9fr] gap-2 px-3 py-2 text-[0.6875rem] text-text-main odd:bg-black/5">
+                                     <span className="font-bold">{row.airline}</span>
+                                     <span className="font-mono font-bold text-indigo-300">{row.flightNo}</span>
+                                     <span className="text-text-muted">{row.place}</span>
+                                     <span className="font-mono text-text-muted">{row.rawTime || String(row.time || '').replace(':', '')}</span>
+                                     <span className="font-bold">{row.statusText || row.status}</span>
+                                   </div>
+                                 )) : (
+                                   <p className="px-3 py-2 text-[0.6875rem] text-text-muted">尚未取得{section.title}資料</p>
+                                 )}
                                </div>
-                             )) : (
-                               <p className="rounded-lg border border-white/5 bg-mist/30 px-3 py-2 text-[0.6875rem] text-text-muted">尚未取得航班列資料</p>
-                             )}
+                             ))}
                            </div>
                          ))}
                        </div>
