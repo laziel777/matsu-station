@@ -3062,6 +3062,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                       setShowNotifications(!showNotifications);
                       setShowSettingsMenu(false);
                     }}
+                    aria-label="開啟通知"
                     className={`p-2 transition-all cursor-pointer ${showNotifications ? 'text-bio-glow' : 'text-text-muted'}`}
                   >
                     <Bell className="w-5 h-5" />
@@ -3120,6 +3121,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                       setShowSettingsMenu(!showSettingsMenu);
                       setShowNotifications(false);
                     }}
+                    aria-label="開啟功能選單"
                     className={`p-2 transition-all cursor-pointer ${showSettingsMenu ? 'text-bio-glow' : 'text-text-muted'}`}
                   >
                     <Settings className="w-5 h-5" />
@@ -3385,6 +3387,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                   setShowNotifications(!showNotifications);
                   setShowSettingsMenu(false);
                 }}
+                aria-label="開啟通知"
                 className={`p-2 rounded-xl transition-all cursor-pointer relative ${
                   showNotifications ? 'text-bio-glow bg-mist-medium' : 'text-text-muted hover:text-bio-glow hover:bg-mist-light'
                 }`}
@@ -3450,6 +3453,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                   setShowSettingsMenu(!showSettingsMenu);
                   setShowNotifications(false);
                 }}
+                aria-label="開啟功能選單"
                 className={`p-2 rounded-xl transition-all cursor-pointer ${
                   showSettingsMenu ? 'text-bio-glow bg-white/10' : 'text-text-muted hover:text-bio-glow hover:bg-white/5'
                 }`}
@@ -4429,7 +4433,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
 
       {/* Footer */}
       <footer className="py-16 border-t border-line text-center text-text-muted text-sm space-y-8">
-        <div className="max-w-7xl mx-auto px-4 grid grid-cols-2 sm:flex sm:items-center sm:justify-center gap-x-8 gap-y-4 text-[0.625rem] sm:text-[0.6875rem] font-bold uppercase tracking-[0.1em] opacity-50">
+        <div className="max-w-7xl mx-auto px-4 grid grid-cols-2 sm:flex sm:items-center sm:justify-center gap-x-8 gap-y-4 text-[0.625rem] sm:text-[0.6875rem] font-bold uppercase tracking-[0.1em] opacity-80">
            <button onClick={() => setShowTerms(true)} className="hover:text-bio-glow transition-colors cursor-pointer text-left sm:text-center text-text-muted">服務條款</button>
            <button onClick={() => setShowTerms(true)} className="hover:text-bio-glow transition-colors cursor-pointer text-left sm:text-center text-text-muted">內容政策</button>
            <button onClick={() => setShowTerms(true)} className="hover:text-bio-glow transition-colors cursor-pointer text-left sm:text-center text-text-muted">隱私權聲明</button>
