@@ -8051,6 +8051,8 @@ const MATSU_AIRPORT_STATUS_URL = "https://msa.gov.tw/";
 const MATSU_AIRPORT_NANGAN_FLIGHTS_URL = "https://msa.gov.tw/flights/nangan";
 const MATSU_AIRPORT_BEIGAN_FLIGHTS_URL = "https://msa.gov.tw/flights/beigan";
 const TAIMA_STAR_STATUS_URL = "https://www.alsealand.com/";
+const MOTCMPB_FERRY_SCHEDULE_URL = "https://www.motcmpb.gov.tw/PassengerShip/Schedule?SiteId=1&NodeId=610&ShipLaneNo=C001";
+const MOTCMPB_FERRY_SWITCH_PAGE_URL = "https://www.motcmpb.gov.tw/PassengerShip/SwitchPage?SiteId=1&NodeId=610&ShipLaneNo=C001";
 const AOAWS_HOME_URL = "https://aoaws.anws.gov.tw/";
 const AOAWS_METAR_URL = "https://aoaws.anws.gov.tw/Home/get_metar_data";
 
@@ -8062,6 +8064,10 @@ function decodeSimpleHtmlEntities(text) {
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, "\"")
     .replace(/&#39;/g, "'");
+}
+
+function escapeRegExp(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function htmlToVisibleLines(html) {
@@ -8404,6 +8410,126 @@ function extractAnnouncementTitles(html) {
     .slice(0, 8);
 }
 
+function extractDataCell(rowHtml, dataTh) {
+  const escaped = escapeRegExp(dataTh);
+  const match = String(rowHtml || "").match(new RegExp(`<td\\b[^>]*data-th=["']${escaped}["'][^>]*>([\\s\\S]*?)<\\/td>`, "i"));
+  return match ? match[1] : "";
+}
+
+function htmlCellToLines(html) {
+  return htmlToVisibleLines(html)
+    .map((line) => line.replace(/[↓→]/g, "").trim())
+    .filter(Boolean);
+}
+
+function parseFerryDateTime(cellHtml) {
+  const parts = htmlCellToLines(cellHtml);
+  return {
+    date: parts[0] || "",
+    time: parts.find((part) => /^\d{1,2}:\d{2}$/.test(part)) || parts[1] || "",
+  };
+}
+
+function parseMotcmpbFerryRows(html) {
+  const fieldNames = {
+    company: "\u71df\u904b\u516c\u53f8",
+    contact: "\u806f\u7d61\u65b9\u5f0f",
+    route: "\u822a\u7dda",
+    ship: "\u8239\u8236",
+    departure: "\u958b\u822a\u6642\u9593(\u7576\u5730\u6642\u9593)",
+    arrival: "\u62b5\u9054\u6642\u9593(\u7576\u5730\u6642\u9593)",
+    validity: "\u822a\u884c\u6709\u6548\u671f\u9650",
+    ports: "\u51fa\u767c\u6e2f\u2192\u76ee\u7684\u6e2f",
+    note: "\u5099\u8a3b",
+  };
+
+  return Array.from(String(html || "").matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi))
+    .map((match) => match[1])
+    .map((rowHtml) => {
+      const departure = parseFerryDateTime(extractDataCell(rowHtml, fieldNames.departure));
+      const arrival = parseFerryDateTime(extractDataCell(rowHtml, fieldNames.arrival));
+      const ports = htmlCellToLines(extractDataCell(rowHtml, fieldNames.ports));
+      return {
+        company: (htmlCellToLines(extractDataCell(rowHtml, fieldNames.company))[0] || "").slice(0, 60),
+        contact: (htmlCellToLines(extractDataCell(rowHtml, fieldNames.contact))[0] || "").slice(0, 40),
+        route: (htmlCellToLines(extractDataCell(rowHtml, fieldNames.route))[0] || "").slice(0, 80),
+        ship: (htmlCellToLines(extractDataCell(rowHtml, fieldNames.ship))[0] || "").slice(0, 40),
+        departureDate: departure.date.slice(0, 16),
+        departureTime: departure.time.slice(0, 8),
+        arrivalDate: arrival.date.slice(0, 16),
+        arrivalTime: arrival.time.slice(0, 8),
+        validUntil: (htmlCellToLines(extractDataCell(rowHtml, fieldNames.validity))[0] || "").slice(0, 40),
+        from: (ports[0] || "").slice(0, 40),
+        to: (ports[ports.length - 1] || "").slice(0, 40),
+        note: htmlCellToLines(extractDataCell(rowHtml, fieldNames.note)).join(" ").slice(0, 120),
+      };
+    })
+    .filter((row) => row.ship && row.departureDate && row.departureTime);
+}
+
+function getFerrySummary(rows) {
+  const today = new Date().toISOString().slice(0, 10);
+  return rows.reduce(
+    (acc, row) => {
+      if (row.departureDate === today) acc.today += 1;
+      if (/基隆/.test(row.from) || /基隆/.test(row.to)) acc.keelungMatsu += 1;
+      if (/東引/.test(row.from) || /東引/.test(row.to)) acc.dongyin += 1;
+      return acc;
+    },
+    { total: rows.length, today: 0, keelungMatsu: 0, dongyin: 0 }
+  );
+}
+
+async function fetchMotcmpbFerrySchedule() {
+  const headers = {
+    "accept-language": "zh-TW,zh;q=0.9,en;q=0.6",
+    "user-agent": "MatsuStationBot/1.0 (+https://www.matsustation.com/)",
+  };
+  const firstPageResponse = await fetch(MOTCMPB_FERRY_SCHEDULE_URL, { headers });
+  if (!firstPageResponse.ok) {
+    throw new Error(`MOTCMPB ferry schedule fetch failed: ${firstPageResponse.status}`);
+  }
+
+  const cookieHeader = toCookieHeader(getSetCookieValues(firstPageResponse.headers));
+  const firstPageHtml = await firstPageResponse.text();
+  const pageLinks = Array.from(firstPageHtml.matchAll(/PassengerShip\/SwitchPage\?[^"']*page=(\d+)/gi))
+    .map((match) => Number(match[1]))
+    .filter((page) => Number.isFinite(page) && page > 1);
+  const maxPage = Math.min(Math.max(1, ...pageLinks), 8);
+  const pageHtmlList = [firstPageHtml];
+
+  for (let page = 2; page <= maxPage; page += 1) {
+    const response = await fetch(`${MOTCMPB_FERRY_SWITCH_PAGE_URL}&page=${page}`, {
+      method: "POST",
+      headers: {
+        ...headers,
+        accept: "text/html, */*; q=0.01",
+        referer: MOTCMPB_FERRY_SCHEDULE_URL,
+        "x-requested-with": "XMLHttpRequest",
+        ...(cookieHeader ? { cookie: cookieHeader } : {}),
+      },
+    });
+    if (response.ok) {
+      pageHtmlList.push(await response.text());
+    }
+  }
+
+  const rows = pageHtmlList.flatMap((html) => parseMotcmpbFerryRows(html));
+  const dedupedRows = Array.from(
+    new Map(
+      rows.map((row) => [
+        [row.ship, row.departureDate, row.departureTime, row.from, row.to].join("|"),
+        row,
+      ])
+    ).values()
+  ).sort((a, b) => `${a.departureDate} ${a.departureTime}`.localeCompare(`${b.departureDate} ${b.departureTime}`));
+
+  return {
+    rows: dedupedRows.slice(0, 80),
+    summary: getFerrySummary(dedupedRows),
+  };
+}
+
 async function fetchTaimaStarAnnouncements() {
   const response = await fetch(TAIMA_STAR_STATUS_URL, {
     headers: {
@@ -8428,11 +8554,42 @@ async function fetchTaimaStarAnnouncements() {
   };
 }
 
+async function fetchMatsuFerryStatus() {
+  const [scheduleResult, announcementResult] = await Promise.allSettled([
+    fetchMotcmpbFerrySchedule(),
+    fetchTaimaStarAnnouncements(),
+  ]);
+
+  if (scheduleResult.status !== "fulfilled") {
+    throw scheduleResult.reason;
+  }
+
+  const schedule = scheduleResult.value;
+  const announcementStatus = announcementResult.status === "fulfilled" ? announcementResult.value : null;
+  return {
+    ok: schedule.rows.length > 0,
+    source: "\u4ea4\u901a\u90e8\u822a\u6e2f\u5c40",
+    sourceUrl: MOTCMPB_FERRY_SCHEDULE_URL,
+    announcementSource: "\u81fa\u99ac\u4e4b\u661f\uff0f\u6d0b\u6c11\u96c6\u5718",
+    announcementSourceUrl: TAIMA_STAR_STATUS_URL,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    fetchedAtIso: new Date().toISOString(),
+    error: admin.firestore.FieldValue.delete(),
+    notice: "\u8239\u73ed\u8868\u6bcf 5 \u5206\u9418\u7531\u4ea4\u901a\u90e8\u822a\u6e2f\u5c40\u57fa\u9686-\u99ac\u7956\u822a\u7dda\u9801\u5feb\u53d6\uff1b\u5b9a\u671f\u73ed\u8868\u50c5\u4f9b\u53c3\u8003\uff0c\u81e8\u6642\u7570\u52d5\u3001\u505c\u822a\u8207\u8a02\u4f4d\u4ecd\u4ee5\u8239\u516c\u53f8\u53ca\u5b98\u65b9\u516c\u544a\u70ba\u6e96\u3002",
+    rows: schedule.rows,
+    summary: schedule.summary,
+    announcements: Array.isArray(announcementStatus?.announcements) ? announcementStatus.announcements : [],
+    announcementError: announcementResult.status === "rejected"
+      ? String(announcementResult.reason?.message || announcementResult.reason).slice(0, 300)
+      : admin.firestore.FieldValue.delete(),
+  };
+}
+
 async function refreshPublicTransportStatus() {
   const now = admin.firestore.FieldValue.serverTimestamp();
   const [flightResult, ferryResult, weatherResult] = await Promise.allSettled([
     fetchMatsuAirportStatus(),
-    fetchTaimaStarAnnouncements(),
+    fetchMatsuFerryStatus(),
     fetchAoawsWeatherStatus(),
   ]);
 
@@ -8465,8 +8622,8 @@ async function refreshPublicTransportStatus() {
       ferryRef,
       {
         ok: false,
-        source: "臺馬之星／洋民集團",
-        sourceUrl: TAIMA_STAR_STATUS_URL,
+        source: "交通部航港局",
+        sourceUrl: MOTCMPB_FERRY_SCHEDULE_URL,
         updatedAt: now,
         fetchedAtIso: new Date().toISOString(),
         error: String(ferryResult.reason?.message || ferryResult.reason).slice(0, 300),

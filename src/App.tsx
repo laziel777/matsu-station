@@ -34,7 +34,7 @@ const DAILY_COMMENT_LIMIT = 120;
 const ANTI_ABUSE_NOTICE = '為了防止洗文、機器濫用與大量複製垃圾文，馬祖小站會限制發文頻率。';
 const LINE_OFFICIAL_URL = 'https://lin.ee/nn0RaOc';
 const MATSU_AIRPORT_URL = 'https://msa.gov.tw/flights/nangan';
-const TAIMA_STAR_URL = 'https://www.alsealand.com/';
+const MOTCMPB_FERRY_URL = 'https://www.motcmpb.gov.tw/PassengerShip/Schedule?SiteId=1&NodeId=610&ShipLaneNo=C001';
 const REACTION_OPTIONS = ['❤️', '😂', '😭', '🔥', '👍', '👎', '😡', '😍', '🤔', '😮'];
 const DEFAULT_REACTION = '❤️';
 const REPORT_REASON_OPTIONS = ['人身攻擊', '誹謗/不實指控', '個資/肉搜', '威脅/暴力', '騷擾/圍剿', '詐騙', '色情/私密影像', '垃圾訊息/洗版', '其他'];
@@ -2368,6 +2368,18 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
     if (Array.isArray(directRows)) return directRows.slice(0, 10);
     return getFlightRows(airport).filter((row: any) => row.direction === direction).slice(0, 10);
   };
+  const getFerryScheduleRows = () => Array.isArray(ferryStatus?.rows) ? ferryStatus.rows.slice(0, 30) : [];
+  const getFerrySummaryText = () => {
+    const summary = ferryStatus?.summary || {};
+    const parts = [
+      `共 ${summary.total || 0} 筆`,
+      summary.today ? `今日 ${summary.today}` : '',
+      summary.keelungMatsu ? `基隆馬祖 ${summary.keelungMatsu}` : '',
+      summary.dongyin ? `含東引 ${summary.dongyin}` : '',
+    ].filter(Boolean);
+    return parts.join(' / ');
+  };
+  const ferryScheduleRows = getFerryScheduleRows();
   const ferryAnnouncements = Array.isArray(ferryStatus?.announcements) ? ferryStatus.announcements.slice(0, 4) : [];
 
   if (loading) {
@@ -4799,7 +4811,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                    {ferryStatus?.ok && (
                      <div className="rounded-2xl border border-emerald-400/10 bg-emerald-500/5 p-4">
                        <div className="mb-3 flex items-center justify-between gap-3">
-                         <span className="text-xs font-bold text-emerald-200">臺馬之星公告快取</span>
+                         <span className="text-xs font-bold text-emerald-200">航港局船班快取</span>
                          <span className="text-[0.625rem] font-mono text-text-muted">
                            {formatTransportUpdatedAt(ferryStatus.updatedAt)} 更新
                          </span>
@@ -4812,17 +4824,22 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                       <div className="flex items-center justify-between">
                          <div className="flex items-center gap-3">
                             <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 text-[0.625rem] font-bold">TPE-LZN</span>
-                            <span className="text-sm font-bold text-text-main">台馬之星 (基隆-馬祖)</span>
+                            <div>
+                              <span className="text-sm font-bold text-text-main">基隆-馬祖定期船班</span>
+                              {ferryStatus?.ok && (
+                                <p className="mt-1 text-[0.6875rem] text-text-muted">{getFerrySummaryText()}</p>
+                              )}
+                            </div>
                          </div>
                          <span className="flex items-center gap-1.5 text-xs text-amber-300 font-bold">
                             <Info className="h-3.5 w-3.5" />
-                            以公告為準
+                            以官方為準
                          </span>
                       </div>
                       <div className="flex items-center justify-between">
                          <div className="flex items-center gap-3">
                             <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 text-[0.625rem] font-bold">ISL</span>
-                            <span className="text-sm font-bold text-text-main">島際交通 (各離島)</span>
+                            <span className="text-sm font-bold text-text-main">含東引、南竿福澳與基隆航段</span>
                          </div>
                          <span className="flex items-center gap-1.5 text-xs text-amber-300 font-bold">
                             <Info className="h-3.5 w-3.5" />
@@ -4830,6 +4847,34 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                          </span>
                       </div>
                    </div>
+
+                   {ferryStatus?.ok && (
+                     <div className="rounded-xl border border-white/5 bg-white/5 p-4">
+                       <h4 className="mb-3 text-[0.625rem] font-bold uppercase tracking-widest text-text-muted">基隆-馬祖船班表</h4>
+                       <div className="overflow-hidden rounded-lg border border-white/5 bg-mist/30">
+                         <div className="grid grid-cols-[0.85fr_0.9fr_0.9fr_0.9fr_0.9fr_0.9fr] gap-2 border-b border-white/5 px-3 py-2 text-[0.5625rem] font-bold uppercase tracking-wider text-text-muted">
+                           <span>日期</span>
+                           <span>船舶</span>
+                           <span>出發</span>
+                           <span>目的</span>
+                           <span>開航</span>
+                           <span>抵達</span>
+                         </div>
+                         {ferryScheduleRows.length > 0 ? ferryScheduleRows.map((row: any) => (
+                           <div key={`${row.ship}-${row.departureDate}-${row.departureTime}-${row.from}-${row.to}`} className="grid grid-cols-[0.85fr_0.9fr_0.9fr_0.9fr_0.9fr_0.9fr] gap-2 px-3 py-2 text-[0.6875rem] text-text-main odd:bg-black/5">
+                             <span className="font-mono text-text-muted">{String(row.departureDate || '').slice(5)}</span>
+                             <span className="font-bold text-emerald-300">{row.ship}</span>
+                             <span className="text-text-muted">{row.from}</span>
+                             <span className="text-text-muted">{row.to}</span>
+                             <span className="font-mono">{row.departureTime}</span>
+                             <span className="font-mono text-text-muted">{row.arrivalDate && row.arrivalDate !== row.departureDate ? `${String(row.arrivalDate).slice(5)} ` : ''}{row.arrivalTime}</span>
+                           </div>
+                         )) : (
+                           <p className="px-3 py-2 text-[0.6875rem] text-text-muted">尚未取得船班表資料</p>
+                         )}
+                       </div>
+                     </div>
+                   )}
 
                    {ferryAnnouncements.length > 0 && (
                      <div className="rounded-xl border border-white/5 bg-white/5 p-4">
@@ -4859,7 +4904,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
 
               <div className="mt-8 flex gap-3">
                  <a
-                   href={showTransportModal === 'flight' ? MATSU_AIRPORT_URL : TAIMA_STAR_URL}
+                   href={showTransportModal === 'flight' ? MATSU_AIRPORT_URL : MOTCMPB_FERRY_URL}
                    target="_blank"
                    rel="noreferrer"
                    className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-line bg-mist-medium py-3 text-xs font-bold text-text-main transition-all hover:bg-mist"
