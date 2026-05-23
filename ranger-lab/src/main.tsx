@@ -45,13 +45,15 @@ import './styles.css';
 type RiskLevel = 'low' | 'medium' | 'high' | 'critical';
 type SourceType = 'post' | 'comment' | 'reply';
 type CaseAction = 'mark_reviewed' | 'dismiss' | 'release' | 'quarantine' | 'remove';
-type ContentAction = 'review' | 'hide' | 'mask' | 'delete' | 'restore';
+type ContentAction = 'review' | 'hide' | 'mask' | 'delete' | 'restore' | 'hide_image' | 'restore_image';
 type AccountAction = 'watch' | 'clear_watch' | 'ban' | 'unban' | 'suspend_posting' | 'restore_posting';
-type DrawerKey = 'cockpit' | 'accounts' | 'articles' | 'reports' | 'aiSheet' | 'cases';
+type DrawerKey = 'cockpit' | 'accounts' | 'articles' | 'images' | 'reports' | 'aiSheet' | 'cases';
 type ContentSortKey = 'risk_desc' | 'risk_asc' | 'newest' | 'oldest' | 'author' | 'type';
 type ContentDecisionFilter = 'all' | 'open' | 'decided' | 'hidden' | 'masked' | 'approved' | 'deleted';
 type CaseStatusFilter = 'open' | 'all' | 'masked' | 'hidden' | 'approved' | 'dismissed' | 'reviewed' | 'deleted';
 type AccountSortKey = 'risk_desc' | 'newest' | 'oldest' | 'status' | 'name';
+type ImageWallFilter = 'all' | 'visible' | 'hidden' | 'high';
+type ImageWallSortKey = 'risk_desc' | 'newest' | 'oldest' | 'author';
 
 interface SiteItem {
   id: string;
@@ -74,6 +76,7 @@ interface SiteItem {
   status: string;
   localLabels: string[];
   usesAdminSnapshot?: boolean;
+  usesImageSnapshot?: boolean;
   authorIpAddress?: string;
   authorIpKey?: string;
   ipSource?: 'content' | 'account' | 'none';
@@ -247,6 +250,7 @@ function sourceLabel(type?: string) {
 function statusLabel(status?: string) {
   if (status === 'approved' || status === 'released') return '\u5df2\u653e\u884c';
   if (status === 'masked' || status === 'quarantined' || status === 'pending_review') return '\u5be9\u6838\u4e2d';
+  if (status === 'image_hidden') return '圖片已遮蔽';
   if (status === 'hidden' || status === 'removed') return '\u5df2\u96b1\u85cf';
   if (status === 'deleted') return '\u5df2\u522a\u9664';
   if (status === 'dismissed') return '\u5df2\u7d50\u6848';
@@ -258,6 +262,7 @@ function statusLabel(status?: string) {
 
 function handlingState(status?: string) {
   if (status === 'approved' || status === 'released') return '\u7ad9\u52d9\u5df2\u653e\u884c';
+  if (status === 'image_hidden') return '圖片已遮蔽，文字仍保留';
   if (status === 'hidden' || status === 'removed') return '\u524d\u53f0\u5df2\u96b1\u85cf';
   if (status === 'deleted') return '\u5df2\u522a\u9664';
   if (status === 'dismissed') return '\u5df2\u7d50\u6848';
@@ -279,6 +284,7 @@ function contentDecisionFilterLabel(filter: ContentDecisionFilter) {
 }
 
 function getContentDecisionFilter(status?: string): ContentDecisionFilter {
+  if (status === 'image_hidden') return 'hidden';
   if (status === 'hidden' || status === 'removed') return 'hidden';
   if (status === 'masked' || status === 'quarantined') return 'masked';
   if (status === 'approved' || status === 'released') return 'approved';
@@ -397,22 +403,29 @@ function makeSiteItem(
   ipData?: DocumentData,
   accountData?: DocumentData,
 ): SiteItem | null {
-  const imageUrls = [
+  const liveImageUrls = [
     ...(cleanText(data.imageUrl) ? [cleanText(data.imageUrl)] : []),
     ...(Array.isArray(data.imageUrls) ? data.imageUrls.map(cleanText) : []),
+  ].filter(Boolean);
+  const snapshotImageUrls = [
     ...(Array.isArray(caseData?.imageUrlsSnapshot) ? caseData.imageUrlsSnapshot.map(cleanText) : []),
   ].filter(Boolean);
-  const imagePaths = [
+  const imageUrls = [...liveImageUrls, ...snapshotImageUrls].filter(Boolean);
+  const liveImagePaths = [
     ...(cleanText(data.imagePath) ? [cleanText(data.imagePath)] : []),
     ...(Array.isArray(data.imagePaths) ? data.imagePaths.map(cleanText) : []),
+  ].filter(Boolean);
+  const snapshotImagePaths = [
     ...(Array.isArray(caseData?.imagePathsSnapshot) ? caseData.imagePathsSnapshot.map(cleanText) : []),
   ].filter(Boolean);
+  const imagePaths = [...liveImagePaths, ...snapshotImagePaths].filter(Boolean);
   const text = getContentText(data, caseData) || (imageUrls.length || imagePaths.length ? '[圖片貼文]' : '');
   if (!text) return null;
   const parts = sourcePath.split('/');
   const mergedData = { ...data, ...(caseData || {}) };
   const risk = getStoredRisk(mergedData);
   const usesAdminSnapshot = Boolean(cleanText(caseData?.contentSnapshot || caseData?.contentPreview));
+  const usesImageSnapshot = liveImageUrls.length === 0 && liveImagePaths.length === 0 && (snapshotImageUrls.length > 0 || snapshotImagePaths.length > 0);
   const authorIpAddress = cleanText(ipData?.ipAddress || accountData?.lastIpAddress);
   const authorIpKey = cleanText(ipData?.ipKey || accountData?.lastIpKey);
   return {
@@ -434,8 +447,9 @@ function makeSiteItem(
     currentRiskLabel: risk.level,
     currentRiskScore: risk.score,
     status: cleanText(mergedData.moderationStatus || mergedData.status || 'normal'),
-    localLabels: [...localLabelsFor(text), ...(usesAdminSnapshot ? ['後台原文'] : [])],
+    localLabels: [...localLabelsFor(text), ...(usesAdminSnapshot ? ['後台原文'] : []), ...(usesImageSnapshot ? ['圖片快照'] : [])],
     usesAdminSnapshot,
+    usesImageSnapshot,
     authorIpAddress,
     authorIpKey,
     ipSource: ipData?.ipAddress || ipData?.ipKey ? 'content' : authorIpAddress || authorIpKey ? 'account' : 'none',
@@ -672,6 +686,7 @@ function DrawerCabinet({ activeDrawer, counts, onChange }: {
     { key: 'cockpit', label: '站長駕駛艙', hint: '總覽' },
     { key: 'accounts', label: '帳號抽屜', hint: '管理' },
     { key: 'articles', label: '文章抽屜', hint: '全站內容' },
+    { key: 'images', label: '圖片巡邏牆', hint: '圖片' },
     { key: 'reports', label: '檢舉通報', hint: '回報' },
     { key: 'aiSheet', label: 'AI 掃描紙', hint: '標籤' },
     { key: 'cases', label: '治理案件', hint: '裁決' },
@@ -1246,7 +1261,7 @@ function ContentTable({ items, selectedPath, onAction }: {
                   <button disabled={disabled || bucket === 'open'} onClick={() => void run(item, 'review')}><Gavel size={14} /> {bucket === 'open' ? '審核中' : '轉審核'}</button>
                   <button className="danger" disabled={disabled || ['hidden', 'deleted'].includes(bucket)} onClick={() => void run(item, 'hide')}><CircleSlash size={14} /> {bucket === 'hidden' ? '已隱藏' : bucket === 'deleted' ? '已刪除' : '隱藏'}</button>
                   <button className="warn" disabled={disabled || bucket === 'masked'} onClick={() => void run(item, 'mask')}><FileWarning size={14} /> {bucket === 'masked' ? '已遮蔽' : '遮蔽'}</button>
-                  <button className="ok" disabled={disabled || !item.usesAdminSnapshot || bucket === 'approved'} onClick={() => void run(item, 'restore')}><CheckCircle2 size={14} /> {bucket === 'approved' ? '已放行' : '恢復'}</button>
+                  <button className="ok" disabled={disabled || ['approved', 'deleted'].includes(bucket)} onClick={() => void run(item, 'restore')}><CheckCircle2 size={14} /> {bucket === 'approved' ? '已放行' : bucket === 'deleted' ? '已刪除' : '恢復'}</button>
                   <button className="danger" disabled={disabled || bucket === 'deleted'} onClick={() => void run(item, 'delete')}><Trash2 size={14} /> {bucket === 'deleted' ? '已刪除' : '完全移除'}</button>
                 </div>
               </article>
@@ -1255,6 +1270,135 @@ function ContentTable({ items, selectedPath, onAction }: {
         ))}
         {!visible.length && (
           <div className="empty-feed"><Search size={20} /><p>找不到符合條件的內容。</p></div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function ImageWall({ items, onAction, onOpenSource }: {
+  items: SiteItem[];
+  onAction: (item: SiteItem, action: ContentAction) => Promise<void>;
+  onOpenSource: (sourcePath: string) => void;
+}) {
+  const [busy, setBusy] = React.useState('');
+  const [queryText, setQueryText] = React.useState('');
+  const [filter, setFilter] = React.useState<ImageWallFilter>('all');
+  const [sortKey, setSortKey] = React.useState<ImageWallSortKey>('risk_desc');
+
+  const imageItems = React.useMemo(
+    () => items.filter(item => item.imageCount > 0 || item.usesImageSnapshot),
+    [items],
+  );
+
+  const visible = imageItems
+    .filter(item => {
+      const bucket = getContentDecisionFilter(item.status);
+      if (filter === 'visible' && (item.usesImageSnapshot || bucket === 'hidden' || bucket === 'deleted')) return false;
+      if (filter === 'hidden' && !item.usesImageSnapshot && bucket !== 'hidden') return false;
+      if (filter === 'high' && item.currentRiskScore < 70) return false;
+      const haystack = [
+        item.sourcePath,
+        item.authorName,
+        item.authorId,
+        item.category,
+        item.status,
+        statusLabel(item.status),
+        handlingState(item.status),
+        item.imagePath,
+        item.text,
+        item.localLabels.join(' '),
+      ].join(' ').toLowerCase();
+      return !queryText || haystack.includes(queryText.toLowerCase());
+    })
+    .sort((left, right) => {
+      if (sortKey === 'newest') return toMillis(right.createdAt) - toMillis(left.createdAt);
+      if (sortKey === 'oldest') return toMillis(left.createdAt) - toMillis(right.createdAt);
+      if (sortKey === 'author') return (left.authorName || left.authorId).localeCompare(right.authorName || right.authorId, 'zh-Hant');
+      return right.currentRiskScore - left.currentRiskScore || toMillis(right.createdAt) - toMillis(left.createdAt);
+    })
+    .slice(0, 120);
+
+  const run = async (item: SiteItem, action: ContentAction) => {
+    if (action === 'delete' && !window.confirm('確定要完全移除這則內容嗎？這個動作不可逆。')) return;
+    if (action === 'hide' && !window.confirm('確定要遮蔽整篇內容嗎？')) return;
+    if (action === 'restore' && !window.confirm('確定要恢復整篇內容嗎？')) return;
+    setBusy(`${item.id}:${action}`);
+    try {
+      await onAction(item, action);
+    } catch (error) {
+      window.alert(`圖片牆操作失敗：${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setBusy('');
+    }
+  };
+
+  return (
+    <section className="content-watch-panel image-wall-panel">
+      <div className="content-watch-head">
+        <div>
+          <span className="eyebrow">圖片巡邏牆</span>
+          <h2>集中檢查全站圖片、圖片快照與處理狀態</h2>
+          <p>只遮圖片會保留文字；遮蔽整篇會讓整則內容不公開。已遮蔽的圖片可從後台快照恢復。</p>
+        </div>
+        <div className="content-watch-stats"><span>{visible.length} / {imageItems.length} 張</span></div>
+      </div>
+      <div className="image-wall-toolbar">
+        <input value={queryText} onChange={event => setQueryText(event.target.value)} placeholder="搜尋圖片、作者、UID、sourcePath、imagePath" />
+        <select value={filter} onChange={event => setFilter(event.target.value as ImageWallFilter)}>
+          <option value="all">全部圖片</option>
+          <option value="visible">目前公開</option>
+          <option value="hidden">已遮蔽/快照</option>
+          <option value="high">高風險優先</option>
+        </select>
+        <select value={sortKey} onChange={event => setSortKey(event.target.value as ImageWallSortKey)}>
+          <option value="risk_desc">風險高到低</option>
+          <option value="newest">最新在前</option>
+          <option value="oldest">最舊在前</option>
+          <option value="author">作者排序</option>
+        </select>
+        {queryText && <button onClick={() => setQueryText('')}>清除搜尋</button>}
+      </div>
+      <div className="image-wall-grid">
+        {visible.map(item => {
+          const bucket = getContentDecisionFilter(item.status);
+          const disabled = Boolean(busy);
+          return (
+            <article key={item.id} className={`image-wall-card image-wall-${bucket}`}>
+              <button className="image-wall-frame" onClick={() => onOpenSource(item.sourcePath)} title="回到文章抽屜檢視來源">
+                {item.imageUrl ? <img src={item.imageUrl} alt="站內圖片" loading="lazy" /> : <span className="image-wall-missing">圖片網址已移除，但後台仍保留處理紀錄。</span>}
+              </button>
+              <div className="image-wall-body">
+                <div className="image-wall-badges">
+                  <span style={{ color: riskTone(item.currentRiskLabel) }}>{riskLabel(item.currentRiskLabel)} {Math.round(item.currentRiskScore)}</span>
+                  <em>{sourceLabel(item.sourceType)}</em>
+                  <em>{statusLabel(item.status)}</em>
+                  {item.usesImageSnapshot && <em>圖片快照</em>}
+                </div>
+                <strong>{item.authorName || compactUid(item.authorId)} / {item.category}</strong>
+                <p>{item.text}</p>
+                <small>{item.sourcePath}</small>
+                <small>{item.imagePath || '無 imagePath'}</small>
+              </div>
+              <div className="image-wall-actions">
+                <button className="warn" disabled={disabled || item.usesImageSnapshot || bucket === 'deleted'} onClick={() => void run(item, 'hide_image')}>
+                  <FileWarning size={14} /> {item.usesImageSnapshot ? '圖片已遮蔽' : '只遮圖片'}
+                </button>
+                <button className="ok" disabled={disabled || !item.usesImageSnapshot || bucket === 'deleted'} onClick={() => void run(item, 'restore_image')}>
+                  <CheckCircle2 size={14} /> {item.usesImageSnapshot ? '恢復圖片' : '圖片公開中'}
+                </button>
+                <button className="danger" disabled={disabled || ['hidden', 'deleted'].includes(bucket)} onClick={() => void run(item, 'hide')}>
+                  <CircleSlash size={14} /> {bucket === 'hidden' ? '整篇已遮蔽' : bucket === 'deleted' ? '已刪除' : '遮蔽整篇'}
+                </button>
+                <button className="ok" disabled={disabled || ['approved', 'deleted'].includes(bucket)} onClick={() => void run(item, 'restore')}>
+                  <RefreshCw size={14} /> {bucket === 'approved' ? '已放行' : bucket === 'deleted' ? '已刪除' : '恢復整篇'}
+                </button>
+              </div>
+            </article>
+          );
+        })}
+        {!visible.length && (
+          <div className="empty-feed"><Search size={20} /><p>目前沒有符合條件的圖片。</p></div>
         )}
       </div>
     </section>
@@ -1503,11 +1647,16 @@ function App() {
     () => new Set(items.map(item => item.sourcePath).filter(Boolean)),
     [items],
   );
+  const imageItemCount = React.useMemo(
+    () => items.filter(item => item.imageCount > 0 || item.usesImageSnapshot).length,
+    [items],
+  );
 
   const drawerCounts: Record<DrawerKey, number> = {
     cockpit: riskCounts.high + riskCounts.critical,
     accounts: accountsWithStats.length,
     articles: items.length,
+    images: imageItemCount,
     reports: reports.length,
     aiSheet: items.length,
     cases: cases.length,
@@ -1542,6 +1691,12 @@ function App() {
     setSelectedContentPath(sourcePath);
     setActiveDrawer('articles');
     pushLog(`已切到文章抽屜查看目標：${sourcePath}`);
+  };
+
+  const viewImageSource = (sourcePath: string) => {
+    setSelectedContentPath(sourcePath);
+    setActiveDrawer('articles');
+    pushLog(`已切到文章抽屜查看圖片來源：${sourcePath}`);
   };
 
   if (!isStationMaster) {
@@ -1598,6 +1753,9 @@ function App() {
 
       {activeDrawer === 'articles' && (
         <ContentTable items={items} selectedPath={selectedContentPath} onAction={runContentAction} />
+      )}
+      {activeDrawer === 'images' && (
+        <ImageWall items={items} onAction={runContentAction} onOpenSource={viewImageSource} />
       )}
       {activeDrawer === 'reports' && (
         <ReportsPanel reports={reports} onSync={syncReport} onViewTarget={viewReportTarget} />

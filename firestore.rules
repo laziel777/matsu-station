@@ -32,9 +32,9 @@ service cloud.firestore {
              && exists(/databases/$(database)/documents/users/$(request.auth.uid))
              && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.agreedToTerms == true
              && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isProfileSetup == true
-             && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.acceptedTermsVersion == '2026-05-19'
-             && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.acceptedPrivacyVersion == '2026-05-19'
-             && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.acceptedCommunityRulesVersion == '2026-05-19';
+             && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.acceptedTermsVersion == '2026-05-23'
+             && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.acceptedPrivacyVersion == '2026-05-23'
+             && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.acceptedCommunityRulesVersion == '2026-05-23';
     }
 
     function hasValidReactionFields() {

@@ -7555,7 +7555,7 @@ async function applyDirectContentAction({ sourcePath, action, reviewerId, reason
   };
   const nextStatus = action === "review"
     ? "pending_review"
-    : action === "hide"
+    : action === "hide" || action === "hide_image"
       ? "hidden"
       : action === "delete"
         ? "deleted"
@@ -7577,16 +7577,45 @@ async function applyDirectContentAction({ sourcePath, action, reviewerId, reason
     mask: "內容保留但不主動放大，平台保留注意與治理痕跡。",
   }[action];
 
-  if (!["review", "hide", "delete", "restore", "mask"].includes(action)) {
+  const resolvedActionSummary = actionSummary || (
+    action === "hide_image"
+      ? `站長只遮蔽圖片，貼文文字保留。${moderationReason}`
+      : "站長恢復圖片欄位，貼文文字不變。"
+  );
+  const resolvedActionLegalRisk = actionLegalRisk || (
+    action === "hide_image"
+      ? "圖片已從前台移除，文字內容仍公開；適用於圖片本身有個資、截圖或其他風險，但文字可保留的情境。"
+      : "圖片已由站長復原，後續仍保留裁決紀錄與風險快照。"
+  );
+
+  if (!["review", "hide", "delete", "restore", "mask", "hide_image", "restore_image"].includes(action)) {
     throw new HttpsError("invalid-argument", "Unsupported content action.");
   }
 
-  if (["review", "hide"].includes(action) && !moderationReason) {
+  if (["review", "hide", "hide_image"].includes(action) && !moderationReason) {
     throw new HttpsError("invalid-argument", "A moderation reason is required for this content action.");
   }
 
-  if (["restore", "mask"].includes(action) && !contentSnapshot.trim()) {
+  if (action === "mask" && !contentSnapshot.trim()) {
     throw new HttpsError("failed-precondition", "No preserved content snapshot is available for this action.");
+  }
+
+  if (
+    action === "restore" &&
+    !contentSnapshot.trim() &&
+    !imageUrlsSnapshot.length &&
+    !imagePathsSnapshot.length
+  ) {
+    throw new HttpsError("failed-precondition", "No preserved content or image snapshot is available for this action.");
+  }
+
+  if (action === "hide_image" || action === "restore_image") {
+    if (sourceMeta.sourceType !== "post") {
+      throw new HttpsError("invalid-argument", "Image actions are only supported for posts.");
+    }
+    if (action === "restore_image" && !imageUrlsSnapshot.length && !imagePathsSnapshot.length) {
+      throw new HttpsError("failed-precondition", "No preserved image snapshot is available for this action.");
+    }
   }
 
   if (action === "hide") {
@@ -7612,6 +7641,30 @@ async function applyDirectContentAction({ sourcePath, action, reviewerId, reason
       content: "",
       quarantinedContentPreview: PUBLIC_HIDDEN_PREVIEW,
       ...(sourceMeta.sourceType === "post" ? { imageUrl: "", imagePath: "", imageUrls: [], imagePaths: [] } : {}),
+    }, { merge: true });
+  }
+
+  if (action === "hide_image") {
+    await sourceRef.set({
+      ...basePatch,
+      moderationStatus: "image_hidden",
+      moderationReason,
+      imageUrl: "",
+      imagePath: "",
+      imageUrls: [],
+      imagePaths: [],
+    }, { merge: true });
+  }
+
+  if (action === "restore_image") {
+    await sourceRef.set({
+      ...basePatch,
+      moderationStatus: sourceData.moderationStatus === "image_hidden" ? "normal" : sourceData.moderationStatus || "normal",
+      moderationReason: "",
+      imageUrl: imageUrlsSnapshot[0] || "",
+      imagePath: imagePathsSnapshot[0] || "",
+      imageUrls: imageUrlsSnapshot,
+      imagePaths: imagePathsSnapshot,
     }, { merge: true });
   }
 
@@ -7669,8 +7722,8 @@ async function applyDirectContentAction({ sourcePath, action, reviewerId, reason
     coordinationRiskTier: riskProfile.coordinationRisk,
     velocityRiskTier: riskProfile.velocityRisk,
     categories: sanitizeArray(sourceData.moderationCategories || sourceData.categories || []),
-    summary: actionSummary,
-    legalRisk: actionLegalRisk,
+    summary: resolvedActionSummary,
+    legalRisk: resolvedActionLegalRisk,
     publicInterest: "unknown",
     recommendedAction: action,
     rationale: moderationReason || `Manual ${action} from AI Ranger dashboard.`,
@@ -7769,7 +7822,7 @@ exports.rangerContentAction = onCall(
     const action = String(request.data?.action || "").trim();
     const reason = String(request.data?.reason || "").trim();
 
-    if (!sourcePath || !["review", "hide", "delete", "restore", "mask"].includes(action)) {
+    if (!sourcePath || !["review", "hide", "delete", "restore", "mask", "hide_image", "restore_image"].includes(action)) {
       throw new HttpsError("invalid-argument", "Invalid content action.");
     }
 

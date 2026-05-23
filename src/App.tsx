@@ -184,6 +184,7 @@ type ModerationStatus =
   | 'pending_review'
   | 'approved'
   | 'hidden'
+  | 'image_hidden'
   | 'deleted'
   | 'appealed'
   | 'quarantined'
@@ -416,6 +417,7 @@ const INTERNAL_MODERATION_TERMS =
   /\b(AI|Gemini|Regex|regex|Ranger|queue|precheck|lightguard|moderation|spam|fallback)\b|語意|本地防呆|防呆|輕量|巡邏|模型|演算法|第一人稱|優先送|候選|命中|底線|技術|敏感格式|完整判讀|無法完整判讀|LR\d|CR\d|SR\d|風險分數/i;
 
 const isModerationMasked = (status?: string) => status === 'masked';
+const isImageModerationHidden = (status?: string) => status === 'image_hidden';
 
 const isModerationRestricted = (status?: string) => {
   return ['pending_review', 'hidden', 'deleted', 'quarantined', 'removed'].includes(String(status || ''));
@@ -548,6 +550,28 @@ function ModerationTombstoneNotice({
           可到功能選單的「站務紀錄」查詢依據條款與處理狀態。
         </p>
       )}
+    </div>
+  );
+}
+
+function ImageModerationTombstone({ reason }: { reason?: string }) {
+  const cleanReason = getPublicModerationReason(reason);
+  return (
+    <div className="overflow-hidden rounded-2xl border border-amber-500/20 bg-amber-500/10 shadow-lg">
+      <div className="flex min-h-[180px] flex-col items-center justify-center gap-3 px-5 py-8 text-center sm:min-h-[240px]">
+        <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-amber-300/25 bg-amber-300/10 text-amber-200">
+          <Shield className="h-6 w-6" />
+        </div>
+        <div>
+          <p className="text-sm font-black text-amber-200">圖片已由站方遮蔽</p>
+          <p className="mt-1 max-w-md text-xs font-bold leading-relaxed text-amber-100/80">
+            此圖片可能涉及個資、截圖、未確認資訊或其他需要站方處理的內容，原圖目前不公開。
+          </p>
+          {cleanReason && (
+            <p className="mt-2 text-[0.6875rem] font-bold text-amber-100/70">原因：{cleanReason}</p>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -5823,6 +5847,7 @@ function PostCard({
 
   const canModerate = user && post.authorId === user.uid;
   const isPostStationMaster = post.authorId === STATION_MASTER_UID;
+  const postImageIsHidden = isImageModerationHidden(post.moderationStatus);
   const trustedImageUrls = getTrustedPostImageUrls(post);
   const reportNeedsDetail = reportReasonCategory === '其他';
   const canSubmitReport = Boolean(reportReasonCategory.trim()) && (!reportNeedsDetail || Boolean(reportReasonDetail.trim()));
@@ -5975,7 +6000,11 @@ function PostCard({
           </>
         )}
 
-        {postContentVisible && trustedImageUrls.length > 0 && (
+        {postContentVisible && postImageIsHidden && (
+          <ImageModerationTombstone reason={post.moderationReason} />
+        )}
+
+        {postContentVisible && !postImageIsHidden && trustedImageUrls.length > 0 && (
           <div className={`grid gap-2 ${
             trustedImageUrls.length === 1 ? 'grid-cols-1' : 
             trustedImageUrls.length === 2 ? 'grid-cols-2' : 

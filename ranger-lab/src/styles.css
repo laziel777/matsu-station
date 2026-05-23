@@ -2022,6 +2022,199 @@ button:disabled {
   background: rgba(255, 255, 255, 0.04);
 }
 
+.image-wall-panel .content-watch-head p {
+  margin: 6px 0 0;
+  color: rgba(232, 252, 255, 0.58);
+  font-size: 0.76rem;
+  line-height: 1.55;
+}
+
+.image-wall-toolbar {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(150px, auto) minmax(150px, auto) auto;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.image-wall-toolbar input,
+.image-wall-toolbar select {
+  min-width: 0;
+  border: 1px solid rgba(232, 252, 255, 0.12);
+  background: rgba(2, 8, 14, 0.72);
+  color: #e8fcff;
+  border-radius: 13px;
+  padding: 0.68rem 0.78rem;
+  font-size: 0.74rem;
+  font-weight: 800;
+  outline: none;
+}
+
+.image-wall-toolbar input:focus,
+.image-wall-toolbar select:focus {
+  border-color: rgba(250, 204, 21, 0.58);
+  box-shadow: 0 0 0 3px rgba(250, 204, 21, 0.08);
+}
+
+.image-wall-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+  max-height: min(760px, 70vh);
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.image-wall-card {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid rgba(232, 252, 255, 0.1);
+  background:
+    linear-gradient(180deg, rgba(250, 204, 21, 0.055), rgba(0, 217, 232, 0.025)),
+    rgba(255, 255, 255, 0.035);
+  border-radius: 18px;
+}
+
+.image-wall-card.image-wall-hidden,
+.image-wall-card.image-wall-deleted {
+  opacity: 0.66;
+  filter: saturate(0.7);
+}
+
+.image-wall-frame {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 11;
+  overflow: hidden;
+  border: 0;
+  border-bottom: 1px solid rgba(232, 252, 255, 0.09);
+  background:
+    radial-gradient(circle at 20% 20%, rgba(250, 204, 21, 0.16), transparent 32%),
+    rgba(2, 8, 14, 0.9);
+  border-radius: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+.image-wall-frame img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 180ms ease, filter 180ms ease;
+}
+
+.image-wall-frame:hover img {
+  transform: scale(1.025);
+  filter: brightness(1.08);
+}
+
+.image-wall-missing {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  padding: 16px;
+  color: rgba(232, 252, 255, 0.56);
+  font-size: 0.76rem;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.image-wall-body {
+  min-width: 0;
+  padding: 12px;
+}
+
+.image-wall-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.image-wall-badges span,
+.image-wall-badges em {
+  border: 1px solid rgba(232, 252, 255, 0.1);
+  background: rgba(255, 255, 255, 0.045);
+  border-radius: 999px;
+  padding: 0.28rem 0.44rem;
+  color: rgba(232, 252, 255, 0.62);
+  font-size: 0.58rem;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.image-wall-body strong,
+.image-wall-body p,
+.image-wall-body small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.image-wall-body strong {
+  display: block;
+  color: #ffe98a;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.image-wall-body p {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  min-height: 2.7em;
+  margin: 7px 0;
+  color: rgba(232, 252, 255, 0.66);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.image-wall-body small {
+  display: block;
+  color: rgba(48, 242, 162, 0.64);
+  font-size: 0.62rem;
+  font-weight: 800;
+  line-height: 1.55;
+  white-space: nowrap;
+}
+
+.image-wall-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  border-top: 1px solid rgba(232, 252, 255, 0.08);
+  padding: 10px;
+}
+
+.image-wall-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 34px;
+  padding: 0.4rem 0.5rem;
+  font-size: 0.66rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.image-wall-actions button.ok {
+  border-color: rgba(48, 242, 162, 0.38);
+  color: #30f2a2;
+}
+
+.image-wall-actions button.warn {
+  border-color: rgba(250, 204, 21, 0.38);
+  color: #facc15;
+}
+
+.image-wall-actions button.danger {
+  border-color: rgba(255, 45, 85, 0.36);
+  color: #ff2d55;
+}
+
 .content-watch-main small {
   display: block;
   color: rgba(48, 242, 162, 0.7);
@@ -4584,6 +4777,7 @@ button:disabled {
 
 .drawer-accounts > .panel.left-panel,
 .drawer-articles > .panel.left-panel,
+.drawer-images > .panel.left-panel,
 .drawer-reports > .panel.left-panel,
 .drawer-aiSheet > .panel.left-panel,
 .drawer-cases > .panel.left-panel {
