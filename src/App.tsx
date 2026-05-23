@@ -17,6 +17,7 @@ import { formatDistanceToNow, addMonths, isAfter } from 'date-fns';
 import { zhTW } from 'date-fns/locale';
 import { db, collection, query, orderBy, onSnapshot, serverTimestamp, updateDoc, doc, setDoc, deleteDoc, getDoc, getDocs, where, handleFirestoreError, OperationType, storage, functions, httpsCallable } from './lib/firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { SITE_POLICY_PAGES, SITE_POLICY_SECTIONS, SitePolicyPage, SitePolicySectionId } from './lib/sitePolicies';
 
 const STATION_MASTER_UID = 'gHHxF8p1DnbMkoeVmU5XpB18Elz2';
 const STATION_MASTER_LEGACY_ID = 'L';
@@ -42,6 +43,136 @@ const PROFILE_TABS = [
   { id: 'posts', label: '歷史發文' },
   { id: 'liked', label: '按讚內容' },
 ] as const;
+
+const getPolicyPageByPath = (pathname: string) => {
+  const normalizedPath = pathname.replace(/\/+$/, '') || '/';
+  return SITE_POLICY_PAGES.find(page => page.path === normalizedPath) || null;
+};
+
+function PolicySections({
+  sectionIds,
+  showVersionCards = false,
+}: {
+  sectionIds: SitePolicySectionId[];
+  showVersionCards?: boolean;
+}) {
+  const sections = SITE_POLICY_SECTIONS.filter(section => sectionIds.includes(section.id));
+
+  return (
+    <>
+      {sections.map(section => {
+        const isOverview = section.id === 'overview';
+        const className = section.tone === 'glow'
+          ? 'space-y-3 rounded-2xl border border-bio-glow/10 bg-bio-glow/5 p-4'
+          : section.tone === 'privacy'
+            ? 'space-y-3 rounded-2xl border border-emerald-500/10 bg-emerald-500/10 p-4 text-emerald-300'
+            : section.tone === 'muted'
+              ? 'space-y-3 rounded-2xl border border-white/5 bg-white/5 p-4'
+              : 'space-y-3';
+
+        return (
+          <section key={section.id} className={className}>
+            {section.eyebrow && (
+              <p className="text-[0.625rem] font-bold uppercase tracking-widest text-bio-glow">{section.eyebrow}</p>
+            )}
+            <h3 className={`text-base font-bold flex items-center gap-2 ${
+              section.tone === 'privacy' ? 'text-emerald-200' : section.tone === 'glow' ? 'text-bio-glow' : 'text-text-main'
+            }`}>
+              {section.id === 'terms' && <span className="w-1 h-4 rounded-full bg-bio-glow" />}
+              {section.title}
+            </h3>
+            {isOverview && showVersionCards && (
+              <div className="grid gap-2 text-xs sm:grid-cols-3">
+                <div className="rounded-xl border border-line bg-mist/40 p-3">
+                  <span className="text-text-muted">服務條款</span>
+                  <p className="mt-1 font-mono font-bold text-text-main">{CURRENT_TERMS_VERSION}</p>
+                </div>
+                <div className="rounded-xl border border-line bg-mist/40 p-3">
+                  <span className="text-text-muted">隱私權政策</span>
+                  <p className="mt-1 font-mono font-bold text-text-main">{CURRENT_PRIVACY_VERSION}</p>
+                </div>
+                <div className="rounded-xl border border-line bg-mist/40 p-3">
+                  <span className="text-text-muted">社群規範</span>
+                  <p className="mt-1 font-mono font-bold text-text-main">{CURRENT_COMMUNITY_RULES_VERSION}</p>
+                </div>
+              </div>
+            )}
+            <div className="space-y-3">
+              {isOverview && (
+                <p className="text-[0.6875rem] text-text-muted leading-relaxed">生效日：{POLICY_EFFECTIVE_DATE}</p>
+              )}
+              {section.paragraphs.map((paragraph, index) => (
+                <p key={index}>{paragraph}</p>
+              ))}
+              {section.id === 'contact' && (
+                <div className="space-y-2 text-xs">
+                  <p className="flex items-center gap-2 font-bold text-bio-glow">
+                    <span className="font-mono text-text-muted">LINE:</span>
+                    <a
+                      href={LINE_OFFICIAL_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-text-main/80 underline hover:text-bio-glow"
+                    >
+                      馬祖小站 Matsu Station（官方 LINE）
+                    </a>
+                  </p>
+                  <p className="flex items-center gap-2">
+                    <span className="font-mono text-text-muted">IG:</span>
+                    <span className="text-text-main/80">@matsu.station</span>
+                  </p>
+                </div>
+              )}
+            </div>
+          </section>
+        );
+      })}
+    </>
+  );
+}
+
+function PolicyStandalonePage({ page }: { page: SitePolicyPage }) {
+  return (
+    <div className="min-h-screen bg-deep-ocean text-text-main font-sans">
+      <main className="mx-auto flex min-h-screen w-full max-w-4xl flex-col px-4 py-8 sm:py-12">
+        <div className="mb-8 flex flex-col gap-4 border-b border-line pb-6 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <a href="/" className="mb-5 inline-flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-bio-glow hover:text-text-main">
+              <Waves className="h-4 w-4" />
+              返回馬祖小站
+            </a>
+            <h1 className="font-display text-3xl font-black tracking-tight text-text-main sm:text-5xl">{page.title}</h1>
+            <p className="mt-3 max-w-2xl text-sm leading-relaxed text-text-muted">{page.description}</p>
+          </div>
+          <div className="rounded-2xl border border-bio-glow/10 bg-bio-glow/5 px-4 py-3 text-xs text-text-muted">
+            <p className="font-mono font-bold text-bio-glow">版本 {CURRENT_TERMS_VERSION}</p>
+            <p>生效日 {POLICY_EFFECTIVE_DATE}</p>
+          </div>
+        </div>
+
+        <nav className="mb-8 grid gap-2 sm:grid-cols-4">
+          {SITE_POLICY_PAGES.map(item => (
+            <a
+              key={item.path}
+              href={item.path}
+              className={`rounded-2xl border px-4 py-3 text-sm font-bold transition-colors ${
+                item.path === page.path
+                  ? 'border-bio-glow/30 bg-bio-glow/10 text-bio-glow'
+                  : 'border-line bg-mist/30 text-text-muted hover:border-bio-glow/20 hover:text-text-main'
+              }`}
+            >
+              {item.title}
+            </a>
+          ))}
+        </nav>
+
+        <div className="space-y-8 text-sm leading-relaxed text-text-muted">
+          <PolicySections sectionIds={page.sectionIds} showVersionCards={page.path === '/terms'} />
+        </div>
+      </main>
+    </div>
+  );
+}
 
 type ProfileTabId = typeof PROFILE_TABS[number]['id'];
 type ModerationStatus =
@@ -2429,6 +2560,12 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
     return parts.join(' / ');
   };
   const ferryScheduleRows = getFerryScheduleRows();
+  const activePolicyPage = getPolicyPageByPath(window.location.pathname);
+
+  if (activePolicyPage) {
+    return <PolicyStandalonePage page={activePolicyPage} />;
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-deep-ocean flex flex-col items-center justify-center gap-6 p-4">
@@ -2628,99 +2765,10 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                   </section>
                 )}
 
-                <>
-                    <section className="space-y-3 rounded-2xl border border-bio-glow/10 bg-bio-glow/5 p-4">
-                      <p className="text-[0.625rem] font-bold uppercase tracking-widest text-bio-glow">目前生效版本</p>
-                      <div className="grid gap-2 text-xs sm:grid-cols-3">
-                        <div className="rounded-xl border border-line bg-mist/40 p-3">
-                          <span className="text-text-muted">服務條款</span>
-                          <p className="mt-1 font-mono font-bold text-text-main">{CURRENT_TERMS_VERSION}</p>
-                        </div>
-                        <div className="rounded-xl border border-line bg-mist/40 p-3">
-                          <span className="text-text-muted">隱私權政策</span>
-                          <p className="mt-1 font-mono font-bold text-text-main">{CURRENT_PRIVACY_VERSION}</p>
-                        </div>
-                        <div className="rounded-xl border border-line bg-mist/40 p-3">
-                          <span className="text-text-muted">社群規範</span>
-                          <p className="mt-1 font-mono font-bold text-text-main">{CURRENT_COMMUNITY_RULES_VERSION}</p>
-                        </div>
-                      </div>
-                      <p className="text-[0.6875rem] text-text-muted leading-relaxed">
-                        生效日：{POLICY_EFFECTIVE_DATE}。繼續使用馬祖小站，即表示你已閱讀並同意《服務條款》、《隱私權政策》、《社群規範》與《檢舉與審核說明》。若規範更新，登入後需重新閱讀並同意最新版，才能繼續發文、留言、互動或檢舉。
-                      </p>
-                    </section>
-
-                    <section className="space-y-3">
-                      <h3 className="font-bold text-text-main text-base flex items-center gap-2">
-                        <span className="w-1 h-4 bg-bio-glow rounded-full"></span>
-                        1. 服務條款
-                      </h3>
-                      <p>「馬祖小站 Matsu Station」是馬祖在地社群與資訊交流平台，目前提供 Google 登入、個人頁、發文、留言、留言回覆、表情反應、追蹤、通知、檢舉、站務紀錄、馬祖航空氣象、航班船班資訊與官方 LINE 回報管道。</p>
-                      <p>使用者發布貼文、留言、回覆或其他互動內容時，應自行確認內容合法、合理、未侵害他人權益。平台尊重公共討論、政治評論、生活抱怨、消費經驗與尖銳但合理的批評，但不保證使用者內容正確、完整或即時。</p>
-                      <p>平台可因安全、濫用防制、檢舉處理、爭議處理、系統維護或法令要求，調整服務功能、限制異常使用、暫停帳號部分功能、遮蔽或移除內容，並保留必要紀錄。</p>
-                    </section>
-                    
-                    <section className="space-y-3 bg-white/5 p-4 rounded-2xl border border-white/5">
-                      <h3 className="font-bold text-text-main text-base flex items-center gap-2 uppercase tracking-wider text-[0.6875rem] opacity-70">2. 內容責任與平台管理</h3>
-                      <p>使用者內容原則上代表發表者個人立場，不代表馬祖小站、站長或任何官方機關立場。請勿把本站內容視為法律、醫療、投資、交通或官方公告的唯一依據。</p>
-                      <p>平台不鼓勵違法內容，也不以條款宣稱「完全免責」。若平台經由檢舉、回報、系統提示或站長查看得知明顯違法、高爭議或高風險內容，會依規範採取合理處理。</p>
-                      <p>為避免洗文、複製垃圾文、惡意攻擊或機器濫用，平台可能設置發文頻率、字數、檢舉次數、帳號觀察或其他合理限制。這些限制是為了維持討論品質與保護使用者安全。</p>
-                      <p className="text-[0.6875rem] opacity-70">若您的內容被處置，通知或站務紀錄會盡可能標示處理狀態、簡短原因與參考規範。</p>
-                    </section>
-
-                    <section className="space-y-3 text-emerald-300 bg-emerald-500/10 p-4 rounded-2xl border border-emerald-500/10">
-                      <h3 className="font-bold text-emerald-200 text-base flex items-center gap-2">3. 隱私權政策</h3>
-                      <p>平台會處理你使用服務時產生或提供的資料，包括 Google 登入識別、Firebase UID、Email、島內 ID、暱稱、頭像、個人頁資料、發文、留言、回覆、表情反應、追蹤關係、通知、檢舉、站務紀錄、必要的安全紀錄與系統紀錄。</p>
-                      <p>資料使用目的包括：提供登入與帳號服務、維持社群功能、顯示通知、處理檢舉與爭議、防止洗版攻擊、偵測濫用、保障平台與使用者安全、回覆官方 LINE 回報、改善服務與履行法律或主管機關要求。</p>
-                      <p>平台使用可信賴的第三方基礎服務，例如 Firebase、Vercel、Cloudflare、Google Gemini 與 LINE 官方帳號等，來提供登入、資料保存、網站託管、內容安全輔助分析與客服回報。平台不販售使用者個資，也不會把個資用於與服務無關的商業轉售。</p>
-                      <p>公開頁面不會顯示你的 Firebase UID、Email 或內部安全紀錄。站長可在必要範圍內查看資料，以處理檢舉、濫用、安全事件、申訴、站務管理或法律程序。</p>
-                      <p>你可透過官方 LINE 請求查詢、更正、停止利用或刪除可刪除的個人資料；但依法、資安、爭議處理、稽核保存、檢舉處理或防止濫用所需的紀錄，可能在合理期間內保留。</p>
-                      <p>請勿在公開貼文或留言中發布他人電話、住址、車牌、私人 LINE、身分證、病歷、健康檢查、財務、家庭、私密影像或其他可直接或間接識別特定個人的資料。</p>
-                    </section>
-
-                    <section className="space-y-3">
-                      <h3 className="font-bold text-text-main text-base flex items-center gap-2">4. 社群規範</h3>
-                      <p>可以討論：馬祖生活、交通船班航班、天氣、公共政策、地方建設、政治議題、公共人物與公共事務評論、消費經驗、合理抱怨、反方觀點與尖銳反駁。</p>
-                      <p>請避免或禁止：公開個資、肉搜、威脅恐嚇、持續騷擾、號召圍堵或報復、詐騙導流、惡意洗版、仇恨煽動、私密影像、兒少性內容、侵權內容，以及對可識別自然人的未證實重大犯罪、私生活或名譽指控。</p>
-                      <p>對店家、機關、民代、公共工程或公共服務的批評可以存在，但請盡量描述具體事實與親身經驗，避免把未查證傳聞寫成確定事實，或號召他人攻擊、封殺、騷擾特定個人。</p>
-                      <p>平台會尊重尖銳、情緒化或高爭議的公共討論；但言論自由不代表可以公開他人個資、威脅犯罪、肉搜、散布私密影像、詐騙或惡意騷擾。</p>
-                    </section>
-
-                    <section className="space-y-3 pt-6 border-t border-white/5">
-                      <h3 className="font-bold text-text-main text-base flex items-center gap-2">5. 檢舉與審核說明</h3>
-                      <p>使用者可以檢舉貼文、留言與回覆。檢舉會建立站務紀錄，並通知站長查看。請盡量選擇接近的檢舉原因，必要時可透過官方 LINE 補充截圖、連結、時間與說明。</p>
-                      <p>平台可能使用 AI 輔助站長掃描法律風險與社群治理風險，例如個資、肉搜、威脅、誹謗、侮辱、未證實重大指控、詐騙導流、騷擾動員、私密影像等。AI 只作為輔助標記，不是最終裁決者。</p>
-                      <p>站長可依內容狀態採取保留、提醒、遮罩、暫時審核、隱藏、恢復、完全移除、限制帳號功能或保留紀錄等處理。已遮蔽或已處理不代表內容本身風險降低，內容風險與處理狀態會分開記錄。</p>
-                      <p>若你的貼文、留言或回覆經站方處理，平台會建立紀錄。你可以到「功能選單 → 站務紀錄」查詢自己的內容狀態、處理說明與依據條款。其他使用者無法查看你的個人站務紀錄。</p>
-                      <p>若日後開放公開治理案例，只會顯示遮罩內容、處理原因與案例編號，不公開真實身份、Email、Firebase UID 或內部識別碼。</p>
-                    </section>
-
- <section className="space-y-4 bg-bio-glow/5 p-4 rounded-2xl border border-bio-glow/10">
-                      <h3 className="font-bold text-bio-glow text-base flex items-center gap-2">6. 聯絡、回報與合作</h3>
-                      <div className="space-y-2 text-xs">
-                        <p className="flex items-center gap-2 font-bold text-bio-glow">
-                           <span className="text-text-muted font-mono">LINE:</span> 
-                          <a
-  href={LINE_OFFICIAL_URL}
-  target="_blank"
-  rel="noopener noreferrer"
-  className="text-text-main/80 hover:text-bio-glow underline"
->
-  馬祖小站 Matsu Station（官方 LINE）
-</a>
-                        </p>
-
-                        <p className="flex items-center gap-2">
-                           <span className="text-text-muted font-mono">IG:</span> 
-                           <span className="text-text-main/80">@matsu.station</span>
-                        </p>
-
-                        <p className="text-[0.6875rem] text-text-muted mt-4 leading-relaxed italic">
-                          ※ 若因使用者違法行為導致平台、站長或其他使用者受損，平台可保留必要紀錄並依法處理。
-                        </p>
-                      </div>
-                    </section>
-                  </>
+                <PolicySections
+                  sectionIds={['overview', 'terms', 'responsibility', 'privacy', 'community', 'moderation', 'contact']}
+                  showVersionCards
+                />
               </div>
 
 
@@ -4440,11 +4488,11 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
       {/* Footer */}
       <footer className="py-16 border-t border-line text-center text-text-muted text-sm space-y-8">
         <div className="max-w-7xl mx-auto px-4 grid grid-cols-2 sm:flex sm:items-center sm:justify-center gap-x-8 gap-y-4 text-[0.625rem] sm:text-[0.6875rem] font-bold uppercase tracking-[0.1em] opacity-80">
-           <button onClick={() => setShowTerms(true)} className="hover:text-bio-glow transition-colors cursor-pointer text-left sm:text-center text-text-muted">服務條款</button>
-           <button onClick={() => setShowTerms(true)} className="hover:text-bio-glow transition-colors cursor-pointer text-left sm:text-center text-text-muted">隱私權政策</button>
-           <button onClick={() => setShowTerms(true)} className="hover:text-bio-glow transition-colors cursor-pointer text-left sm:text-center text-text-muted">社群規範</button>
-           <button onClick={() => setShowTerms(true)} className="hover:text-bio-glow transition-colors cursor-pointer text-left sm:text-center text-text-muted">檢舉與審核說明</button>
-           <button onClick={() => setShowTerms(true)} className="hover:text-bio-glow transition-colors cursor-pointer text-left sm:text-center text-text-muted">聯絡方式</button>
+           <a href="/terms" className="hover:text-bio-glow transition-colors cursor-pointer text-left sm:text-center text-text-muted">服務條款</a>
+           <a href="/privacy" className="hover:text-bio-glow transition-colors cursor-pointer text-left sm:text-center text-text-muted">隱私權政策</a>
+           <a href="/community-guidelines" className="hover:text-bio-glow transition-colors cursor-pointer text-left sm:text-center text-text-muted">社群規範</a>
+           <a href="/moderation" className="hover:text-bio-glow transition-colors cursor-pointer text-left sm:text-center text-text-muted">檢舉與審核說明</a>
+           <a href={LINE_OFFICIAL_URL} target="_blank" rel="noopener noreferrer" className="hover:text-bio-glow transition-colors cursor-pointer text-left sm:text-center text-text-muted">聯絡方式</a>
         </div>
         <div className="flex flex-col items-center justify-center gap-3 opacity-60">
           <div className="flex items-center gap-2">
