@@ -4,10 +4,10 @@ import { User } from 'firebase/auth';
 
 export const DEFAULT_ISLANDER_PHOTO = '__DEFAULT_ISLANDER__';
 const STATION_MASTER_UID = 'gHHxF8p1DnbMkoeVmU5XpB18Elz2';
-export const CURRENT_TERMS_VERSION = '2026-05-19';
-export const CURRENT_PRIVACY_VERSION = '2026-05-19';
-export const CURRENT_COMMUNITY_RULES_VERSION = '2026-05-19';
-export const POLICY_EFFECTIVE_DATE = '2026年5月19日';
+export const CURRENT_TERMS_VERSION = '2026-05-23';
+export const CURRENT_PRIVACY_VERSION = '2026-05-23';
+export const CURRENT_COMMUNITY_RULES_VERSION = '2026-05-23';
+export const POLICY_EFFECTIVE_DATE = '2026-05-23';
 
 export interface UserProfile {
   uid: string;
@@ -25,6 +25,8 @@ export interface UserProfile {
   bio?: string;
   title?: string;
   lastProfileUpdate?: any;
+  accountStatus?: 'normal' | 'watch' | 'posting_suspended' | 'banned' | string;
+  isBanned?: boolean;
 }
 
 interface AuthContextType {

@@ -26,7 +26,7 @@ const MAX_CONTEXT_MESSAGES = 6;
 const TAIPEI_UTC_OFFSET_MS = 8 * 60 * 60 * 1000;
 const DAILY_COMMENT_LIMIT = 120;
 const DAILY_FIGHT_COMMENT_LIMIT = 30;
-const POLICY_VERSION = "2026-05-19";
+const POLICY_VERSION = "2026-05-23";
 const REGEX_GOVERNANCE_VERSION = "regex-lightguard-v3-2026-05-22";
 const AI_REGEX_MERGE_VERSION = "ai-lightguard-merge-v5-2026-05-22";
 const GEMINI_SITE_SHEET_RISK_VERSION = "gemini-site-sheet-risk-v1-2026-05-23";
@@ -1369,30 +1369,30 @@ function getPolicyRefsForAnalysis(payload, analysis) {
   const categories = new Set((analysis.categories || []).map((category) => String(category)));
   const riskLevel = analysis.riskLevel || "low";
 
-  addPolicyRef(refs, "使用者條款第2條", "內容責任與平台治理");
+  addPolicyRef(refs, "服務條款第2條", "內容責任與平台治理");
 
   if (categories.has("personal_data") || categories.has("privacy")) {
     addPolicyRef(refs, "隱私權政策第3條", "禁止公開他人個資與非公開識別資訊");
   }
 
   if (categories.has("threat") || categories.has("harassment")) {
-    addPolicyRef(refs, "社群守則第4條", "禁止威脅、騷擾、肉搜與煽動圍剿");
+    addPolicyRef(refs, "社群規範第4條", "禁止威脅、騷擾、肉搜與煽動圍剿");
   }
 
   if (categories.has("unverified_accusation") || categories.has("defamation") || categories.has("insult")) {
-    addPolicyRef(refs, "社群守則第4條", "禁止未證實重大指控與高風險名譽侵害");
+    addPolicyRef(refs, "社群規範第4條", "禁止未證實重大指控與高風險名譽侵害");
   }
 
   if (categories.has("spam") || payload.moderationRemovalReason === "daily_comment_limit_exceeded") {
-    addPolicyRef(refs, "社群守則第4條", "禁止洗版、複製垃圾文與惡意干擾");
+    addPolicyRef(refs, "社群規範第4條", "禁止洗版、複製垃圾文與惡意干擾");
   }
 
   if (categories.has("sexual_image") || categories.has("scam")) {
-    addPolicyRef(refs, "社群守則第4條", "禁止私密影像、詐騙與重大安全風險內容");
+    addPolicyRef(refs, "社群規範第4條", "禁止私密影像、詐騙與重大安全風險內容");
   }
 
   if (["high", "critical"].includes(riskLevel)) {
-    addPolicyRef(refs, "使用者條款第5條", "平台可審核、隔離、移除並保留必要治理紀錄");
+    addPolicyRef(refs, "檢舉與審核說明第5條", "平台可審核、隔離、移除並保留必要治理紀錄");
   }
 
   return refs;
@@ -3713,7 +3713,7 @@ async function assertPublishingProfile(uid) {
     data.acceptedCommunityRulesVersion === POLICY_VERSION;
 
   if (!acceptedPolicies) {
-    throw new HttpsError("failed-precondition", "請先同意最新版使用者條款、隱私權政策與社群守則。");
+    throw new HttpsError("failed-precondition", "請先同意最新版服務條款、隱私權政策與社群規範。");
   }
 
   return {
@@ -4422,8 +4422,8 @@ async function hideContentForDailyLimit(sourcePath, sourceData, usage) {
   const publicCaseId = getPublicCaseId(sourcePath);
   const now = admin.firestore.FieldValue.serverTimestamp();
   const policyRefs = [
-    { code: "社群守則第4條", label: "禁止洗版、複製垃圾文與惡意干擾" },
-    { code: "使用者條款第5條", label: "平台可審核、隔離、移除並保留必要治理紀錄" },
+    { code: "社群規範第4條", label: "禁止洗版、複製垃圾文與惡意干擾" },
+    { code: "檢舉與審核說明第5條", label: "平台可審核、隔離、移除並保留必要治理紀錄" },
   ];
   const segments = sourcePath.split("/");
   const sourceType = segments.includes("replies") ? "reply" : "comment";
@@ -4456,7 +4456,7 @@ async function hideContentForDailyLimit(sourcePath, sourceData, usage) {
     riskScore: 45,
     categories: ["spam", "rate_limit"],
     summary: `每日留言/回覆次數已超過上限 ${usage.limit}。`,
-    legalRisk: "疑似洗版或惡意干擾，平台依社群守則移除超量內容並保留紀錄。",
+    legalRisk: "疑似洗版或惡意干擾，平台依社群規範移除超量內容並保留紀錄。",
     publicInterest: "low",
     recommendedAction: "remove",
     rationale: "Server-side daily comment usage limit enforcement.",
@@ -5043,8 +5043,8 @@ exports.reportCreatedModerationIntake = onDocumentCreated(
       aiGovernanceMode: "report_queue",
       policyVersion: POLICY_VERSION,
       policyRefs: [
-        { code: "使用者條款第5條", label: "平台接獲通知後可進行必要處理並保留紀錄" },
-        { code: "社群守則第4條", label: "檢舉內容進入站長裁決流程" },
+        { code: "檢舉與審核說明第5條", label: "平台接獲通知後可進行必要處理並保留紀錄" },
+        { code: "社群規範第4條", label: "檢舉內容進入站長裁決流程" },
       ],
       riskLevel,
       riskScore,
@@ -7548,8 +7548,8 @@ async function applyDirectContentAction({ sourcePath, action, reviewerId, reason
     aiGovernanceMode: sourceData.aiGovernanceMode || "manual",
     policyVersion: POLICY_VERSION,
     policyRefs: [
-      { code: "使用者條款第5條", label: "站長可依平台治理需要移除高風險或違規內容" },
-      { code: "社群守則第4條", label: "禁止個資、威脅、騷擾、未證實重大指控與惡意干擾" },
+      { code: "檢舉與審核說明第5條", label: "站長可依平台治理需要移除高風險或違規內容" },
+      { code: "社群規範第4條", label: "禁止個資、威脅、騷擾、未證實重大指控與惡意干擾" },
     ],
     riskLevel,
     riskScore,

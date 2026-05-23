@@ -1671,7 +1671,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
 
   const handleAgree = async () => {
     const missingItems = [];
-    if (!hasReadToBottom) missingItems.push('閱讀完畢使用者條款、隱私權政策與社群守則 (請滑動到底部)');
+    if (!hasReadToBottom) missingItems.push('閱讀完畢服務條款、隱私權政策、社群規範與檢舉審核說明 (請滑動到底部)');
     if (isProfileSetupRequired && !setupName.trim()) missingItems.push('設定您的島民暱稱');
     if (isProfileSetupRequired && setupNameError) missingItems.push(setupNameError);
 
@@ -2211,7 +2211,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
     if (!user || (!newPostContent.trim() && selectedImages.length === 0) || isPosting) return;
     if (!hasAcceptedLatestPolicies(profile)) {
       setShowTerms(true);
-      setPostError('請先閱讀並同意最新版使用者條款、隱私權政策與社群守則，才能發布內容。');
+      setPostError('請先閱讀並同意最新版服務條款、隱私權政策與社群規範，才能發布內容。');
       return;
     }
 
@@ -2525,10 +2525,10 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
               <div className="p-6 border-b border-white/5 flex items-start justify-between gap-4">
                 <div>
                   <h2 className="text-xl font-bold font-display text-text-main">
-                    使用者條款、隱私權政策與社群守則
+                    服務條款、隱私權政策與社群規範
                   </h2>
                   <p className="mt-1 text-[0.625rem] leading-relaxed text-text-muted/60">
-                    這份說明是為了告知資料使用方式、平台管理規則與安全處理流程，不會要求你放棄法律上的基本權利。
+                    這份說明是為了告知服務規則、資料使用方式、社群安全底線與檢舉審核流程，不會要求你放棄法律上的基本權利。
                   </p>
                 </div>
                 <div className="bg-blue-500/10 p-1.5 rounded-lg border border-blue-500/20">
@@ -2633,7 +2633,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                       <p className="text-[0.625rem] font-bold uppercase tracking-widest text-bio-glow">目前生效版本</p>
                       <div className="grid gap-2 text-xs sm:grid-cols-3">
                         <div className="rounded-xl border border-line bg-mist/40 p-3">
-                          <span className="text-text-muted">使用者條款</span>
+                          <span className="text-text-muted">服務條款</span>
                           <p className="mt-1 font-mono font-bold text-text-main">{CURRENT_TERMS_VERSION}</p>
                         </div>
                         <div className="rounded-xl border border-line bg-mist/40 p-3">
@@ -2641,52 +2641,58 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                           <p className="mt-1 font-mono font-bold text-text-main">{CURRENT_PRIVACY_VERSION}</p>
                         </div>
                         <div className="rounded-xl border border-line bg-mist/40 p-3">
-                          <span className="text-text-muted">社群守則</span>
+                          <span className="text-text-muted">社群規範</span>
                           <p className="mt-1 font-mono font-bold text-text-main">{CURRENT_COMMUNITY_RULES_VERSION}</p>
                         </div>
                       </div>
                       <p className="text-[0.6875rem] text-text-muted leading-relaxed">
-                        生效日：{POLICY_EFFECTIVE_DATE}。若規範更新，登入後需重新閱讀並同意最新版，才能繼續發文、留言、互動或檢舉。
+                        生效日：{POLICY_EFFECTIVE_DATE}。繼續使用馬祖小站，即表示你已閱讀並同意《服務條款》、《隱私權政策》、《社群規範》與《檢舉與審核說明》。若規範更新，登入後需重新閱讀並同意最新版，才能繼續發文、留言、互動或檢舉。
                       </p>
                     </section>
 
                     <section className="space-y-3">
                       <h3 className="font-bold text-text-main text-base flex items-center gap-2">
                         <span className="w-1 h-4 bg-bio-glow rounded-full"></span>
-                        1. 使用者條款
+                        1. 服務條款
                       </h3>
-                      <p>「馬祖小站」是馬祖在地社群平台，目標是保障公共討論、生活分享與合理批評，同時保護使用者、被討論者與平台安全。使用者發布內容時，需自行確保內容合法、真實、未侵害他人權益，並同意平台可依本條款、隱私權政策與社群守則進行必要管理。</p>
-                      <p>若內容涉及個資、恐嚇、騷擾、肉搜、詐騙、私密影像、未證實重大指控、惡意洗版或其他高風險行為，平台可採取提醒、暫時隱藏、移除、限制功能或保留處理紀錄等處置。</p>
+                      <p>「馬祖小站 Matsu Station」是馬祖在地社群與資訊交流平台，目前提供 Google 登入、個人頁、發文、留言、留言回覆、表情反應、追蹤、通知、檢舉、站務紀錄、馬祖航空氣象、航班船班資訊與官方 LINE 回報管道。</p>
+                      <p>使用者發布貼文、留言、回覆或其他互動內容時，應自行確認內容合法、合理、未侵害他人權益。平台尊重公共討論、政治評論、生活抱怨、消費經驗與尖銳但合理的批評，但不保證使用者內容正確、完整或即時。</p>
+                      <p>平台可因安全、濫用防制、檢舉處理、爭議處理、系統維護或法令要求，調整服務功能、限制異常使用、暫停帳號部分功能、遮蔽或移除內容，並保留必要紀錄。</p>
                     </section>
                     
                     <section className="space-y-3 bg-white/5 p-4 rounded-2xl border border-white/5">
                       <h3 className="font-bold text-text-main text-base flex items-center gap-2 uppercase tracking-wider text-[0.6875rem] opacity-70">2. 內容責任與平台管理</h3>
-                      <p>使用者上傳的貼文、留言、圖片與反應，原則上代表發表者個人立場。本平台提供資訊儲存與社群互動服務，不保證使用者內容完整、正確或即時。</p>
-                      <p>為降低法律爭議與保護大家的安全，平台會依檢舉、使用者回報與站長查看結果進行必要處理。相關提示只協助站長判斷；最終裁量仍由站長保留。</p>
-                      <p>平台不鼓勵違法內容，也不承諾「完全免責」。若平台透過檢舉、回報或站長確認得知明顯違法或高爭議內容，會依規範採取合理處理。</p>
-                      <p className="text-[0.6875rem] opacity-70">若您的內容被處置，通知或站務紀錄會盡可能標示「疑似違反哪一條規範」與目前狀態。</p>
+                      <p>使用者內容原則上代表發表者個人立場，不代表馬祖小站、站長或任何官方機關立場。請勿把本站內容視為法律、醫療、投資、交通或官方公告的唯一依據。</p>
+                      <p>平台不鼓勵違法內容，也不以條款宣稱「完全免責」。若平台經由檢舉、回報、系統提示或站長查看得知明顯違法、高爭議或高風險內容，會依規範採取合理處理。</p>
+                      <p>為避免洗文、複製垃圾文、惡意攻擊或機器濫用，平台可能設置發文頻率、字數、檢舉次數、帳號觀察或其他合理限制。這些限制是為了維持討論品質與保護使用者安全。</p>
+                      <p className="text-[0.6875rem] opacity-70">若您的內容被處置，通知或站務紀錄會盡可能標示處理狀態、簡短原因與參考規範。</p>
                     </section>
 
                     <section className="space-y-3 text-emerald-300 bg-emerald-500/10 p-4 rounded-2xl border border-emerald-500/10">
                       <h3 className="font-bold text-emerald-200 text-base flex items-center gap-2">3. 隱私權政策</h3>
-                      <p>平台會處理登入識別、島內 ID、暱稱、頭像、發文留言、互動紀錄、檢舉紀錄、通知與站務紀錄，以維持服務、防止洗版攻擊、保護使用者安全與處理爭議。</p>
-                      <p>平台使用可信賴的第三方基礎服務來提供登入、資料保存、網站託管、內容安全輔助分析與客服回報。平台不販售使用者個資，也不會把個資用於與服務無關的商業轉售。</p>
-                      <p>平台不公開內部識別碼、私人電子郵件或非公開識別資訊。若因法律程序、平台安全、濫用調查、檢舉處理或必要的申訴處理需要，站長可能在合理範圍內查閱相關紀錄。</p>
-                      <p>使用者可透過官方 LINE 請求查詢、更正、停止利用或刪除可刪除的個人資料；但依法、資安、爭議處理或防止濫用所需的紀錄，可能在合理期間內保留。</p>
-                      <p>請勿在公開貼文或留言中發布他人電話、住址、車牌、私人 LINE、身分證、病歷、財務、家庭或其他可識別個資。</p>
+                      <p>平台會處理你使用服務時產生或提供的資料，包括 Google 登入識別、Firebase UID、Email、島內 ID、暱稱、頭像、個人頁資料、發文、留言、回覆、表情反應、追蹤關係、通知、檢舉、站務紀錄、必要的安全紀錄與系統紀錄。</p>
+                      <p>資料使用目的包括：提供登入與帳號服務、維持社群功能、顯示通知、處理檢舉與爭議、防止洗版攻擊、偵測濫用、保障平台與使用者安全、回覆官方 LINE 回報、改善服務與履行法律或主管機關要求。</p>
+                      <p>平台使用可信賴的第三方基礎服務，例如 Firebase、Vercel、Cloudflare、Google Gemini 與 LINE 官方帳號等，來提供登入、資料保存、網站託管、內容安全輔助分析與客服回報。平台不販售使用者個資，也不會把個資用於與服務無關的商業轉售。</p>
+                      <p>公開頁面不會顯示你的 Firebase UID、Email 或內部安全紀錄。站長可在必要範圍內查看資料，以處理檢舉、濫用、安全事件、申訴、站務管理或法律程序。</p>
+                      <p>你可透過官方 LINE 請求查詢、更正、停止利用或刪除可刪除的個人資料；但依法、資安、爭議處理、稽核保存、檢舉處理或防止濫用所需的紀錄，可能在合理期間內保留。</p>
+                      <p>請勿在公開貼文或留言中發布他人電話、住址、車牌、私人 LINE、身分證、病歷、健康檢查、財務、家庭、私密影像或其他可直接或間接識別特定個人的資料。</p>
                     </section>
 
                     <section className="space-y-3">
-                      <h3 className="font-bold text-text-main text-base flex items-center gap-2">4. 社群守則</h3>
-                      <p>允許：在地生活、交通船班航班、天氣、公共政策、政治討論、公共人物與公共事務評論、消費經驗、合理抱怨、反方觀點與尖銳反駁。</p>
-                      <p>禁止：個資曝光、肉搜、威脅恐嚇、持續騷擾、煽動圍剿、詐騙、惡意洗版、仇恨煽動、私密影像、兒少性內容、侵權內容，以及對可識別自然人的未證實重大犯罪或私生活指控。</p>
-                      <p>平台會尊重尖銳、情緒化或高爭議的公共討論；但仍不代表可以違反個資、威脅、肉搜、詐騙、私密影像或其他安全底線。</p>
+                      <h3 className="font-bold text-text-main text-base flex items-center gap-2">4. 社群規範</h3>
+                      <p>可以討論：馬祖生活、交通船班航班、天氣、公共政策、地方建設、政治議題、公共人物與公共事務評論、消費經驗、合理抱怨、反方觀點與尖銳反駁。</p>
+                      <p>請避免或禁止：公開個資、肉搜、威脅恐嚇、持續騷擾、號召圍堵或報復、詐騙導流、惡意洗版、仇恨煽動、私密影像、兒少性內容、侵權內容，以及對可識別自然人的未證實重大犯罪、私生活或名譽指控。</p>
+                      <p>對店家、機關、民代、公共工程或公共服務的批評可以存在，但請盡量描述具體事實與親身經驗，避免把未查證傳聞寫成確定事實，或號召他人攻擊、封殺、騷擾特定個人。</p>
+                      <p>平台會尊重尖銳、情緒化或高爭議的公共討論；但言論自由不代表可以公開他人個資、威脅犯罪、肉搜、散布私密影像、詐騙或惡意騷擾。</p>
                     </section>
 
                     <section className="space-y-3 pt-6 border-t border-white/5">
-                      <h3 className="font-bold text-text-main text-base flex items-center gap-2">5. 站務紀錄與查詢</h3>
-                      <p>若您的貼文、留言或回覆經站長處理，平台會建立紀錄。您可以到「功能選單 → 站務紀錄」查詢自己的內容狀態、處理說明與依據條款。</p>
-                      <p>其他使用者無法查看您的個人站務紀錄。日後若開放公開處理案例，只會顯示遮罩內容、處理原因與案例編號，不公開真實身份或內部識別碼。</p>
+                      <h3 className="font-bold text-text-main text-base flex items-center gap-2">5. 檢舉與審核說明</h3>
+                      <p>使用者可以檢舉貼文、留言與回覆。檢舉會建立站務紀錄，並通知站長查看。請盡量選擇接近的檢舉原因，必要時可透過官方 LINE 補充截圖、連結、時間與說明。</p>
+                      <p>平台可能使用 AI 輔助站長掃描法律風險與社群治理風險，例如個資、肉搜、威脅、誹謗、侮辱、未證實重大指控、詐騙導流、騷擾動員、私密影像等。AI 只作為輔助標記，不是最終裁決者。</p>
+                      <p>站長可依內容狀態採取保留、提醒、遮罩、暫時審核、隱藏、恢復、完全移除、限制帳號功能或保留紀錄等處理。已遮蔽或已處理不代表內容本身風險降低，內容風險與處理狀態會分開記錄。</p>
+                      <p>若你的貼文、留言或回覆經站方處理，平台會建立紀錄。你可以到「功能選單 → 站務紀錄」查詢自己的內容狀態、處理說明與依據條款。其他使用者無法查看你的個人站務紀錄。</p>
+                      <p>若日後開放公開治理案例，只會顯示遮罩內容、處理原因與案例編號，不公開真實身份、Email、Firebase UID 或內部識別碼。</p>
                     </section>
 
  <section className="space-y-4 bg-bio-glow/5 p-4 rounded-2xl border border-bio-glow/10">
@@ -4435,10 +4441,9 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
       <footer className="py-16 border-t border-line text-center text-text-muted text-sm space-y-8">
         <div className="max-w-7xl mx-auto px-4 grid grid-cols-2 sm:flex sm:items-center sm:justify-center gap-x-8 gap-y-4 text-[0.625rem] sm:text-[0.6875rem] font-bold uppercase tracking-[0.1em] opacity-80">
            <button onClick={() => setShowTerms(true)} className="hover:text-bio-glow transition-colors cursor-pointer text-left sm:text-center text-text-muted">服務條款</button>
-           <button onClick={() => setShowTerms(true)} className="hover:text-bio-glow transition-colors cursor-pointer text-left sm:text-center text-text-muted">內容政策</button>
-           <button onClick={() => setShowTerms(true)} className="hover:text-bio-glow transition-colors cursor-pointer text-left sm:text-center text-text-muted">隱私權聲明</button>
-           <button onClick={() => setShowTerms(true)} className="hover:text-bio-glow transition-colors cursor-pointer text-left sm:text-center text-text-muted">著作權聲明</button>
-           <button onClick={() => setShowTerms(true)} className="hover:text-bio-glow transition-colors cursor-pointer text-left sm:text-center text-text-muted">商業合作</button>
+           <button onClick={() => setShowTerms(true)} className="hover:text-bio-glow transition-colors cursor-pointer text-left sm:text-center text-text-muted">隱私權政策</button>
+           <button onClick={() => setShowTerms(true)} className="hover:text-bio-glow transition-colors cursor-pointer text-left sm:text-center text-text-muted">社群規範</button>
+           <button onClick={() => setShowTerms(true)} className="hover:text-bio-glow transition-colors cursor-pointer text-left sm:text-center text-text-muted">檢舉與審核說明</button>
            <button onClick={() => setShowTerms(true)} className="hover:text-bio-glow transition-colors cursor-pointer text-left sm:text-center text-text-muted">聯絡方式</button>
         </div>
         <div className="flex flex-col items-center justify-center gap-3 opacity-60">
@@ -5057,7 +5062,7 @@ function PostCard({
       return;
     }
     if (!hasAcceptedLatestPolicies(profile)) {
-      alert('請先閱讀並同意最新版使用者條款、隱私權政策與社群守則，才能互動。');
+      alert('請先閱讀並同意最新版服務條款、隱私權政策與社群規範，才能互動。');
       return;
     }
     
@@ -5304,7 +5309,7 @@ function PostCard({
     if (isSubmittingCommentRef.current) return;
     if (!user || !newComment.trim()) return;
     if (!hasAcceptedLatestPolicies(profile)) {
-      alert('請先閱讀並同意最新版使用者條款、隱私權政策與社群守則，才能留言。');
+      alert('請先閱讀並同意最新版服務條款、隱私權政策與社群規範，才能留言。');
       return;
     }
     isSubmittingCommentRef.current = true;
@@ -5378,7 +5383,7 @@ function PostCard({
       return;
     }
     if (!hasAcceptedLatestPolicies(profile)) {
-      alert('請先閱讀並同意最新版使用者條款、隱私權政策與社群守則，才能互動。');
+      alert('請先閱讀並同意最新版服務條款、隱私權政策與社群規範，才能互動。');
       return;
     }
 
@@ -5442,7 +5447,7 @@ function PostCard({
       return;
     }
     if (!hasAcceptedLatestPolicies(profile)) {
-      alert('請先閱讀並同意最新版使用者條款、隱私權政策與社群守則，才能互動。');
+      alert('請先閱讀並同意最新版服務條款、隱私權政策與社群規範，才能互動。');
       return;
     }
 
@@ -5515,7 +5520,7 @@ function PostCard({
     if (!user) return;
     if (submittingReplyIdsRef.current[comment.id]) return;
     if (!hasAcceptedLatestPolicies(profile)) {
-      alert('請先閱讀並同意最新版使用者條款、隱私權政策與社群守則，才能回覆。');
+      alert('請先閱讀並同意最新版服務條款、隱私權政策與社群規範，才能回覆。');
       return;
     }
     const replyText = (replyInputs[comment.id] || '').trim();
@@ -5650,7 +5655,7 @@ function PostCard({
       return;
     }
     if (!hasAcceptedLatestPolicies(profile)) {
-      alert('請先閱讀並同意最新版使用者條款、隱私權政策與社群守則，才能檢舉內容。');
+      alert('請先閱讀並同意最新版服務條款、隱私權政策與社群規範，才能檢舉內容。');
       return;
     }
 
