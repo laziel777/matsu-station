@@ -5,6 +5,7 @@ export type SitePolicySectionId =
   | 'privacy'
   | 'community'
   | 'moderation'
+  | 'support'
   | 'contact';
 
 export interface SitePolicySection {
@@ -91,11 +92,22 @@ export const SITE_POLICY_SECTIONS: SitePolicySection[] = [
   },
   {
     id: 'contact',
-    title: '6. 聯絡、回報與合作',
+    title: '7. 聯絡、回報與合作',
     tone: 'glow',
     paragraphs: [
       '若遇到問題、想回報內容、提出檢舉、申請資料更正或刪除、聯絡站方或洽談合作，請透過馬祖小站 LINE 官方帳號聯繫。',
       '若因使用者違法行為導致平台、站長或其他使用者受損，平台可保留必要紀錄並依法處理。',
+    ],
+  },
+  {
+    id: 'support',
+    title: '6. 關於本站與贊助支持',
+    tone: 'muted',
+    paragraphs: [
+      '馬祖小站是一個以馬祖在地資訊、公共討論與社群互助為核心的 Beta 專案，目標是提供乾淨、多元、可被治理的在地發聲空間。',
+      '本站目前由站方持續維護，包含網站開發、資料服務、站務治理、LINE 回報、AI 輔助風險掃描與日常管理等工作。',
+      '若你想支持馬祖小站、提供資源、提出合作、贊助建議或回報問題，請先透過馬祖小站 LINE 官方帳號聯繫站方。本站不會在未明確公告前要求使用者透過不明連結付款或提供金融資料。',
+      '任何合作或贊助安排，應以不影響社群討論獨立性、使用者安全與平台治理原則為前提。',
     ],
   },
 ];
@@ -124,5 +136,11 @@ export const SITE_POLICY_PAGES: SitePolicyPage[] = [
     title: '檢舉與審核說明',
     description: '說明檢舉、站務紀錄、AI 輔助標記與站長裁量的基本流程。',
     sectionIds: ['overview', 'moderation', 'contact'],
+  },
+  {
+    path: '/support',
+    title: '關於本站與贊助支持',
+    description: '說明馬祖小站的專案定位、支持方式、合作聯絡與防詐提醒。',
+    sectionIds: ['overview', 'support', 'contact'],
   },
 ];

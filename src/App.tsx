@@ -56,7 +56,9 @@ function PolicySections({
   sectionIds: SitePolicySectionId[];
   showVersionCards?: boolean;
 }) {
-  const sections = SITE_POLICY_SECTIONS.filter(section => sectionIds.includes(section.id));
+  const sections = sectionIds
+    .map(sectionId => SITE_POLICY_SECTIONS.find(section => section.id === sectionId))
+    .filter((section): section is typeof SITE_POLICY_SECTIONS[number] => Boolean(section));
 
   return (
     <>
@@ -150,7 +152,7 @@ function PolicyStandalonePage({ page }: { page: SitePolicyPage }) {
           </div>
         </div>
 
-        <nav className="mb-8 grid gap-2 sm:grid-cols-4">
+        <nav className="mb-8 grid gap-2 sm:grid-cols-5">
           {SITE_POLICY_PAGES.map(item => (
             <a
               key={item.path}
@@ -4472,12 +4474,12 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                 「馬祖小站」是一個社群專案，我們致力於提供一個乾淨、多元的在地發聲管道。
               </p>
               <div className="pt-2 flex flex-col gap-2">
-                <button 
-                  onClick={() => setShowTerms(true)}
+                <a
+                  href="/support"
                   className="text-left text-[0.625rem] text-text-muted hover:text-text-main transition-colors flex items-center gap-2"
                 >
                   <Plus className="w-3 h-3 text-bio-glow" /> 關於本站與贊助支持
-                </button>
+                </a>
               </div>
             </div>
 
