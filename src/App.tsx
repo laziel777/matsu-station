@@ -10,7 +10,7 @@ import {
   hasAcceptedLatestPolicies,
 } from './lib/AuthContext';
 import { signInWithPopup, googleProvider, auth, signOut } from './lib/firebase';
-import { LogIn, LogOut, MessageSquare, Share2, Send, Plus, User, Waves, Search, Flag, Edit2, Calendar, Menu, X, ChevronRight, Palette, Settings, Image as ImageIcon, Facebook, Instagram, Copy, Check, ExternalLink, Trash2, Bell, Shield, TrendingUp, Zap, Star, Compass, Clock, AlertCircle, Cloud, CloudRain, Snowflake, CloudLightning, Sun, Plane, Ship, Info, Wind, Eye, Activity, MapPin, RotateCcw } from 'lucide-react';
+import { LogIn, LogOut, MessageSquare, Share2, Send, Plus, User, Waves, Search, Flag, Edit2, Calendar, Menu, X, ChevronRight, Palette, Settings, Image as ImageIcon, Facebook, Instagram, Copy, Check, ExternalLink, Trash2, Bell, Shield, TrendingUp, Zap, Star, Compass, Clock, AlertCircle, Cloud, CloudRain, Snowflake, CloudLightning, Sun, Plane, Ship, Info, Wind, Eye, Activity, MapPin, RotateCcw, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { createPortal } from 'react-dom';
 import { formatDistanceToNow, addMonths, isAfter } from 'date-fns';
@@ -4956,6 +4956,10 @@ function PostCard({
   const [expandedMaskedReplies, setExpandedMaskedReplies] = useState<Record<string, boolean>>({});
   const [highlightedDiscussionId, setHighlightedDiscussionId] = useState<string | null>(null);
   const [newComment, setNewComment] = useState('');
+  const [isSubmittingComment, setIsSubmittingComment] = useState(false);
+  const [submittingReplyIds, setSubmittingReplyIds] = useState<Record<string, boolean>>({});
+  const isSubmittingCommentRef = React.useRef(false);
+  const submittingReplyIdsRef = React.useRef<Record<string, boolean>>({});
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [reportDraft, setReportDraft] = useState<ReportDraft | null>(null);
@@ -5253,11 +5257,14 @@ function PostCard({
 
   const handleAddComment = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingCommentRef.current) return;
     if (!user || !newComment.trim()) return;
     if (!hasAcceptedLatestPolicies(profile)) {
       alert('請先閱讀並同意最新版使用者條款、隱私權政策與社群守則，才能留言。');
       return;
     }
+    isSubmittingCommentRef.current = true;
+    setIsSubmittingComment(true);
     try {
       if (countChars(newComment.trim()) > COMMENT_CHAR_LIMIT) {
         alert(`留言最多 ${COMMENT_CHAR_LIMIT} 字。${ANTI_ABUSE_NOTICE}`);
@@ -5315,6 +5322,9 @@ function PostCard({
     } catch (err) {
       console.error(err);
       alert(getSubmissionErrorMessage(err, '留言失敗，請稍後再試。'));
+    } finally {
+      isSubmittingCommentRef.current = false;
+      setIsSubmittingComment(false);
     }
   };
 
@@ -5459,6 +5469,7 @@ function PostCard({
 
   const handleAddReply = async (comment: Comment) => {
     if (!user) return;
+    if (submittingReplyIdsRef.current[comment.id]) return;
     if (!hasAcceptedLatestPolicies(profile)) {
       alert('請先閱讀並同意最新版使用者條款、隱私權政策與社群守則，才能回覆。');
       return;
@@ -5466,6 +5477,8 @@ function PostCard({
     const replyText = (replyInputs[comment.id] || '').trim();
     if (!replyText) return;
 
+    submittingReplyIdsRef.current = { ...submittingReplyIdsRef.current, [comment.id]: true };
+    setSubmittingReplyIds(previous => ({ ...previous, [comment.id]: true }));
     try {
       if (countChars(replyText) > COMMENT_CHAR_LIMIT) {
         alert(`回覆最多 ${COMMENT_CHAR_LIMIT} 字。${ANTI_ABUSE_NOTICE}`);
@@ -5528,6 +5541,15 @@ function PostCard({
     } catch (err) {
       console.error(err);
       alert(getSubmissionErrorMessage(err, '回覆失敗，請稍後再試。'));
+    } finally {
+      const nextSubmittingReplyIds = { ...submittingReplyIdsRef.current };
+      delete nextSubmittingReplyIds[comment.id];
+      submittingReplyIdsRef.current = nextSubmittingReplyIds;
+      setSubmittingReplyIds(previous => {
+        const next = { ...previous };
+        delete next[comment.id];
+        return next;
+      });
     }
   };
 
@@ -5858,6 +5880,7 @@ function PostCard({
                       maxLength={COMMENT_CHAR_LIMIT}
                       className="w-full bg-mist border border-line rounded-xl px-4 py-2 text-sm text-text-main focus:ring-1 focus:ring-blue-500/50 focus:border-blue-500/50 outline-none placeholder:text-text-muted/40"
                       value={newComment}
+                      disabled={isSubmittingComment}
                       onChange={(nextValue) => setNewComment(limitChars(nextValue, COMMENT_CHAR_LIMIT))}
                     />
                     <div className="flex items-center justify-between px-1">
@@ -5869,8 +5892,13 @@ function PostCard({
                       </span>
                     </div>
                   </div>
-                  <button className="self-start bg-mist/50 text-text-main p-2.5 rounded-xl hover:bg-mist transition-all border border-line cursor-pointer active:scale-95">
-                    <Send className="w-4 h-4" />
+                  <button
+                    type="submit"
+                    disabled={isSubmittingComment || !newComment.trim()}
+                    className="self-start bg-mist/50 text-text-main p-2.5 rounded-xl hover:bg-mist transition-all border border-line cursor-pointer active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:active:scale-100"
+                    aria-label={isSubmittingComment ? '留言送出中' : '送出留言'}
+                  >
+                    {isSubmittingComment ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                   </button>
                 </form>
               )}
@@ -6121,6 +6149,7 @@ function PostCard({
                               maxLength={COMMENT_CHAR_LIMIT}
                               className="w-full bg-mist border border-line rounded-xl px-3 py-2 text-[0.8125rem] text-text-main focus:ring-1 focus:ring-blue-500/50 focus:border-blue-500/50 outline-none placeholder:text-text-muted/40"
                               value={replyInputs[comment.id] || ''}
+                              disabled={Boolean(submittingReplyIds[comment.id])}
                               onChange={(nextValue) => setReplyInputs(previous => ({ ...previous, [comment.id]: limitChars(nextValue, COMMENT_CHAR_LIMIT) }))}
                             />
                             <div className="flex justify-end px-1">
@@ -6131,8 +6160,13 @@ function PostCard({
                               </span>
                             </div>
                           </div>
-                          <button type="submit" className="self-start bg-mist/50 text-text-main p-2.5 rounded-xl hover:bg-mist transition-all border border-line cursor-pointer active:scale-95">
-                            <Send className="w-3.5 h-3.5" />
+                          <button
+                            type="submit"
+                            disabled={Boolean(submittingReplyIds[comment.id]) || !(replyInputs[comment.id] || '').trim()}
+                            className="self-start bg-mist/50 text-text-main p-2.5 rounded-xl hover:bg-mist transition-all border border-line cursor-pointer active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:active:scale-100"
+                            aria-label={submittingReplyIds[comment.id] ? '回覆送出中' : '送出回覆'}
+                          >
+                            {submittingReplyIds[comment.id] ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
                           </button>
                         </form>
                       )}
