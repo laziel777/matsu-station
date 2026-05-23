@@ -4661,7 +4661,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="relative w-full max-w-lg glass-card rounded-[32px] p-8 border-white/10 shadow-2xl"
+              className="relative flex max-h-[88vh] w-full max-w-lg flex-col glass-card rounded-[32px] p-8 border-white/10 shadow-2xl"
             >
               <div className="absolute top-0 right-0 p-6">
                 <button onClick={() => setShowTransportModal(null)} className="p-2 text-text-muted hover:text-text-main transition-colors">
@@ -4683,6 +4683,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                 </div>
               </div>
 
+              <div className="min-h-0 overflow-y-auto pr-1 custom-scrollbar">
               {showTransportModal === 'flight' ? (
                 <div className="space-y-4">
                    {flightStatus?.ok && (
@@ -4843,6 +4844,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                    </div>
                 </div>
               )}
+              </div>
 
               <div className="mt-8 flex gap-3">
                  <a
