@@ -3151,6 +3151,17 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
               <span className="flight-chip-label text-[0.625rem] font-bold uppercase tracking-tighter">航班</span>
             </motion.button>
 
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setShowTransportModal('ferry')}
+              className="ferry-chip flex items-center gap-2 px-3.5 py-1.5 rounded-full border transition-all cursor-pointer"
+              title="船班資訊"
+            >
+              <Ship className="ferry-chip-icon w-3.5 h-3.5 drop-shadow-sm" />
+              <span className="ferry-chip-label text-[0.625rem] font-bold uppercase tracking-tighter">船班</span>
+            </motion.button>
+
             <div className="flex-1 max-w-full sm:max-w-[320px] relative group hidden sm:block">
                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-bio-glow/80" />
              <input 
