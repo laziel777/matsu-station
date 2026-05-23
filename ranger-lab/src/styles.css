@@ -4319,6 +4319,39 @@ button:disabled {
   color: #ff2d55;
 }
 
+.case-archive-note {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px solid rgba(48, 242, 162, 0.18);
+  border-radius: 16px;
+  background: rgba(48, 242, 162, 0.07);
+  color: rgba(232, 252, 255, 0.78);
+}
+
+.case-archive-note svg {
+  flex: 0 0 auto;
+  color: #30f2a2;
+  margin-top: 2px;
+}
+
+.case-archive-note strong {
+  display: block;
+  color: #30f2a2;
+  font-size: 0.82rem;
+  font-weight: 950;
+}
+
+.case-archive-note p {
+  margin: 4px 0 0;
+  color: rgba(232, 252, 255, 0.64);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.55;
+}
+
 .action-state {
   display: inline-flex;
   align-items: center;

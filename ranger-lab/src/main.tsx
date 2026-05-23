@@ -1024,6 +1024,10 @@ function CasePanel({ cases, selected, sourcePaths, onSelect, onAction }: {
   };
 
   const selectedBucket = visibleSelected ? getCaseStatusFilter(visibleSelected.status, isSourceMissing(visibleSelected)) : 'open';
+  const selectedIsArchived = Boolean(
+    visibleSelected &&
+    (selectedBucket === 'deleted' || visibleSelected.recommendedAction === 'author_deleted' || visibleSelected.status === 'deleted')
+  );
   const isBusy = Boolean(busy);
 
   return (
@@ -1097,24 +1101,34 @@ function CasePanel({ cases, selected, sourcePaths, onSelect, onAction }: {
               <span>更新：{timeText(visibleSelected.updatedAt || visibleSelected.createdAt)}</span>
             </div>
 
-            <div className="case-actions case-action-grid">
-              <button className="ok" disabled={isBusy || !visibleSelected.contentSnapshot || selectedBucket === 'approved'} onClick={() => void run(visibleSelected, 'release')} title="恢復或放行內容">
-                <CheckCircle2 size={15} /> {selectedBucket === 'approved' ? '已放行' : '放行 / 恢復'}
-              </button>
-              <button className="warn" disabled={isBusy || !visibleSelected.contentSnapshot || selectedBucket === 'masked'} onClick={() => void run(visibleSelected, 'quarantine')} title="遮蔽內容，但保留後台原文與治理紀錄">
-                <FileWarning size={15} /> {selectedBucket === 'masked' ? '已遮蔽' : '遮蔽留紀錄'}
-              </button>
-              <button className="danger" disabled={isBusy || selectedBucket === 'hidden' || selectedBucket === 'deleted'} onClick={() => void run(visibleSelected, 'remove')} title="前台隱藏，不刪除治理紀錄">
-                <CircleSlash size={15} /> {selectedBucket === 'hidden' ? '已隱藏' : selectedBucket === 'deleted' ? '已刪除' : '隱藏不公開'}
-              </button>
-              <button disabled={isBusy || selectedBucket === 'reviewed'} onClick={() => void run(visibleSelected, 'mark_reviewed')} title="站長已查看，保留案件">
-                <Gavel size={15} /> {selectedBucket === 'reviewed' ? '已查看' : '標記已看'}
-              </button>
-              <button disabled={isBusy || selectedBucket === 'dismissed'} onClick={() => void run(visibleSelected, 'dismiss')} title="完成處理，案件結案">
-                <RefreshCw size={15} /> {selectedBucket === 'dismissed' ? '已結案' : '結案'}
-              </button>
-              {busy && <span className="action-state"><Loader2 size={14} className="spin" /> 處理中</span>}
-            </div>
+            {selectedIsArchived ? (
+              <div className="case-archive-note">
+                <CheckCircle2 size={18} />
+                <div>
+                  <strong>此內容已由作者刪除，案件已封存</strong>
+                  <p>前台內容已不公開；後台保留原文、時間、來源與風險紀錄，供日後查核，不需要再裁決。</p>
+                </div>
+              </div>
+            ) : (
+              <div className="case-actions case-action-grid">
+                <button className="ok" disabled={isBusy || !visibleSelected.contentSnapshot || selectedBucket === 'approved'} onClick={() => void run(visibleSelected, 'release')} title="恢復或放行內容">
+                  <CheckCircle2 size={15} /> {selectedBucket === 'approved' ? '已放行' : '放行 / 恢復'}
+                </button>
+                <button className="warn" disabled={isBusy || !visibleSelected.contentSnapshot || selectedBucket === 'masked'} onClick={() => void run(visibleSelected, 'quarantine')} title="遮蔽內容，但保留後台原文與治理紀錄">
+                  <FileWarning size={15} /> {selectedBucket === 'masked' ? '已遮蔽' : '遮蔽留紀錄'}
+                </button>
+                <button className="danger" disabled={isBusy || selectedBucket === 'hidden' || selectedBucket === 'deleted'} onClick={() => void run(visibleSelected, 'remove')} title="前台隱藏，不刪除治理紀錄">
+                  <CircleSlash size={15} /> {selectedBucket === 'hidden' ? '已隱藏' : selectedBucket === 'deleted' ? '已刪除' : '隱藏不公開'}
+                </button>
+                <button disabled={isBusy || selectedBucket === 'reviewed'} onClick={() => void run(visibleSelected, 'mark_reviewed')} title="站長已查看，保留案件">
+                  <Gavel size={15} /> {selectedBucket === 'reviewed' ? '已查看' : '標記已看'}
+                </button>
+                <button disabled={isBusy || selectedBucket === 'dismissed'} onClick={() => void run(visibleSelected, 'dismiss')} title="完成處理，案件結案">
+                  <RefreshCw size={15} /> {selectedBucket === 'dismissed' ? '已結案' : '結案'}
+                </button>
+                {busy && <span className="action-state"><Loader2 size={14} className="spin" /> 處理中</span>}
+              </div>
+            )}
           </>
         ) : (
           <div className="case-empty"><AlertTriangle size={18} /><span>尚未選取案件。</span></div>
@@ -1654,6 +1668,13 @@ function App() {
     () => new Set(items.map(item => item.sourcePath).filter(Boolean)),
     [items],
   );
+  const activeCaseCount = React.useMemo(
+    () => cases.filter(item => {
+      const sourceMissing = Boolean(item.sourcePath && !contentSourcePaths.has(item.sourcePath));
+      return getCaseStatusFilter(item.status, sourceMissing) === 'open';
+    }).length,
+    [cases, contentSourcePaths],
+  );
   const imageItemCount = React.useMemo(
     () => items.filter(item => item.imageCount > 0 || item.usesImageSnapshot).length,
     [items],
@@ -1666,7 +1687,7 @@ function App() {
     images: imageItemCount,
     reports: reports.length,
     aiSheet: items.length,
-    cases: cases.length,
+    cases: activeCaseCount,
   };
 
   const runCaseAction = async (item: ModerationCase, action: CaseAction) => {
