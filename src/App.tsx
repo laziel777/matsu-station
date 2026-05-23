@@ -4653,7 +4653,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                         飛航狀態不由本站判定
                       </h4>
                       <p className="text-xs leading-relaxed text-text-muted">
-                        馬祖航班常受低雲、濃霧、能見度與機場關場影響。本站不硬寫準點或正常起降，請開啟馬祖航空站查看南竿、北竿即時航班。
+                        馬祖航班常受低雲、濃霧、能見度與機場關場影響。本站不判定準點或可否飛航，請開啟馬祖航空站查看南竿、北竿即時航班。
                       </p>
                    </div>
                 </div>
@@ -4688,7 +4688,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                         船班會因歲修與海象異動
                       </h4>
                       <p className="text-xs text-text-muted leading-relaxed italic">
-                        本站不硬寫開航或全線正常。臺馬之星、新臺馬輪與島際船班請以船公司、訂位系統與官方公告為準。
+                        本站不判定開航狀態。臺馬之星、新臺馬輪與島際船班請以船公司、訂位系統與官方公告為準。
                       </p>
                    </div>
                 </div>
