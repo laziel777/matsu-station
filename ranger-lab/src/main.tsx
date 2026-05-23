@@ -45,7 +45,7 @@ import './styles.css';
 type RiskLevel = 'low' | 'medium' | 'high' | 'critical';
 type SourceType = 'post' | 'comment' | 'reply';
 type CaseAction = 'mark_reviewed' | 'dismiss' | 'release' | 'quarantine' | 'remove' | 'delete_case';
-type ContentAction = 'review' | 'hide' | 'mask' | 'delete' | 'restore' | 'hide_image' | 'restore_image' | 'delete_image';
+type ContentAction = 'review' | 'hide' | 'mask' | 'delete' | 'restore' | 'hide_image' | 'restore_image' | 'delete_image' | 'delete_case';
 type AccountAction = 'watch' | 'clear_watch' | 'ban' | 'unban' | 'suspend_posting' | 'restore_posting';
 type DrawerKey = 'cockpit' | 'accounts' | 'articles' | 'images' | 'reports' | 'aiSheet' | 'cases';
 type ContentSortKey = 'risk_desc' | 'risk_asc' | 'newest' | 'oldest' | 'author' | 'type';
@@ -1350,6 +1350,7 @@ function ImageWall({ items, onAction, onOpenSource }: {
   const run = async (item: SiteItem, action: ContentAction) => {
     if (action === 'delete' && !window.confirm('確定要完全移除這則內容嗎？這個動作不可逆。')) return;
     if (action === 'delete_image' && !window.confirm('確定要刪除這張圖片原檔嗎？刪除後不能恢復，只會保留文字與治理紀錄。')) return;
+    if (action === 'delete_case' && !window.confirm('確定要清除這張圖片的後台封存卡片？這不會恢復圖片，也不會刪除前台文字。')) return;
     if (action === 'hide' && !window.confirm('確定要遮蔽整篇內容嗎？')) return;
     if (action === 'restore' && !window.confirm('確定要恢復整篇內容嗎？')) return;
     setBusy(`${item.id}:${action}`);
@@ -1392,6 +1393,7 @@ function ImageWall({ items, onAction, onOpenSource }: {
         {visible.map(item => {
           const bucket = getContentDecisionFilter(item.status);
           const disabled = Boolean(busy);
+          const canClearArchivedCard = bucket === 'deleted' || item.status === 'image_deleted';
           return (
             <article key={item.id} className={`image-wall-card image-wall-${bucket}`}>
               <button className="image-wall-frame" onClick={() => onOpenSource(item.sourcePath)} title="回到文章抽屜檢視來源">
@@ -1419,6 +1421,11 @@ function ImageWall({ items, onAction, onOpenSource }: {
                 <button className="danger" disabled={disabled || item.status === 'image_deleted' || bucket === 'deleted'} onClick={() => void run(item, 'delete_image')}>
                   <Trash2 size={14} /> {item.status === 'image_deleted' ? '圖片已刪除' : '刪除圖片'}
                 </button>
+                {canClearArchivedCard && (
+                  <button className="danger ghost-danger" disabled={disabled} onClick={() => void run(item, 'delete_case')}>
+                    <Trash2 size={14} /> 清除卡片
+                  </button>
+                )}
                 <button className="danger" disabled={disabled || ['hidden', 'deleted'].includes(bucket)} onClick={() => void run(item, 'hide')}>
                   <CircleSlash size={14} /> {bucket === 'hidden' ? '整篇已遮蔽' : bucket === 'deleted' ? '已刪除' : '遮蔽整篇'}
                 </button>

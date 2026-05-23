@@ -2215,6 +2215,12 @@ button:disabled {
   color: #ff2d55;
 }
 
+.image-wall-actions button.ghost-danger {
+  border-style: dashed;
+  background: rgba(255, 45, 85, 0.07);
+  color: #ff8aa0;
+}
+
 .content-watch-main small {
   display: block;
   color: rgba(48, 242, 162, 0.7);

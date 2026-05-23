@@ -7539,6 +7539,40 @@ async function applyDirectContentAction({ sourcePath, action, reviewerId, reason
   const sourceMeta = parseManagedSourcePath(sourcePath);
   const sourceRef = db.doc(sourcePath);
   const sourceSnap = await sourceRef.get();
+  const sourceKey = getSourceKey(sourcePath);
+  const caseRef = db.collection("moderationCases").doc(sourceKey);
+  const caseSnap = await caseRef.get();
+  const existingCase = caseSnap.exists ? caseSnap.data() || {} : {};
+
+  if (action === "delete_case") {
+    const sourceDataForCheck = sourceSnap.exists ? sourceSnap.data() || {} : {};
+    const canDeleteArchivedCase =
+      !sourceSnap.exists ||
+      sourceDataForCheck.moderationStatus === "deleted" ||
+      sourceDataForCheck.moderationStatus === "image_deleted" ||
+      existingCase.status === "deleted" ||
+      existingCase.status === "image_deleted" ||
+      existingCase.recommendedAction === "author_deleted";
+
+    if (!canDeleteArchivedCase) {
+      throw new HttpsError("failed-precondition", "Only archived, deleted, or author-deleted content cards can be removed from the backend drawer.");
+    }
+
+    if (!caseSnap.exists) {
+      return {
+        ok: true,
+        sourcePath,
+        status: "case_not_found",
+      };
+    }
+
+    await caseRef.delete();
+    return {
+      ok: true,
+      sourcePath,
+      status: "case_deleted",
+    };
+  }
 
   if (!sourceSnap.exists) {
     throw new HttpsError("not-found", "Content was not found.");
@@ -7546,11 +7580,7 @@ async function applyDirectContentAction({ sourcePath, action, reviewerId, reason
 
   const sourceData = sourceSnap.data() || {};
   const now = admin.firestore.FieldValue.serverTimestamp();
-  const sourceKey = getSourceKey(sourcePath);
   const publicCaseId = sourceData.moderationPublicCaseId || getPublicCaseId(sourcePath);
-  const caseRef = db.collection("moderationCases").doc(sourceKey);
-  const caseSnap = await caseRef.get();
-  const existingCase = caseSnap.exists ? caseSnap.data() || {} : {};
   const moderationReason = String(reason || "").trim().slice(0, 240);
   const contentSnapshot = pickAdminContentText(
     sourceData.content,
@@ -7627,7 +7657,7 @@ async function applyDirectContentAction({ sourcePath, action, reviewerId, reason
         : "圖片已由站長復原，後續仍保留裁決紀錄與風險快照。"
   );
 
-  if (!["review", "hide", "delete", "restore", "mask", "hide_image", "restore_image", "delete_image"].includes(action)) {
+  if (!["review", "hide", "delete", "restore", "mask", "hide_image", "restore_image", "delete_image", "delete_case"].includes(action)) {
     throw new HttpsError("invalid-argument", "Unsupported content action.");
   }
 
@@ -7879,7 +7909,7 @@ exports.rangerContentAction = onCall(
     const action = String(request.data?.action || "").trim();
     const reason = String(request.data?.reason || "").trim();
 
-    if (!sourcePath || !["review", "hide", "delete", "restore", "mask", "hide_image", "restore_image", "delete_image"].includes(action)) {
+    if (!sourcePath || !["review", "hide", "delete", "restore", "mask", "hide_image", "restore_image", "delete_image", "delete_case"].includes(action)) {
       throw new HttpsError("invalid-argument", "Invalid content action.");
     }
 
