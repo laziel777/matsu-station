@@ -8248,6 +8248,11 @@ function toCookieHeader(setCookieValues) {
     .join("; ");
 }
 
+function flattenAoawsAirportRows(value) {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => (Array.isArray(item) ? flattenAoawsAirportRows(item) : [item]));
+}
+
 function windDirectionText(degrees) {
   const value = Number(degrees);
   if (!Number.isFinite(value)) return "不明";
@@ -8327,11 +8332,12 @@ async function fetchAoawsWeatherStatus() {
   }
 
   const data = JSON.parse(text);
-  const latestTaiwan = Array.isArray(data?.latest_airport_list?.Taiwan)
-    ? data.latest_airport_list.Taiwan
-    : [];
-  const nangan = normalizeAoawsAirport(latestTaiwan.find((item) => item?.STID === "RCFG"));
-  const beigan = normalizeAoawsAirport(latestTaiwan.find((item) => item?.STID === "RCMT"));
+  const taiwanRows = [
+    ...flattenAoawsAirportRows(data?.latest_airport_list?.Taiwan),
+    ...flattenAoawsAirportRows(data?.airport_list?.Taiwan),
+  ];
+  const nangan = normalizeAoawsAirport(taiwanRows.find((item) => item?.STID === "RCFG"));
+  const beigan = normalizeAoawsAirport(taiwanRows.find((item) => item?.STID === "RCMT"));
   const primary = nangan || beigan;
 
   return {
@@ -8340,6 +8346,7 @@ async function fetchAoawsWeatherStatus() {
     sourceUrl: AOAWS_HOME_URL,
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     fetchedAtIso: new Date().toISOString(),
+    error: admin.firestore.FieldValue.delete(),
     notice: "航空氣象資料供站內天氣資訊參考；實際飛航、起降與交通異動仍請以航空站及航空公司公告為準。",
     primaryStation: primary?.stationId || null,
     temp: primary?.temp ?? null,
