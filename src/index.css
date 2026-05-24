@@ -90,6 +90,16 @@
   border: 1px solid color-mix(in srgb, var(--text-primary) 12%, transparent);
 }
 
+.station-clock-icon {
+  background: color-mix(in srgb, var(--primary-glow) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary-glow) 30%, transparent);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--primary-glow) 18%, transparent);
+}
+
+.station-clock-digits {
+  text-shadow: 0 0 14px color-mix(in srgb, var(--primary-glow) 45%, transparent);
+}
+
 .station-clock-line {
   background: linear-gradient(to right, transparent, var(--primary-glow), transparent);
 }

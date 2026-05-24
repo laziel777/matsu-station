@@ -4773,7 +4773,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                     <h3 className="station-clock-label text-xs font-bold uppercase tracking-[0.28em]">小站時間</h3>
                     <p className="mt-1 text-[0.625rem] font-mono uppercase tracking-[0.22em] text-bio-glow/70">Taiwan UTC+8</p>
                   </div>
-                  <div className="rounded-xl border border-bio-glow/30 bg-bio-glow/10 p-2 text-bio-glow shadow-[0_0_18px_rgba(0,229,255,0.18)]">
+                  <div className="station-clock-icon rounded-xl p-2 text-bio-glow">
                     <Clock className="h-4 w-4" />
                   </div>
                 </div>
@@ -4783,7 +4783,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                     <Calendar className="station-clock-label h-3 w-3" />
                     <span>{stationDate}</span>
                   </div>
-                  <div className="font-mono text-3xl font-black tabular-nums tracking-[0.08em] text-bio-glow drop-shadow-[0_0_14px_rgba(0,229,255,0.45)]">
+                  <div className="station-clock-digits font-mono text-3xl font-black tabular-nums tracking-[0.08em] text-bio-glow">
                     {stationClock}
                   </div>
                 </div>
