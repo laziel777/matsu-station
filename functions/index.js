@@ -151,6 +151,14 @@ function getGeminiAI() {
   return new GoogleGenAI({ apiKey });
 }
 
+function getOpenAIKey() {
+  const apiKey = (process.env.OPENAI_API_KEY || "").trim();
+  if (!apiKey) {
+    throw new Error("OPENAI_API_KEY secret is missing");
+  }
+  return apiKey;
+}
+
 function createTextMessage(text, includeQuickReply = false) {
   const replyText = withAssistantIdentity(text);
   const message = {
@@ -3610,6 +3618,97 @@ exports.checkDisplayNameAvailability = onCall(
   }
 );
 
+exports.reviewAvatarImage = onCall(
+  {
+    region: REGION,
+    timeoutSeconds: 60,
+    memory: "512MiB",
+    secrets: ["OPENAI_API_KEY"],
+  },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) {
+      throw new HttpsError("unauthenticated", "請先登入。");
+    }
+    await assertPublishingProfile(uid);
+
+    const imageUrl = String(request.data?.imageUrl || "").trim();
+    const imagePath = sanitizeSubmittedAvatarPath(request.data?.imagePath, uid);
+    if (!/^https:\/\//i.test(imageUrl) || imageUrl.length > 2000) {
+      throw new HttpsError("invalid-argument", "頭像圖片網址不正確。");
+    }
+
+    let response;
+    try {
+      response = await fetch("https://api.openai.com/v1/moderations", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${getOpenAIKey()}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "omni-moderation-latest",
+          input: [
+            { type: "text", text: "請審核這張社群網站大頭照。禁止色情裸露、暴力血腥、仇恨、騷擾、威脅、自傷、明顯違法或兒少不當內容。" },
+            { type: "image_url", image_url: { url: imageUrl } },
+          ],
+        }),
+      });
+    } catch (error) {
+      console.error("Avatar OpenAI moderation request failed", { uid, imagePath, message: error?.message || String(error) });
+      throw new HttpsError("unavailable", "頭像審核暫時無法連線，請稍後再試。");
+    }
+
+    const raw = await response.text();
+    if (!response.ok) {
+      console.error("Avatar OpenAI moderation failed", { uid, imagePath, status: response.status, body: raw.slice(0, 500) });
+      throw new HttpsError("unavailable", "頭像審核暫時忙碌，請稍後再試。");
+    }
+
+    let result;
+    try {
+      result = JSON.parse(raw);
+    } catch (error) {
+      console.error("Avatar moderation JSON parse failed", { uid, imagePath, message: error?.message || String(error) });
+      throw new HttpsError("internal", "頭像審核回應格式異常。");
+    }
+
+    const moderation = Array.isArray(result?.results) ? result.results[0] || {} : {};
+    const categoryScores = moderation.category_scores || {};
+    const flagged = moderation.flagged === true;
+    const maxScore = Object.values(categoryScores).reduce((max, value) => {
+      const score = Number(value);
+      return Number.isFinite(score) ? Math.max(max, score) : max;
+    }, 0);
+    const blocked = flagged || maxScore >= 0.72;
+    const now = admin.firestore.FieldValue.serverTimestamp();
+
+    await db.collection("avatarReviews").add({
+      uid,
+      imagePath,
+      imageUrl,
+      provider: "openai",
+      model: "omni-moderation-latest",
+      flagged,
+      maxScore,
+      allowed: !blocked,
+      categories: moderation.categories || {},
+      categoryScores,
+      createdAt: now,
+    });
+
+    if (blocked) {
+      throw new HttpsError("failed-precondition", "這張頭像可能不適合公開顯示，請換一張照片。");
+    }
+
+    return {
+      ok: true,
+      allowed: true,
+      maxScore,
+    };
+  }
+);
+
 function countSubmittedChars(value) {
   return Array.from(String(value || "")).length;
 }
@@ -3640,6 +3739,15 @@ function sanitizeSubmittedImagePaths(value, uid) {
     .map((item) => String(item || "").trim())
     .filter((item) => item.startsWith(prefix) && item.length <= 500 && !item.includes(".."))
     .slice(0, SERVER_MAX_POST_IMAGES);
+}
+
+function sanitizeSubmittedAvatarPath(value, uid) {
+  const path = String(value || "").trim();
+  const prefix = `avatars/${uid}/`;
+  if (!path.startsWith(prefix) || path.includes("..") || path.length > 500) {
+    throw new HttpsError("invalid-argument", "頭像路徑不正確。");
+  }
+  return path;
 }
 
 function sanitizeSubmittedPostImages(data, uid) {

@@ -16,7 +16,7 @@ import { createPortal } from 'react-dom';
 import { formatDistanceToNow, addMonths, isAfter } from 'date-fns';
 import { zhTW } from 'date-fns/locale';
 import { db, collection, query, orderBy, onSnapshot, serverTimestamp, updateDoc, doc, setDoc, deleteDoc, getDoc, getDocs, where, handleFirestoreError, OperationType, storage, functions, httpsCallable } from './lib/firebase';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { SITE_POLICY_PAGES, SITE_POLICY_SECTIONS, SitePolicyPage, SitePolicySectionId } from './lib/sitePolicies';
 
 const STATION_MASTER_UID = 'gHHxF8p1DnbMkoeVmU5XpB18Elz2';
@@ -2362,6 +2362,17 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
       const fileRef = ref(storage, `avatars/${user.uid}/${Date.now()}_avatar.jpg`);
       const snapshot = await uploadBytes(fileRef, compressedFile);
       const url = await getDownloadURL(snapshot.ref);
+      try {
+        const reviewAvatarImage = httpsCallable(functions, 'reviewAvatarImage');
+        await reviewAvatarImage({ imageUrl: url, imagePath: snapshot.ref.fullPath });
+      } catch (error) {
+        try {
+          await deleteObject(snapshot.ref);
+        } catch (cleanupError) {
+          console.warn('Rejected avatar cleanup failed', cleanupError);
+        }
+        throw error;
+      }
       if (avatarCropMode === 'setup') {
         setSetupPhoto(url);
       } else {
