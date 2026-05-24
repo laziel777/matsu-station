@@ -4968,8 +4968,8 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
               ))}
             </div>
             
-            <div className="mt-8 p-3 rounded-xl bg-indigo-500/5 border border-indigo-500/10 mb-4">
-              <p className="text-[0.625rem] text-indigo-400 font-bold mb-1">社群公告</p>
+            <div className="theme-accent-card mt-8 p-3 rounded-xl mb-4">
+              <p className="text-[0.625rem] text-bio-glow font-bold mb-1">社群公告</p>
               <p className="text-[0.6875rem] text-text-muted leading-relaxed">🌊 藍眼淚季節在每年3月至9月，4到6月為最容易出現的爆發期，請把握機會分享你的私房景點。<br />
                 🔗 請注意外部連結安全，避免點擊來源不明的網址。
               </p>
@@ -5028,8 +5028,8 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                   ))}
                 </div>
                 
-                <div className="mt-8 p-3 rounded-xl bg-indigo-500/5 border border-indigo-500/10 mb-4">
-                  <p className="text-[0.625rem] text-indigo-400 font-bold mb-1">社群公告</p>
+                <div className="theme-accent-card mt-8 p-3 rounded-xl mb-4">
+                  <p className="text-[0.625rem] text-bio-glow font-bold mb-1">社群公告</p>
                   <p className="text-[0.6875rem] text-text-muted leading-relaxed">🌊 藍眼淚季節在每年3月至9月，4到6月為最容易出現的爆發期，請把握機會分享你的私房景點。<br />
                     🔗 請注意外部連結安全，避免點擊來源不明的網址。
                   </p>
@@ -5353,8 +5353,8 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
             </div>
 
             {/* Support Message */}
-            <div className="p-6 rounded-3xl bg-gradient-to-br from-indigo-500/10 to-blue-500/10 border border-white/5 space-y-3">
-              <h4 className="text-xs font-bold text-indigo-300 flex items-center gap-2">
+            <div className="theme-accent-card p-6 rounded-3xl space-y-3">
+              <h4 className="text-xs font-bold text-bio-glow flex items-center gap-2">
                 <Waves className="w-4 h-4" />
                 守護馬祖數位空間
               </h4>
