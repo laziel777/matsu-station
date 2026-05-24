@@ -1010,7 +1010,7 @@ const getPostImagePaths = (post: Post) => {
 };
 
 const DefaultIslanderAvatar = ({ className = "w-10 h-10" }: { className?: string }) => {
-  const baseClasses = className.includes('rounded-') ? className : `${className} rounded-xl`;
+  const baseClasses = getAvatarClassName(className);
   return (
     <div className={`${baseClasses} relative flex items-center justify-center overflow-hidden bg-mist border border-line group`}>
       <div className="absolute inset-0 bg-mist-dark opacity-50"></div>
@@ -1024,8 +1024,7 @@ const DefaultIslanderAvatar = ({ className = "w-10 h-10" }: { className?: string
 };
 
 const AdminAvatar = ({ className = "w-10 h-10" }: { className?: string }) => {
-  // Extract custom sizing/rounding if provided, otherwise default to rounded-xl
-  const baseClasses = className.includes('rounded-') ? className : `${className} rounded-xl`;
+  const baseClasses = getAvatarClassName(className);
   
   return (
     <div className={`${baseClasses} relative flex items-center justify-center overflow-hidden bg-mist shadow-[0_0_20px_rgba(239,68,68,0.5)] border border-line group`}>
@@ -1055,8 +1054,19 @@ const AdminAvatar = ({ className = "w-10 h-10" }: { className?: string }) => {
   );
 };
 
+const getAvatarClassName = (className = "w-10 h-10") => {
+  const withoutRounding = className
+    .replace(/\brounded(?:-[^\s]+)?\b/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return `${withoutRounding} rounded-2xl`;
+};
+
 const UserAvatar = ({ p, className = "w-10 h-10" }: { p?: { islanderId?: string, photoURL?: string, displayName?: string, role?: string }, className?: string }) => {
-  if (!p) return <div className={`${className} bg-stone-800 rounded-xl`} />;
+  const avatarClassName = getAvatarClassName(className);
+
+  if (!p) return <div className={`${avatarClassName} bg-stone-800`} />;
 
   const hasCustomPhoto = Boolean(p.photoURL && p.photoURL !== DEFAULT_ISLANDER_PHOTO);
 
@@ -1064,16 +1074,16 @@ const UserAvatar = ({ p, className = "w-10 h-10" }: { p?: { islanderId?: string,
   if (!hasCustomPhoto) {
     // Station master styling must only come from trusted role checks.
     if (p.role === 'admin') {
-      return <AdminAvatar className={className} />;
+      return <AdminAvatar className={avatarClassName} />;
     }
 
-    return <DefaultIslanderAvatar className={className} />;
+    return <DefaultIslanderAvatar className={avatarClassName} />;
   }
   
   return (
     <img 
       src={p.photoURL} 
-      className={`${className} rounded-xl object-cover bg-stone-800 border border-white/5`}
+      className={`${avatarClassName} object-cover bg-stone-800 border border-white/5`}
       alt={p.displayName || 'User'}
       referrerPolicy="no-referrer"
     />
@@ -1425,7 +1435,7 @@ const MentionComposerInput = ({
                   >
                     <UserAvatar
                       p={suggestion}
-                      className="h-8 w-8 rounded-full border border-line"
+                      className="h-8 w-8 border border-line"
                     />
                     <div className="min-w-0">
                       <p className="truncate text-sm font-bold text-text-main">{suggestion.displayName}</p>
@@ -3558,7 +3568,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
 
                 {user ? (
                   <button onClick={() => handleOpenProfile(user.uid)} className="cursor-pointer active:scale-95 transition-transform">
-                    <UserAvatar p={{ ...profile, islanderId: profile?.islanderId || user.uid, role: user.uid === STATION_MASTER_UID ? 'admin' : 'user' }} className="w-8 h-8 rounded-full border border-line hover:border-bio-glow" />
+                    <UserAvatar p={{ ...profile, islanderId: profile?.islanderId || user.uid, role: user.uid === STATION_MASTER_UID ? 'admin' : 'user' }} className="w-8 h-8 border border-line hover:border-bio-glow" />
                   </button>
                 ) : (
                 <button onClick={handleLogin} className="bg-blue-600 text-white px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-2 shadow-lg shadow-blue-500/20 active:scale-95 whitespace-nowrap">
@@ -3945,7 +3955,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                   <span className="text-xs font-bold text-text-main">{profile?.displayName?.charAt(0) || user.displayName?.charAt(0)}</span>
                 </div>
                 <button onClick={() => handleOpenProfile(user.uid)} className="cursor-pointer active:scale-95 transition-transform">
-                  <UserAvatar p={{ ...profile, islanderId: profile?.islanderId || user.uid, role: user.uid === STATION_MASTER_UID ? 'admin' : 'user' }} className="w-8 h-8 rounded-full border border-white/10 hover:border-bio-glow" />
+                  <UserAvatar p={{ ...profile, islanderId: profile?.islanderId || user.uid, role: user.uid === STATION_MASTER_UID ? 'admin' : 'user' }} className="w-8 h-8 border border-white/10 hover:border-bio-glow" />
                 </button>
               </div>
             ) : (
@@ -4244,7 +4254,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                                   onClick={() => handleOpenProfile(item.uid)}
                                   className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors hover:bg-mist-light"
                                 >
-                                  <UserAvatar p={item} className="h-8 w-8 rounded-full border border-line" />
+                                  <UserAvatar p={item} className="h-8 w-8 border border-line" />
                                   <div className="min-w-0">
                                     <p className="truncate text-sm font-bold text-text-main">{item.displayName}</p>
                                     <p className="text-[0.625rem] font-mono text-text-muted">島民ID: {item.islanderId || item.uid}</p>
@@ -4274,7 +4284,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                             {followRequests.map(request => (
                               <div key={request.requesterId} className="flex flex-col gap-3 rounded-2xl border border-line bg-mist-light p-3 sm:flex-row sm:items-center sm:justify-between">
                                 <div className="flex min-w-0 items-center gap-3">
-                                  <UserAvatar p={request} className="h-9 w-9 rounded-full border border-line" />
+                                  <UserAvatar p={request} className="h-9 w-9 border border-line" />
                                   <div className="min-w-0">
                                     <p className="truncate text-sm font-bold text-text-main">{request.displayName}</p>
                                     <p className="text-[0.625rem] font-mono text-text-muted">島民ID: {request.islanderId || request.requesterId}</p>
@@ -4563,7 +4573,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
               className="glass-card p-6 rounded-3xl space-y-4 shadow-xl border-line"
             >
               <div className="flex gap-4">
-                <UserAvatar p={{ ...profile, islanderId: profile?.islanderId || user.uid, role: user.uid === STATION_MASTER_UID ? 'admin' : 'user' }} className="w-10 h-10 rounded-full border border-line" />
+                <UserAvatar p={{ ...profile, islanderId: profile?.islanderId || user.uid, role: user.uid === STATION_MASTER_UID ? 'admin' : 'user' }} className="w-10 h-10 border border-line" />
                 <div className="flex-1 space-y-4">
                   <MentionComposerInput
                     multiline
@@ -6160,9 +6170,9 @@ function PostCard({
                   displayName: authorProfile?.displayName || post.authorName,
                   role: isPostStationMaster ? 'admin' : 'user'
                 }} 
-                className="w-10 h-10 rounded-full" 
+                className="w-10 h-10" 
               />
-              <div className="absolute inset-0 rounded-full border border-line group-hover:border-bio-glow transition-colors" />
+              <div className="absolute inset-0 rounded-2xl border border-line group-hover:border-bio-glow transition-colors" />
             </button>
             <div>
               <div className="flex flex-wrap items-center gap-2">
@@ -6384,7 +6394,7 @@ function PostCard({
                              displayName: comment.authorName,
                              role: comment.authorId === STATION_MASTER_UID ? 'admin' : 'user'
                            }} 
-                           className="w-7 h-7 rounded-full mt-1 opacity-90 hover:opacity-100 transition-opacity" 
+                           className="w-7 h-7 mt-1 opacity-90 hover:opacity-100 transition-opacity" 
                         />
                       </button>
                       <div className={`flex-1 bg-mist p-4 rounded-2xl border border-line shadow-sm transition-all ${
@@ -6511,7 +6521,7 @@ function PostCard({
                                 displayName: reply.authorName,
                                 role: reply.authorId === STATION_MASTER_UID ? 'admin' : 'user'
                               }}
-                              className="w-6 h-6 rounded-full mt-1 opacity-80 hover:opacity-100 transition-opacity"
+                              className="w-6 h-6 mt-1 opacity-80 hover:opacity-100 transition-opacity"
                             />
                           </button>
                           <div className={`flex-1 rounded-xl border border-line bg-mist/60 px-3 py-2.5 transition-all ${
