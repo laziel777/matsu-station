@@ -101,6 +101,7 @@ service cloud.firestore {
                     && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
                       'agreedToTerms', 'isProfileSetup', 'displayName',
                       'photoURL', 'bio', 'title', 'lastProfileUpdate',
+                      'avatarUpdatedAt',
                       'acceptedTermsVersion', 'acceptedPrivacyVersion',
                       'acceptedCommunityRulesVersion', 'policyAcceptedAt'
                     ]);

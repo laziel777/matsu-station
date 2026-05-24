@@ -25,6 +25,7 @@ export interface UserProfile {
   bio?: string;
   title?: string;
   lastProfileUpdate?: any;
+  avatarUpdatedAt?: any;
   accountStatus?: 'normal' | 'watch' | 'posting_suspended' | 'banned' | string;
   isBanned?: boolean;
 }
@@ -37,6 +38,7 @@ interface AuthContextType {
   agreeToTerms: (profileData?: { displayName?: string; photoURL?: string }) => Promise<void>;
   refreshProfile: () => Promise<void>;
   updateProfileData: (data: { bio?: string; title?: string; displayName?: string; photoURL?: string; isProfileSetup?: boolean }) => Promise<void>;
+  updateAvatarData: (photoURL: string) => Promise<void>;
 }
 
 export function hasAcceptedLatestPolicies(profile: UserProfile | null) {
@@ -56,6 +58,7 @@ const AuthContext = createContext<AuthContextType>({
   agreeToTerms: async () => {},
   refreshProfile: async () => {},
   updateProfileData: async () => {},
+  updateAvatarData: async () => {},
 });
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -110,6 +113,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         await updateDoc(userRef, {
           ...data,
           lastProfileUpdate: serverTimestamp()
+        });
+        await refreshProfile();
+      } catch (error) {
+        handleFirestoreError(error, OperationType.WRITE, userPath);
+      }
+    }
+  };
+
+  const updateAvatarData = async (photoURL: string) => {
+    if (user) {
+      const userPath = `users/${user.uid}`;
+      try {
+        const userRef = doc(db, 'users', user.uid);
+        await updateDoc(userRef, {
+          photoURL,
+          avatarUpdatedAt: serverTimestamp()
         });
         await refreshProfile();
       } catch (error) {
@@ -198,7 +217,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, error, profile, agreeToTerms, refreshProfile, updateProfileData }}>
+    <AuthContext.Provider value={{ user, loading, error, profile, agreeToTerms, refreshProfile, updateProfileData, updateAvatarData }}>
       {children}
     </AuthContext.Provider>
   );

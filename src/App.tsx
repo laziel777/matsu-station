@@ -251,6 +251,8 @@ const compressImageFile = async (file: File, options: Record<string, unknown>) =
 
 const POST_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 const POST_IMAGE_ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const AVATAR_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+const AVATAR_IMAGE_ALLOWED_TYPES = POST_IMAGE_ALLOWED_TYPES;
 
 const BACKGROUND_MODES = [
   { id: 'dark', name: '深色背景', description: '夜間閱讀', previewBackground: '#0A0C10', previewText: '#FAFAF9' },
@@ -1392,7 +1394,7 @@ const MentionComposerInput = ({
 };
 
 export default function App() {
-  const { user, loading, error: authError, profile, agreeToTerms, updateProfileData } = useAuth();
+  const { user, loading, error: authError, profile, agreeToTerms, updateProfileData, updateAvatarData } = useAuth();
   const [posts, setPosts] = useState<Post[]>([]);
   const [newPostContent, setNewPostContent] = useState('');
   const [newPostCategory, setNewPostCategory] = useState('在地生活');
@@ -1753,7 +1755,16 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
 
   const handleAvatarSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file || !user) return;
+    if (!AVATAR_IMAGE_ALLOWED_TYPES.includes(file.type)) {
+      alert('頭像格式目前只支援 JPG、PNG、WebP。');
+      return;
+    }
+    if (file.size > AVATAR_IMAGE_MAX_BYTES) {
+      alert('頭像圖片請選擇 5MB 以下的檔案。');
+      return;
+    }
 
     setIsUploadingAvatar(true);
     try {
@@ -2287,7 +2298,16 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
 
   const handleUpdateAvatarSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file || !user) return;
+    if (!AVATAR_IMAGE_ALLOWED_TYPES.includes(file.type)) {
+      alert('頭像格式目前只支援 JPG、PNG、WebP。');
+      return;
+    }
+    if (file.size > AVATAR_IMAGE_MAX_BYTES) {
+      alert('頭像圖片請選擇 5MB 以下的檔案。');
+      return;
+    }
 
     setIsUploadingAvatar(true);
     try {
@@ -2301,6 +2321,9 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
       const snapshot = await uploadBytes(fileRef, compressedFile);
       const url = await getDownloadURL(snapshot.ref);
       setEditPhotoURL(url);
+      await updateAvatarData(url);
+      setViewingProfile(prev => prev ? { ...prev, photoURL: url } : prev);
+      alert('大頭照已更新。');
     } catch (error) {
       console.error('Avatar upload failed', error);
       alert('頭像上傳失敗');
@@ -2779,7 +2802,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                           type="file" 
                           ref={avatarInputRef}
                           onChange={handleAvatarSelect}
-                          accept="image/*"
+                          accept="image/jpeg,image/png,image/webp"
                           className="hidden"
                         />
                       </div>
@@ -3775,7 +3798,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                             type="file" 
                             ref={avatarUpdateInputRef}
                             onChange={handleUpdateAvatarSelect}
-                            accept="image/*"
+                            accept="image/jpeg,image/png,image/webp"
                             className="hidden"
                           />
                         </>

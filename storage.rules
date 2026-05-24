@@ -9,12 +9,6 @@ service firebase.storage {
       return isSignedIn() && request.auth.uid == userId;
     }
 
-    function isImageUpload(maxBytes) {
-      return request.resource != null
-             && request.resource.size <= maxBytes
-             && request.resource.contentType.matches('image/.*');
-    }
-
     function isPostImageUpload(maxBytes) {
       return request.resource != null
              && request.resource.size <= maxBytes
@@ -23,7 +17,7 @@ service firebase.storage {
 
     match /avatars/{userId}/{fileName} {
       allow read: if true;
-      allow write: if isOwner(userId) && isImageUpload(1048576);
+      allow write: if isOwner(userId) && isPostImageUpload(1048576);
     }
 
     match /posts/{userId}/{fileName} {
