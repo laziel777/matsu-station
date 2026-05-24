@@ -190,7 +190,7 @@ function DevLogStandalonePage() {
         '因為總覺得，馬祖應該值得有一個自己的交流空間。',
         '不是只有演算法，不是只有短影音，也不是只有情緒對立。而是一個還能慢慢聊天、交換資訊、留下地方記錄的地方。',
         '這個網站目前還在 Beta 測試。很多功能還沒完成，很多做法也還在摸索。有些地方可能很陽春，有些地方可能偶爾出問題，有些功能可能今天有、明天又被改掉。',
-        '但它會繼續被慢慢蓋下去。',
+        '但它會繼續試航，也會繼續往前開。',
       ],
     },
     {
@@ -259,7 +259,7 @@ function DevLogStandalonePage() {
           <aside className="rounded-[2rem] border border-bio-glow/15 bg-bio-glow/5 p-5">
             <p className="font-mono text-[0.625rem] font-black uppercase tracking-[0.28em] text-bio-glow">Matsu Station</p>
             <p className="mt-3 text-sm leading-7 text-text-muted">
-              這裡不是大型商業平台，也不是失控的匿名角落。馬祖小站比較像是一個還在慢慢長大的地方社群。
+              這裡不是大型商業平台，也不是失控的匿名角落。馬祖小站比較像是一個還在試航中的地方社群。
             </p>
           </aside>
         </section>
@@ -3083,7 +3083,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
               <p className="text-[0.625rem] font-black uppercase tracking-[0.24em] text-bio-glow">小站開發誌</p>
               <h2 className="mt-2 text-xl font-black text-text-main">想知道小站怎麼來的？</h2>
               <p className="mt-3 text-sm leading-7 text-text-muted">
-                這裡記著馬祖小站為什麼開始做、一路怎麼慢慢改，以及這座還在施工中的小島想留下什麼。
+                這裡記著馬祖小站為什麼開始做、一路怎麼調整，以及這座還在試航中的小島想留下什麼。
               </p>
               <a
                 href={DEVLOG_PATH}
