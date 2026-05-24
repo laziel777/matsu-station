@@ -3775,7 +3775,26 @@ function sanitizeSubmittedPostImages(data, uid) {
   };
 }
 
+async function getStorageImageDataUrl(imagePath) {
+  const path = String(imagePath || "").trim();
+  if (!path || path.includes("..") || !/^(posts|avatars)\//.test(path)) {
+    throw new HttpsError("invalid-argument", "圖片路徑不正確。");
+  }
+
+  const bucket = admin.storage().bucket();
+  const file = bucket.file(path);
+  const [metadata] = await file.getMetadata();
+  const contentType = String(metadata?.contentType || "").toLowerCase();
+  if (!/^image\/(jpeg|png|webp)$/.test(contentType)) {
+    throw new HttpsError("invalid-argument", "圖片格式目前只支援 JPG、PNG、WebP。");
+  }
+
+  const [buffer] = await file.download();
+  return `data:${contentType};base64,${buffer.toString("base64")}`;
+}
+
 async function reviewImageWithOpenAI({ uid, imageUrl, imagePath, purpose }) {
+  const reviewImageUrl = imagePath ? await getStorageImageDataUrl(imagePath) : imageUrl;
   let response;
   try {
     response = await fetch("https://api.openai.com/v1/moderations", {
@@ -3793,7 +3812,7 @@ async function reviewImageWithOpenAI({ uid, imageUrl, imagePath, purpose }) {
               ? "請審核這張社群貼文圖片。禁止色情裸露、暴力血腥、仇恨、騷擾、威脅、自傷、明顯違法、兒少不當內容或其他不適合公開社群平台展示的圖片。"
               : "請審核這張社群網站大頭照。禁止色情裸露、暴力血腥、仇恨、騷擾、威脅、自傷、明顯違法或兒少不當內容。",
           },
-          { type: "image_url", image_url: { url: imageUrl } },
+          { type: "image_url", image_url: { url: reviewImageUrl } },
         ],
       }),
     });
