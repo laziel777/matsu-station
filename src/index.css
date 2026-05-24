@@ -123,6 +123,28 @@
   color: var(--cyber-yellow);
 }
 
+.station-master-badge {
+  position: relative;
+  color: var(--cyber-yellow);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--primary-glow) 18%, transparent), transparent 56%),
+    color-mix(in srgb, var(--bg-color) 74%, black 26%);
+  border: 1px solid color-mix(in srgb, var(--cyber-yellow) 58%, var(--primary-glow) 22%);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--primary-glow) 16%, transparent),
+    0 0 14px color-mix(in srgb, var(--primary-glow) 18%, transparent);
+  clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
+  text-shadow: 0 0 8px color-mix(in srgb, var(--cyber-yellow) 45%, transparent);
+}
+
+.station-master-badge-mark {
+  width: 0.45em;
+  height: 0.45em;
+  background: var(--primary-glow);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--primary-glow) 60%, transparent);
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+}
+
 :root[data-theme-mode="light"] .station-clock-card {
   background:
     linear-gradient(135deg, color-mix(in srgb, var(--primary-glow) 10%, transparent), transparent 55%),
@@ -132,6 +154,13 @@
 
 :root[data-theme-mode="light"] .station-clock-display {
   background: rgba(255, 255, 255, 0.76);
+}
+
+:root[data-theme-mode="light"] .station-master-badge {
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--primary-glow) 12%, transparent), transparent 56%),
+    color-mix(in srgb, white 90%, var(--cyber-yellow) 10%);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
 }
 
 @theme {

@@ -1080,6 +1080,19 @@ const UserAvatar = ({ p, className = "w-10 h-10" }: { p?: { islanderId?: string,
   );
 };
 
+const StationMasterBadge = ({ size = 'sm' }: { size?: 'xs' | 'sm' }) => {
+  const sizeClass = size === 'xs'
+    ? 'px-1.5 py-[0.125rem] text-[0.5rem]'
+    : 'px-2 py-0.5 text-[0.625rem]';
+
+  return (
+    <span className={`station-master-badge inline-flex items-center gap-1 ${sizeClass} font-black uppercase leading-none tracking-[0.18em]`}>
+      <span className="station-master-badge-mark" />
+      站長
+    </span>
+  );
+};
+
 const ReactionButton = ({
   currentReaction,
   count,
@@ -4158,9 +4171,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                              {viewingProfile.displayName}
                            </h2>
                             {isViewingStationMaster && (
-                              <span className="bg-gradient-to-r from-red-500 via-yellow-500 to-blue-500 text-white px-2 py-0.5 rounded-lg text-[0.625rem] font-black uppercase tracking-tighter shadow-lg">
-                                站長
-                              </span>
+                              <StationMasterBadge />
                             )}
                            {viewingProfile.title && (
                              <span className="bg-bio-glow/20 text-bio-glow px-2 py-0.5 rounded-lg text-[0.625rem] font-black uppercase tracking-tighter border border-bio-glow/30">
@@ -6162,9 +6173,7 @@ function PostCard({
                   {authorProfile?.displayName || post.authorName}
                 </h3>
                 {isPostStationMaster && (
-                  <span className="text-[0.5625rem] bg-gradient-to-r from-red-500 via-yellow-500 to-blue-500 text-white px-1.5 py-0.5 rounded-sm font-black uppercase tracking-tighter shadow-[0_0_10px_rgba(255,255,255,0.3)]">
-                    站長
-                  </span>
+                  <StationMasterBadge size="xs" />
                 )}
                 {authorProfile?.title && !isPostStationMaster && (
                   <span className="text-[0.5625rem] bg-bio-glow/10 text-bio-glow px-1 rounded border border-bio-glow/20 font-black uppercase tracking-tighter">
@@ -6390,9 +6399,7 @@ function PostCard({
                               {comment.authorName}
                             </span>
                             {comment.authorId === STATION_MASTER_UID && (
-                              <span className="text-[0.5rem] bg-gradient-to-r from-red-500 via-yellow-500 to-blue-500 text-white px-1 rounded-sm font-bold uppercase shadow-[0_0_5px_rgba(255,255,255,0.2)]">
-                                站長
-                              </span>
+                              <StationMasterBadge size="xs" />
                             )}
                           </div>
                           <div className="flex items-center gap-3 shrink-0">
@@ -6519,9 +6526,7 @@ function PostCard({
                                   {reply.authorName}
                                 </span>
                                 {reply.authorId === STATION_MASTER_UID && (
-                                  <span className="text-[0.5rem] bg-gradient-to-r from-red-500 via-yellow-500 to-blue-500 text-white px-1 rounded-sm font-bold uppercase">
-                                    站長
-                                  </span>
+                                  <StationMasterBadge size="xs" />
                                 )}
                               </div>
                               <div className="flex items-center gap-2 shrink-0">
