@@ -632,8 +632,8 @@ const isAuthorDeletedModeration = (status?: string, reason?: string, notice?: st
 const isFullyRemovedFromFrontend = (status?: string, reason?: string, notice?: string) => {
   const normalizedStatus = String(status || '');
   if (normalizedStatus === 'dev_test_archived') return true;
-  if (normalizedStatus !== 'deleted') return false;
-  return !isAuthorDeletedModeration(normalizedStatus, reason, notice);
+  if (normalizedStatus === 'deleted') return true;
+  return false;
 };
 
 const getModerationNoticeForVisibility = (item: {
