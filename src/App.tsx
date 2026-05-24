@@ -6025,7 +6025,7 @@ function PostCard({
             postId: post.id,
             category: post.category,
             commentId: createdComment.id,
-            title: '收到新的神秘回覆',
+            title: '你的貼文有新留言',
             content: `${senderName} 在你的動態下留言了。`,
           });
         } catch (notificationErr) {

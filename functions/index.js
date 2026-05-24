@@ -4763,7 +4763,7 @@ async function createLikeNotification({
     category: String(category || "").slice(0, 40),
     ...(commentId ? { commentId } : {}),
     ...(replyId ? { replyId } : {}),
-    title: targetLabel === "貼文" ? "有人也喜歡這則動態" : `有人喜歡你的${targetLabel}`,
+    title: targetLabel === "貼文" ? "有人對你的貼文有反應" : `有人對你的${targetLabel}有反應`,
     content: `${senderName} 用 ${reaction || "❤️"} 回應了你的${targetLabel}。`,
     read: false,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
