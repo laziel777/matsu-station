@@ -1031,8 +1031,11 @@ const CATEGORY_KEYWORDS: Record<string, string[]> = {
   '馬祖UFO': ['馬祖UFO', 'UFO', '飛碟'],
 };
 
+const FOLLOWING_FEED_CATEGORY = '我追蹤的內容';
+
 const postMatchesCategory = (post: Post, activeCategory: string) => {
   if (activeCategory === '全部') return true;
+  if (activeCategory === FOLLOWING_FEED_CATEGORY) return true;
 
   const postCategory = normalizeCategoryName(post.category);
   const aiCategory = normalizeCategoryName(post.aiTag);
@@ -1636,6 +1639,8 @@ const MentionComposerInput = ({
 export default function App() {
   const { user, loading, error: authError, profile, agreeToTerms, updateProfileData, updateAvatarData } = useAuth();
   const [posts, setPosts] = useState<Post[]>([]);
+  const [followingAuthorIds, setFollowingAuthorIds] = useState<string[]>([]);
+  const [isLoadingFollowingFeed, setIsLoadingFollowingFeed] = useState(false);
   const [newPostContent, setNewPostContent] = useState('');
   const [newPostCategory, setNewPostCategory] = useState('在地生活');
   const [isPosting, setIsPosting] = useState(false);
@@ -1953,6 +1958,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
 
   const CATEGORIES = [
     { id: 'all', name: '全部', icon: <Waves className="w-4 h-4" /> },
+    { id: 'following', name: FOLLOWING_FEED_CATEGORY, icon: <User className="w-4 h-4" /> },
     { id: 'chat', name: '閒聊', icon: '💬' },
     { id: 'tears', name: '藍眼淚', icon: '💧' },
     { id: 'life', name: '在地生活', icon: '🏠' },
@@ -1963,7 +1969,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
     { id: 'ufo', name: '馬祖UFO', icon: '🛸' },
   ];
 
-  const POST_TAGS = CATEGORIES.filter(cat => cat.id !== 'all');
+  const POST_TAGS = CATEGORIES.filter(cat => !['all', 'following'].includes(cat.id));
 
   // Check if logged in user needs to agree to the latest policies or setup profile.
   React.useEffect(() => {
@@ -1992,6 +1998,34 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
       console.error('Posts effect error:', error);
     }
   }, []);
+
+  React.useEffect(() => {
+    if (!db || !user?.uid) {
+      setFollowingAuthorIds([]);
+      setIsLoadingFollowingFeed(false);
+      return;
+    }
+
+    setIsLoadingFollowingFeed(true);
+    const followingRef = collection(db, 'users', user.uid, 'following');
+    const unsubscribe = onSnapshot(
+      followingRef,
+      (snapshot) => {
+        const nextIds = snapshot.docs
+          .map(itemDoc => String(itemDoc.data().targetUserId || itemDoc.id || '').trim())
+          .filter(Boolean);
+        setFollowingAuthorIds(Array.from(new Set(nextIds)));
+        setIsLoadingFollowingFeed(false);
+      },
+      (err) => {
+        console.error('Failed to load following feed list:', err);
+        setFollowingAuthorIds([]);
+        setIsLoadingFollowingFeed(false);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [user?.uid]);
 
   const handleLogin = async () => {
     try {
@@ -2891,14 +2925,27 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
     ].some(value => String(value || '').toLowerCase().includes(normalizedSearchQuery));
   };
   const searchResultCount = normalizedSearchQuery ? posts.filter(postMatchesSearch).length : posts.length;
+  const isFollowingFeedActive = activeCategory === FOLLOWING_FEED_CATEGORY;
+  const followingAuthorIdSet = new Set(followingAuthorIds);
 
   const filteredPosts = posts
     .filter(post => {
       const matchesSearch = postMatchesSearch(post);
-      const matchesCategory = postMatchesCategory(post, activeCategory);
-      return matchesSearch && matchesCategory;
+      const matchesPersonalFeed = !isFollowingFeedActive || followingAuthorIdSet.has(post.authorId);
+      const matchesCategory = isFollowingFeedActive || postMatchesCategory(post, activeCategory);
+      return matchesSearch && matchesPersonalFeed && matchesCategory;
     });
   const visibleFeedPosts = sortPostsForHome(filteredPosts);
+  const feedHeaderTitle = isFollowingFeedActive ? '我追蹤的內容' : '為你推薦';
+  const feedHeaderDescription = isFollowingFeedActive
+    ? '只顯示你已追蹤島民發布的貼文；留言與互動仍會保留在原貼文裡。'
+    : '新的內容會優先出現；站務處理中的內容會保留提示，不公開原文。';
+  const emptyFeedTitle = isFollowingFeedActive
+    ? (followingAuthorIds.length === 0 ? '尚未追蹤島民' : '目前沒有追蹤內容')
+    : '此處尚無動態';
+  const emptyFeedDescription = isFollowingFeedActive
+    ? (followingAuthorIds.length === 0 ? '可以到島民個人頁申請追蹤，對方同意後，這裡就會出現對方的貼文。' : '你追蹤的島民目前還沒有符合條件的新貼文。')
+    : '';
   const searchCategoryShortcuts = POST_TAGS.slice(0, 8);
   const searchPreviewPosts = normalizedSearchQuery ? posts.filter(postMatchesSearch).slice(0, 3) : [];
   const viewingProfilePosts = viewingProfile ? posts.filter(post => post.authorId === viewingProfile.uid) : [];
@@ -5056,11 +5103,16 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
           <div className="space-y-8">
             <div className="flex items-center justify-between rounded-2xl border border-white/5 bg-mist/20 px-4 py-3">
               <div>
-                <p className="text-sm font-bold text-text-main">為你推薦</p>
-                <p className="text-[0.625rem] text-text-muted">新的內容會優先出現；站務處理中的內容會保留提示，不公開原文。</p>
+                <p className="text-sm font-bold text-text-main">{feedHeaderTitle}</p>
+                <p className="text-[0.625rem] text-text-muted">{feedHeaderDescription}</p>
               </div>
-              <Compass className="w-5 h-5 text-bio-glow/70" />
+              {isFollowingFeedActive ? <User className="w-5 h-5 text-bio-glow/70" /> : <Compass className="w-5 h-5 text-bio-glow/70" />}
             </div>
+            {isFollowingFeedActive && isLoadingFollowingFeed && (
+              <div className="rounded-2xl border border-bio-glow/10 bg-bio-glow/5 px-4 py-3 text-xs font-bold text-bio-glow">
+                正在讀取追蹤內容...
+              </div>
+            )}
             <AnimatePresence>
               {visibleFeedPosts.map(post => (
                 <PostCard
@@ -5073,13 +5125,18 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
               ))}
             </AnimatePresence>
             
-            {visibleFeedPosts.length === 0 && (
+            {visibleFeedPosts.length === 0 && !(isFollowingFeedActive && isLoadingFollowingFeed) && (
               <div className="text-center py-24 text-text-muted/70 space-y-4">
                 <div className="relative inline-block">
                   <Search className="w-16 h-16 mx-auto opacity-10" />
                   <Waves className="absolute inset-0 w-16 h-16 opacity-5 animate-pulse" />
                 </div>
-                <p className="font-display tracking-widest text-xs uppercase opacity-40">此處尚無動態</p>
+                <div className="space-y-2">
+                  <p className="font-display tracking-widest text-xs uppercase opacity-40">{emptyFeedTitle}</p>
+                  {emptyFeedDescription && (
+                    <p className="mx-auto max-w-xs text-xs leading-relaxed opacity-60">{emptyFeedDescription}</p>
+                  )}
+                </div>
               </div>
             )}
           </div>
