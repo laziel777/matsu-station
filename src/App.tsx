@@ -3285,15 +3285,6 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                         {isCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                         {isCopied ? '已複製網址' : '複製小站網址'}
                       </button>
-                      <a
-                        href={STATION_PUBLIC_URL}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center justify-center gap-2 rounded-2xl border border-line bg-mist/70 px-4 py-3 text-xs font-black text-text-main transition-all hover:border-bio-glow/50 hover:bg-mist-light active:scale-95"
-                      >
-                        <ExternalLink className="h-4 w-4" />
-                        開啟小站網址
-                      </a>
                     </div>
                   </div>
                 </div>
