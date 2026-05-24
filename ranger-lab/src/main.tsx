@@ -47,6 +47,7 @@ type SourceType = 'post' | 'comment' | 'reply';
 type CaseAction = 'mark_reviewed' | 'dismiss' | 'release' | 'quarantine' | 'remove' | 'delete_case';
 type ContentAction = 'review' | 'hide' | 'mask' | 'delete' | 'restore' | 'hide_image' | 'restore_image' | 'delete_image' | 'delete_case';
 type AccountAction = 'watch' | 'clear_watch' | 'ban' | 'unban' | 'suspend_posting' | 'restore_posting';
+type AccountActionOptions = { durationDays?: number };
 type DrawerKey = 'cockpit' | 'accounts' | 'articles' | 'images' | 'reports' | 'aiSheet' | 'cases';
 type ContentSortKey = 'risk_desc' | 'risk_asc' | 'newest' | 'oldest' | 'author' | 'type';
 type ContentDecisionFilter = 'all' | 'open' | 'decided' | 'hidden' | 'masked' | 'approved' | 'deleted';
@@ -149,6 +150,9 @@ interface AccountItem {
   lastIpAddress?: string;
   lastIpKey?: string;
   lastIpAt?: unknown;
+  restrictionUntil?: unknown;
+  restrictionDurationDays?: number;
+  restrictionDurationLabel?: string;
   reason?: string;
 }
 
@@ -332,11 +336,18 @@ function isCaseStatusMatch(status: string | undefined, filter: CaseStatusFilter,
 }
 
 function accountStatusLabel(status?: string, isBanned = false) {
-  if (isBanned || status === 'banned') return '已停權';
-  if (status === 'posting_suspended') return '發文暫停';
+  if (isBanned || status === 'banned') return '已封鎖';
+  if (status === 'posting_suspended') return '發布限制中';
   if (status === 'watch') return '觀察中';
   if (status === 'admin') return '站務';
   return '正常';
+}
+
+function accountRestrictionText(account: AccountItem) {
+  if (account.accountStatus !== 'posting_suspended') return '';
+  const until = fullTimeText(account.restrictionUntil);
+  if (until === '未記錄') return '限制到期：未設定，需手動恢復';
+  return `限制到期：${until}`;
 }
 
 function accountStatusTone(status?: string, isBanned = false) {
@@ -1447,7 +1458,7 @@ function ImageWall({ items, onAction, onOpenSource }: {
 function AccountDrawer({ accounts, onReload, onAction }: {
   accounts: AccountItem[];
   onReload: () => Promise<void>;
-  onAction: (account: AccountItem, action: AccountAction, reason: string) => Promise<void>;
+  onAction: (account: AccountItem, action: AccountAction, reason: string, options?: AccountActionOptions) => Promise<void>;
 }) {
   const [queryText, setQueryText] = React.useState('');
   const [filter, setFilter] = React.useState<'all' | 'watch' | 'restricted'>('all');
@@ -1471,20 +1482,20 @@ function AccountDrawer({ accounts, onReload, onAction }: {
     })
     .slice(0, 120);
 
-  const run = async (account: AccountItem, action: AccountAction) => {
+  const run = async (account: AccountItem, action: AccountAction, options?: AccountActionOptions) => {
     const labels: Record<AccountAction, string> = {
       watch: '觀察帳號',
       clear_watch: '解除觀察',
-      ban: '停權帳號',
-      unban: '解除停權',
-      suspend_posting: '暫停發文',
-      restore_posting: '恢復發文',
+      ban: '封鎖帳號',
+      unban: '解除封鎖',
+      suspend_posting: options?.durationDays ? `限制發布 ${options.durationDays} 天` : '暫停發布',
+      restore_posting: '恢復發布',
     };
     const reason = window.prompt(`請輸入「${labels[action]}」原因，這會留下站務紀錄。`, account.reason || '站務安全處理');
     if (reason === null) return;
     setBusy(`${account.uid}:${action}`);
     try {
-      await onAction(account, action, reason);
+      await onAction(account, action, reason, options);
       await onReload();
     } finally {
       setBusy('');
@@ -1497,7 +1508,7 @@ function AccountDrawer({ accounts, onReload, onAction }: {
         <div>
           <span className="eyebrow">帳號抽屜</span>
           <h2>站長帳號管理</h2>
-          <p>這裡只在後台顯示。可把帳號標記觀察、暫停發文或停權，動作會走站長 Cloud Function 並留下紀錄。</p>
+          <p>這裡只在後台顯示。可把帳號標記觀察、設定 10 天 / 1 個月 / 3 個月 / 6 個月發布限制，或封鎖帳號；動作會走站長 Cloud Function 並留下紀錄。</p>
         </div>
         <button onClick={() => void onReload()}><RefreshCw size={15} /> 重新讀取帳號</button>
       </div>
@@ -1506,7 +1517,7 @@ function AccountDrawer({ accounts, onReload, onAction }: {
         <input value={queryText} onChange={event => setQueryText(event.target.value)} placeholder="搜尋暱稱、島內 ID、UID、Email、IP" />
         <button className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}>全部 <b>{accounts.length}</b></button>
         <button className={filter === 'watch' ? 'active' : ''} onClick={() => setFilter('watch')}>觀察 <b>{accounts.filter(account => account.accountStatus === 'watch').length}</b></button>
-        <button className={filter === 'restricted' ? 'active' : ''} onClick={() => setFilter('restricted')}>限制 <b>{accounts.filter(account => account.isBanned || account.accountStatus === 'posting_suspended').length}</b></button>
+        <button className={filter === 'restricted' ? 'active' : ''} onClick={() => setFilter('restricted')}>限制/封鎖 <b>{accounts.filter(account => account.isBanned || account.accountStatus === 'posting_suspended').length}</b></button>
         <select value={sortKey} onChange={event => setSortKey(event.target.value as AccountSortKey)}>
           <option value="risk_desc">風險高到低</option>
           <option value="newest">最近活動</option>
@@ -1553,15 +1564,19 @@ function AccountDrawer({ accounts, onReload, onAction }: {
                 <span>IP 時間：{fullTimeText(account.lastIpAt)}</span>
                 <span>狀態碼：{account.accountStatus || 'normal'}</span>
                 <span>Auth：{account.authDisabled ? 'disabled' : 'enabled'}</span>
+                {accountRestrictionText(account) && <span>{accountRestrictionText(account)}</span>}
               </div>
               {account.reason && <p>{account.reason}</p>}
               <div className="account-actions">
                 <button disabled={Boolean(busy) || isStationMaster || account.accountStatus === 'watch'} onClick={() => void run(account, 'watch')}>觀察</button>
                 <button disabled={Boolean(busy) || isStationMaster || account.accountStatus !== 'watch'} onClick={() => void run(account, 'clear_watch')}>解除觀察</button>
-                <button disabled={Boolean(busy) || isStationMaster || account.accountStatus === 'posting_suspended'} onClick={() => void run(account, 'suspend_posting')}>暫停發文</button>
-                <button disabled={Boolean(busy) || isStationMaster || account.accountStatus !== 'posting_suspended'} onClick={() => void run(account, 'restore_posting')}>恢復發文</button>
-                <button className="danger" disabled={Boolean(busy) || isStationMaster || account.isBanned} onClick={() => void run(account, 'ban')}>停權</button>
-                <button disabled={Boolean(busy) || isStationMaster || !account.isBanned} onClick={() => void run(account, 'unban')}>解除停權</button>
+                <button disabled={Boolean(busy) || isStationMaster} onClick={() => void run(account, 'suspend_posting', { durationDays: 10 })}>限 10 天</button>
+                <button disabled={Boolean(busy) || isStationMaster} onClick={() => void run(account, 'suspend_posting', { durationDays: 30 })}>限 1 個月</button>
+                <button disabled={Boolean(busy) || isStationMaster} onClick={() => void run(account, 'suspend_posting', { durationDays: 90 })}>限 3 個月</button>
+                <button disabled={Boolean(busy) || isStationMaster} onClick={() => void run(account, 'suspend_posting', { durationDays: 180 })}>限 6 個月</button>
+                <button disabled={Boolean(busy) || isStationMaster || account.accountStatus !== 'posting_suspended'} onClick={() => void run(account, 'restore_posting')}>恢復發布</button>
+                <button className="danger" disabled={Boolean(busy) || isStationMaster || account.isBanned} onClick={() => void run(account, 'ban')}>封鎖</button>
+                <button disabled={Boolean(busy) || isStationMaster || !account.isBanned} onClick={() => void run(account, 'unban')}>解除封鎖</button>
               </div>
             </article>
           );
@@ -1721,9 +1736,9 @@ function App() {
     await reloadSiteItems();
   };
 
-  const runAccountAction = async (account: AccountItem, action: AccountAction, reason: string) => {
+  const runAccountAction = async (account: AccountItem, action: AccountAction, reason: string, options?: AccountActionOptions) => {
     const callable = httpsCallable(functions, 'rangerAccountAction');
-    await callable({ uid: account.uid, action, reason });
+    await callable({ uid: account.uid, action, reason, ...(options?.durationDays ? { durationDays: options.durationDays } : {}) });
     pushLog(`帳號 ${account.displayName || compactUid(account.uid)} 已執行 ${action}。`);
   };
 

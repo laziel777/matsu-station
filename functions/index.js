@@ -3943,8 +3943,9 @@ async function assertAccountCanPublish(uid, request) {
   if (accountStatus === "banned" || userData.isBanned === true) {
     throw new HttpsError("permission-denied", "此帳號目前無法發布內容，請洽站方確認。");
   }
-  if (accountStatus === "posting_suspended") {
-    throw new HttpsError("permission-denied", "此帳號目前暫停發布內容，請洽站方確認。");
+  if (isActivePostingSuspension(userData)) {
+    const untilText = formatTaipeiTimestampForNotice(userData.restrictionUntil || userData.postingSuspendedUntil);
+    throw new HttpsError("permission-denied", `此帳號目前暫停發布內容${untilText ? `，到期時間：${untilText}` : ""}，請洽站方確認。`);
   }
   if (ipSnap && ipSnap.exists) {
     const ipData = ipSnap.data() || {};
@@ -8170,8 +8171,40 @@ function sanitizeAccountControlReason(value) {
   return reason || "站長帳號治理操作";
 }
 
-function getAccountActionNotice(action, reason) {
+function getRestrictionDuration(inputDays) {
+  const days = Number(inputDays || 0);
+  const allowed = new Set([10, 30, 90, 180]);
+  if (!allowed.has(days)) return { days: 0, label: "" };
+  if (days === 10) return { days, label: "10 天" };
+  if (days === 30) return { days, label: "1 個月" };
+  if (days === 90) return { days, label: "3 個月" };
+  return { days, label: "6 個月" };
+}
+
+function formatTaipeiTimestampForNotice(timestamp) {
+  const millis = toMillis(timestamp);
+  if (!millis) return "";
+  return new Intl.DateTimeFormat("zh-TW", {
+    timeZone: "Asia/Taipei",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(new Date(millis));
+}
+
+function isActivePostingSuspension(userData = {}) {
+  if (String(userData.accountStatus || "") !== "posting_suspended") return false;
+  const untilMs = toMillis(userData.restrictionUntil || userData.postingSuspendedUntil);
+  return !untilMs || untilMs > Date.now();
+}
+
+function getAccountActionNotice(action, reason, options = {}) {
   const suffix = reason ? `\n原因：${reason}` : "";
+  const untilText = formatTaipeiTimestampForNotice(options.restrictionUntil);
+  const durationText = options.durationLabel ? `\n限制期間：${options.durationLabel}${untilText ? `（至 ${untilText}）` : ""}` : "";
   const notices = {
     watch: {
       title: "站務提醒",
@@ -8191,7 +8224,7 @@ function getAccountActionNotice(action, reason) {
     },
     suspend_posting: {
       title: "發布權限已暫停",
-      content: `你的帳號目前暫停發布貼文、留言或回覆。${suffix}`,
+      content: `你的帳號目前暫停發布貼文、留言、回覆或上傳圖片。${durationText}${suffix}`,
     },
     restore_posting: {
       title: "發布權限已恢復",
@@ -8247,6 +8280,7 @@ exports.rangerAccountAction = onCall(
     const action = String(request.data?.action || "").trim();
     const reason = sanitizeAccountControlReason(request.data?.reason);
     const ipAddress = String(request.data?.ipAddress || "").trim().slice(0, 80);
+    const duration = getRestrictionDuration(request.data?.durationDays);
     const allowedActions = [
       "watch",
       "clear_watch",
@@ -8279,6 +8313,13 @@ exports.rangerAccountAction = onCall(
       createdAt: now,
       version: ACCOUNT_CONTROL_VERSION,
     };
+    let restrictionUntil = null;
+    if (action === "suspend_posting" && duration.days > 0) {
+      restrictionUntil = admin.firestore.Timestamp.fromMillis(Date.now() + duration.days * 24 * 60 * 60 * 1000);
+      audit.durationDays = duration.days;
+      audit.durationLabel = duration.label;
+      audit.restrictionUntil = restrictionUntil;
+    }
 
     if (uid) {
       const userRef = db.collection("users").doc(uid);
@@ -8320,6 +8361,10 @@ exports.rangerAccountAction = onCall(
           accountStatus: "banned",
           isBanned: true,
           accountControlVersion: ACCOUNT_CONTROL_VERSION,
+          restrictionUntil: admin.firestore.FieldValue.delete(),
+          restrictionDurationDays: admin.firestore.FieldValue.delete(),
+          restrictionDurationLabel: admin.firestore.FieldValue.delete(),
+          postingSuspendedUntil: admin.firestore.FieldValue.delete(),
           bannedReason: admin.firestore.FieldValue.delete(),
           bannedAt: admin.firestore.FieldValue.delete(),
           bannedBy: admin.firestore.FieldValue.delete(),
@@ -8327,6 +8372,10 @@ exports.rangerAccountAction = onCall(
         batch.set(profileRef, {
           accountStatus: "banned",
           isBanned: true,
+          restrictionUntil: admin.firestore.FieldValue.delete(),
+          restrictionDurationDays: admin.firestore.FieldValue.delete(),
+          restrictionDurationLabel: admin.firestore.FieldValue.delete(),
+          postingSuspendedUntil: admin.firestore.FieldValue.delete(),
           bannedReason: reason,
           bannedAt: now,
           bannedBy: reviewerId,
@@ -8338,6 +8387,10 @@ exports.rangerAccountAction = onCall(
           accountStatus: "normal",
           isBanned: false,
           accountControlVersion: ACCOUNT_CONTROL_VERSION,
+          restrictionUntil: admin.firestore.FieldValue.delete(),
+          restrictionDurationDays: admin.firestore.FieldValue.delete(),
+          restrictionDurationLabel: admin.firestore.FieldValue.delete(),
+          postingSuspendedUntil: admin.firestore.FieldValue.delete(),
           unbannedReason: admin.firestore.FieldValue.delete(),
           unbannedAt: admin.firestore.FieldValue.delete(),
           unbannedBy: admin.firestore.FieldValue.delete(),
@@ -8345,6 +8398,10 @@ exports.rangerAccountAction = onCall(
         batch.set(profileRef, {
           accountStatus: "normal",
           isBanned: false,
+          restrictionUntil: admin.firestore.FieldValue.delete(),
+          restrictionDurationDays: admin.firestore.FieldValue.delete(),
+          restrictionDurationLabel: admin.firestore.FieldValue.delete(),
+          postingSuspendedUntil: admin.firestore.FieldValue.delete(),
           unbannedReason: reason,
           unbannedAt: now,
           unbannedBy: reviewerId,
@@ -8355,6 +8412,10 @@ exports.rangerAccountAction = onCall(
         batch.set(userRef, {
           accountStatus: "posting_suspended",
           accountControlVersion: ACCOUNT_CONTROL_VERSION,
+          restrictionUntil: restrictionUntil || admin.firestore.FieldValue.delete(),
+          restrictionDurationDays: duration.days || admin.firestore.FieldValue.delete(),
+          restrictionDurationLabel: duration.label || admin.firestore.FieldValue.delete(),
+          postingSuspendedUntil: restrictionUntil || admin.firestore.FieldValue.delete(),
           postingSuspendedReason: admin.firestore.FieldValue.delete(),
           postingSuspendedAt: admin.firestore.FieldValue.delete(),
           postingSuspendedBy: admin.firestore.FieldValue.delete(),
@@ -8364,6 +8425,10 @@ exports.rangerAccountAction = onCall(
           postingSuspendedReason: reason,
           postingSuspendedAt: now,
           postingSuspendedBy: reviewerId,
+          restrictionUntil: restrictionUntil || admin.firestore.FieldValue.delete(),
+          restrictionDurationDays: duration.days || admin.firestore.FieldValue.delete(),
+          restrictionDurationLabel: duration.label || admin.firestore.FieldValue.delete(),
+          postingSuspendedUntil: restrictionUntil || admin.firestore.FieldValue.delete(),
           accountControlVersion: ACCOUNT_CONTROL_VERSION,
         }, { merge: true });
       }
@@ -8371,6 +8436,10 @@ exports.rangerAccountAction = onCall(
         batch.set(userRef, {
           accountStatus: "normal",
           accountControlVersion: ACCOUNT_CONTROL_VERSION,
+          restrictionUntil: admin.firestore.FieldValue.delete(),
+          restrictionDurationDays: admin.firestore.FieldValue.delete(),
+          restrictionDurationLabel: admin.firestore.FieldValue.delete(),
+          postingSuspendedUntil: admin.firestore.FieldValue.delete(),
           postingSuspendedReason: admin.firestore.FieldValue.delete(),
           postingSuspendedAt: admin.firestore.FieldValue.delete(),
           postingSuspendedBy: admin.firestore.FieldValue.delete(),
@@ -8380,6 +8449,10 @@ exports.rangerAccountAction = onCall(
           postingRestoredReason: reason,
           postingRestoredAt: now,
           postingRestoredBy: reviewerId,
+          restrictionUntil: admin.firestore.FieldValue.delete(),
+          restrictionDurationDays: admin.firestore.FieldValue.delete(),
+          restrictionDurationLabel: admin.firestore.FieldValue.delete(),
+          postingSuspendedUntil: admin.firestore.FieldValue.delete(),
           postingSuspendedReason: admin.firestore.FieldValue.delete(),
           postingSuspendedAt: admin.firestore.FieldValue.delete(),
           postingSuspendedBy: admin.firestore.FieldValue.delete(),
@@ -8421,7 +8494,10 @@ exports.rangerAccountAction = onCall(
     }
 
     if (uid) {
-      const notice = getAccountActionNotice(action, reason);
+      const notice = getAccountActionNotice(action, reason, {
+        restrictionUntil,
+        durationLabel: duration.label,
+      });
       batch.set(db.collection("notifications").doc(), {
         recipientId: uid,
         senderId: reviewerId,
@@ -8438,7 +8514,7 @@ exports.rangerAccountAction = onCall(
     await batch.commit();
 
     try {
-      if (uid && action === "ban") await admin.auth().updateUser(uid, { disabled: true });
+      // Keep Firebase Auth available so the user can read station notices and reasons.
       if (uid && action === "unban") await admin.auth().updateUser(uid, { disabled: false });
     } catch (error) {
       console.error("Firebase Auth account state update failed:", {
@@ -8482,7 +8558,12 @@ exports.rangerListAccounts = onCall(
       const data = docSnap.data() || {};
       const profile = profiles.get(docSnap.id) || {};
       const authUser = authUsers.get(docSnap.id);
-      const accountStatus = String(profile.accountStatus || data.accountStatus || (data.isBanned ? "banned" : "normal"));
+      const rawAccountStatus = String(profile.accountStatus || data.accountStatus || (data.isBanned ? "banned" : "normal"));
+      const restrictionUntil = profile.restrictionUntil || data.restrictionUntil || profile.postingSuspendedUntil || data.postingSuspendedUntil || null;
+      const restrictionUntilMs = toMillis(restrictionUntil);
+      const accountStatus = rawAccountStatus === "posting_suspended" && restrictionUntilMs > 0 && restrictionUntilMs <= Date.now()
+        ? "normal"
+        : rawAccountStatus;
       accountMap.set(docSnap.id, {
         uid: docSnap.id,
         displayName: String(data.displayName || authUser?.displayName || profile.displayName || data.islanderId || "").slice(0, 80),
@@ -8501,6 +8582,9 @@ exports.rangerListAccounts = onCall(
         lastIpAddress: String(profile.lastIpAddress || "").slice(0, 80),
         lastIpKey: String(profile.lastIpKey || "").slice(0, 120),
         lastIpAt: profile.lastIpAt || null,
+        restrictionUntil,
+        restrictionDurationDays: Number(profile.restrictionDurationDays || data.restrictionDurationDays || 0),
+        restrictionDurationLabel: String(profile.restrictionDurationLabel || data.restrictionDurationLabel || "").slice(0, 40),
         reason: String(profile.bannedReason || profile.postingSuspendedReason || profile.accountWatchReason || data.accountWatchReason || "").slice(0, 500),
       });
     });
@@ -8508,6 +8592,12 @@ exports.rangerListAccounts = onCall(
     authResult.users.forEach((authUser) => {
       if (accountMap.has(authUser.uid)) return;
       const profile = profiles.get(authUser.uid) || {};
+      const rawAccountStatus = authUser.disabled ? "banned" : String(profile.accountStatus || "normal");
+      const restrictionUntil = profile.restrictionUntil || profile.postingSuspendedUntil || null;
+      const restrictionUntilMs = toMillis(restrictionUntil);
+      const accountStatus = rawAccountStatus === "posting_suspended" && restrictionUntilMs > 0 && restrictionUntilMs <= Date.now()
+        ? "normal"
+        : rawAccountStatus;
       accountMap.set(authUser.uid, {
         uid: authUser.uid,
         displayName: String(authUser.displayName || "").slice(0, 80),
@@ -8516,8 +8606,8 @@ exports.rangerListAccounts = onCall(
         emailVerified: authUser.emailVerified === true,
         role: "",
         photoURL: String(authUser.photoURL || "").slice(0, 500),
-        accountStatus: authUser.disabled ? "banned" : String(profile.accountStatus || "normal"),
-        isBanned: authUser.disabled === true,
+        accountStatus,
+        isBanned: authUser.disabled === true || accountStatus === "banned",
         authDisabled: authUser.disabled === true,
         createdAt: null,
         lastSeenAt: profile.lastSeenAt || null,
@@ -8526,6 +8616,9 @@ exports.rangerListAccounts = onCall(
         lastIpAddress: String(profile.lastIpAddress || "").slice(0, 80),
         lastIpKey: String(profile.lastIpKey || "").slice(0, 120),
         lastIpAt: profile.lastIpAt || null,
+        restrictionUntil,
+        restrictionDurationDays: Number(profile.restrictionDurationDays || 0),
+        restrictionDurationLabel: String(profile.restrictionDurationLabel || "").slice(0, 40),
         reason: String(profile.bannedReason || profile.postingSuspendedReason || profile.accountWatchReason || "").slice(0, 500),
       });
     });

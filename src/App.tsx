@@ -869,20 +869,58 @@ const getLoginErrorMessage = (error: any) => {
   return '登入失敗，請稍後再試，或透過官方 LINE 回報給站長。';
 };
 
+const getAccountRestrictionUntilMillis = (profile: any) => {
+  const value = profile?.restrictionUntil || profile?.postingSuspendedUntil;
+  if (!value) return 0;
+  if (typeof value?.toMillis === 'function') return value.toMillis();
+  if (typeof value?.seconds === 'number') return value.seconds * 1000;
+  if (typeof value === 'number') return value;
+  return 0;
+};
+
+const formatRestrictionUntil = (millis: number) => {
+  if (!millis) return '';
+  return new Intl.DateTimeFormat('zh-TW', {
+    timeZone: 'Asia/Taipei',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(new Date(millis));
+};
+
+const isPostingRestrictionActive = (profile: any) => {
+  if (profile?.accountStatus !== 'posting_suspended') return false;
+  const untilMs = getAccountRestrictionUntilMillis(profile);
+  return !untilMs || untilMs > Date.now();
+};
+
+const isAccountBanned = (profile: any) => Boolean(profile?.isBanned || profile?.accountStatus === 'banned');
+
+const getAccountBannedMessage = () => '你的帳號因站務治理需要暫停使用，暫時不能發布貼文、留言、回覆或上傳圖片。若你認為是誤判，請透過官方 LINE 聯絡站方確認。';
+
+const getPostingRestrictionMessage = (profile: any) => {
+  const untilMs = getAccountRestrictionUntilMillis(profile);
+  const untilText = formatRestrictionUntil(untilMs);
+  return `你的發布權限目前暫停，暫時不能發布貼文、留言、回覆或上傳圖片。${untilText ? `到期時間：${untilText}。` : ''}若你認為是誤判，請透過官方 LINE 聯絡站方確認。`;
+};
+
 const getAccountRestrictionNotice = (profile: any) => {
   if (!profile) return null;
   if (profile.isBanned || profile.accountStatus === 'banned') {
     return {
       tone: 'danger',
       title: '帳號目前無法使用',
-      body: '你的帳號因站務治理需要暫停使用。若你認為是誤判，請透過官方 LINE 聯絡站方確認。',
+      body: getAccountBannedMessage(),
     };
   }
-  if (profile.accountStatus === 'posting_suspended') {
+  if (isPostingRestrictionActive(profile)) {
     return {
       tone: 'warning',
       title: '發布權限已暫停',
-      body: '你目前可以瀏覽網站，但暫時不能發布貼文、留言或回覆。請查看小站通知中的站務原因。',
+      body: getPostingRestrictionMessage(profile),
     };
   }
   if (profile.accountStatus === 'watch') {
@@ -2689,6 +2727,14 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
       setPostError('請先閱讀並同意最新版服務條款、隱私權政策與社群規範，才能發布內容。');
       return;
     }
+    if (isAccountBanned(profile)) {
+      setPostError(getAccountBannedMessage());
+      return;
+    }
+    if (isPostingRestrictionActive(profile)) {
+      setPostError(getPostingRestrictionMessage(profile));
+      return;
+    }
 
     setIsPosting(true);
     setPostError(null);
@@ -3003,8 +3049,9 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
             href={LINE_OFFICIAL_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="rounded-xl border border-line bg-mist/60 px-3 py-2 text-xs font-bold text-text-muted transition-colors hover:border-bio-glow/40 hover:text-text-main"
+            className="inline-flex items-center gap-2 rounded-xl border border-[#06C755]/40 bg-[#06C755]/15 px-3 py-2 text-xs font-black text-[#06C755] shadow-lg shadow-[#06C755]/10 transition-all hover:border-[#06C755]/70 hover:bg-[#06C755]/25 hover:text-white"
           >
+            <MessageSquare className="h-3.5 w-3.5" />
             官方 LINE
           </a>
         </header>
@@ -3034,6 +3081,15 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                 <LogIn className="h-4 w-4" />
                 使用 Google 登入
               </button>
+              <a
+                href={LINE_OFFICIAL_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-[#06C755]/45 bg-[#06C755] px-6 py-4 text-sm font-black text-white shadow-lg shadow-[#06C755]/20 transition-all hover:bg-[#05b84f] active:scale-95"
+              >
+                <MessageSquare className="h-4 w-4" />
+                官方 LINE 回報
+              </a>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-3">
@@ -3060,18 +3116,18 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
               <div className="relative space-y-5">
                 <div>
                   <p className="station-clock-label text-xs font-black uppercase tracking-[0.28em]">小站入口</p>
-                  <h2 className="mt-2 text-2xl font-black text-text-main">登入後就能進來</h2>
+                  <h2 className="mt-2 text-2xl font-black text-text-main">登入後開始登島</h2>
                   <p className="mt-2 text-sm leading-relaxed text-text-muted">
-                    用 Google 登入後，就可以看貼文、留言、發照片、追蹤島民，也能幫忙回報需要站方注意的內容。
+                    用 Google 登入後，就能看貼文、留言、分享照片、追蹤島民，也可以把需要站方注意的內容回報給小站。
                   </p>
                 </div>
                 <div className="station-clock-display rounded-2xl p-4">
                   <div className="flex items-start gap-3">
                     <Shield className="mt-0.5 h-5 w-5 shrink-0 text-bio-glow" />
                     <div>
-                      <p className="text-sm font-black text-text-main">希望這裡舒服一點</p>
+                      <p className="text-sm font-black text-text-main">希望這裡好好說話</p>
                       <p className="mt-1 text-xs leading-relaxed text-text-muted">
-                        大家可以好好講話，也可以有不同意見；真的太誇張的內容，站方會盡量處理。
+                        可以分享生活，也可以有不同意見；但涉及個資、威脅、騷擾或明顯越界的內容，站方會盡量處理。
                       </p>
                     </div>
                   </div>
@@ -5991,6 +6047,14 @@ function PostCard({
       alert('請先閱讀並同意最新版服務條款、隱私權政策與社群規範，才能留言。');
       return;
     }
+    if (isAccountBanned(profile)) {
+      alert(getAccountBannedMessage());
+      return;
+    }
+    if (isPostingRestrictionActive(profile)) {
+      alert(getPostingRestrictionMessage(profile));
+      return;
+    }
     isSubmittingCommentRef.current = true;
     setIsSubmittingComment(true);
     try {
@@ -6200,6 +6264,14 @@ function PostCard({
     if (submittingReplyIdsRef.current[comment.id]) return;
     if (!hasAcceptedLatestPolicies(profile)) {
       alert('請先閱讀並同意最新版服務條款、隱私權政策與社群規範，才能回覆。');
+      return;
+    }
+    if (isAccountBanned(profile)) {
+      alert(getAccountBannedMessage());
+      return;
+    }
+    if (isPostingRestrictionActive(profile)) {
+      alert(getPostingRestrictionMessage(profile));
       return;
     }
     const replyText = (replyInputs[comment.id] || '').trim();

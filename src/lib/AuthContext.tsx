@@ -28,6 +28,10 @@ export interface UserProfile {
   avatarUpdatedAt?: any;
   accountStatus?: 'normal' | 'watch' | 'posting_suspended' | 'banned' | string;
   isBanned?: boolean;
+  restrictionUntil?: any;
+  restrictionDurationDays?: number;
+  restrictionDurationLabel?: string;
+  postingSuspendedUntil?: any;
 }
 
 interface AuthContextType {
