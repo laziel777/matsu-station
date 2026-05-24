@@ -45,8 +45,14 @@ const PROFILE_TABS = [
 ] as const;
 
 const DEVLOG_PATH = '/devlog';
+const STATION_PUBLIC_URL = 'https://www.matsustation.com/';
 
 const normalizePath = (pathname: string) => pathname.replace(/\/+$/, '') || '/';
+
+const isLineWebViewUserAgent = () => {
+  if (typeof navigator === 'undefined') return false;
+  return /\bLine\//i.test(navigator.userAgent || '');
+};
 
 const getPolicyPageByPath = (pathname: string) => {
   const normalizedPath = normalizePath(pathname);
@@ -1773,6 +1779,7 @@ const stationClock = new Intl.DateTimeFormat('zh-TW', {
   second: '2-digit',
   hour12: false,
 }).format(stationNow);
+const isLineWebView = isLineWebViewUserAgent();
 
   useEffect(() => {
     localStorage.setItem('matsu-font-size', fontSize.toString());
@@ -2109,6 +2116,10 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
 
   const handleLogin = async () => {
     try {
+      if (isLineWebView) {
+        alert('LINE 內建瀏覽器可能無法完成 Google 登入。請用 iPhone 的 Safari，或 Android 的 Chrome / Google 搜尋「馬祖小站」，從外部瀏覽器開啟後再登入。');
+        return;
+      }
       if (!auth.app.options.apiKey || auth.app.options.apiKey === "YOUR_API_KEY") {
         throw new Error("FIREBASE_NOT_CONFIGURED");
       }
@@ -2988,7 +2999,18 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
 
   const getStationShareUrl = () => {
     const isLocalhost = ['localhost', '127.0.0.1'].includes(window.location.hostname);
-    return isLocalhost ? 'https://www.matsustation.com/' : `${window.location.origin}/`;
+    return isLocalhost ? STATION_PUBLIC_URL : `${window.location.origin}/`;
+  };
+
+  const copyStationUrl = async () => {
+    const shareUrl = getStationShareUrl();
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setIsCopied(true);
+      setTimeout(() => setIsCopied(false), 2000);
+    } catch (err) {
+      alert(`請手動複製網址：${shareUrl}`);
+    }
   };
 
   const handleShareStation = async () => {
@@ -3241,13 +3263,54 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
               </h1>
             </div>
 
+            {isLineWebView && (
+              <div className="theme-accent-card rounded-3xl p-5">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-amber-400/30 bg-amber-400/10 text-amber-300">
+                    <AlertCircle className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0 space-y-3">
+                    <div>
+                      <p className="text-sm font-black text-text-main">請用手機外部瀏覽器開啟</p>
+                      <p className="mt-2 text-xs leading-relaxed text-text-muted">
+                        你目前可能在 LINE 內建瀏覽器中。Google 登入在 LINE 內建瀏覽器常會被阻擋或無法完成。iPhone 請用 Safari；Android 請用 Chrome，或到 Google 搜尋「馬祖小站」後從搜尋結果進入再登入。
+                      </p>
+                    </div>
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <button
+                        type="button"
+                        onClick={copyStationUrl}
+                        className="inline-flex items-center justify-center gap-2 rounded-2xl border border-bio-glow/35 bg-bio-glow/10 px-4 py-3 text-xs font-black text-bio-glow transition-all hover:border-bio-glow/70 hover:bg-bio-glow/20 active:scale-95"
+                      >
+                        {isCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                        {isCopied ? '已複製網址' : '複製小站網址'}
+                      </button>
+                      <a
+                        href={STATION_PUBLIC_URL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center justify-center gap-2 rounded-2xl border border-line bg-mist/70 px-4 py-3 text-xs font-black text-text-main transition-all hover:border-bio-glow/50 hover:bg-mist-light active:scale-95"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                        開啟小站網址
+                      </a>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="flex flex-col gap-3 sm:flex-row">
               <button
                 onClick={handleLogin}
-                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-bio-glow px-6 py-4 text-sm font-black text-deep-ocean shadow-lg shadow-bio-glow/20 transition-all hover:bg-white active:scale-95"
+                className={`inline-flex items-center justify-center gap-2 rounded-2xl px-6 py-4 text-sm font-black shadow-lg transition-all active:scale-95 ${
+                  isLineWebView
+                    ? 'cursor-not-allowed border border-amber-400/25 bg-amber-400/10 text-amber-300 shadow-amber-500/10'
+                    : 'bg-bio-glow text-deep-ocean shadow-bio-glow/20 hover:bg-white'
+                }`}
               >
                 <LogIn className="h-4 w-4" />
-                使用 Google 登入
+                {isLineWebView ? '請先用外部瀏覽器開啟' : '使用 Google 登入'}
               </button>
               <a
                 href={LINE_OFFICIAL_URL}
