@@ -2117,7 +2117,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
   const handleLogin = async () => {
     try {
       if (isLineWebView) {
-        alert('LINE 內建瀏覽器可能無法完成 Google 登入。請用 iPhone 的 Safari，或 Android 的 Chrome / Google 搜尋「馬祖小站」，從外部瀏覽器開啟後再登入。');
+        alert('LINE 內建瀏覽器可能無法完成 Google 登入。請先點 LINE 右下角選單，選擇「在瀏覽器中開啟」；若找不到，再用 iPhone Safari 或 Android Chrome 搜尋「馬祖小站」後登入。');
         return;
       }
       if (!auth.app.options.apiKey || auth.app.options.apiKey === "YOUR_API_KEY") {
@@ -3271,9 +3271,9 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                   </div>
                   <div className="min-w-0 space-y-3">
                     <div>
-                      <p className="text-sm font-black text-text-main">請用手機外部瀏覽器開啟</p>
+                      <p className="text-sm font-black text-text-main">請先點 LINE 右下角選單</p>
                       <p className="mt-2 text-xs leading-relaxed text-text-muted">
-                        你目前可能在 LINE 內建瀏覽器中。Google 登入在 LINE 內建瀏覽器常會被阻擋或無法完成。iPhone 請用 Safari；Android 請用 Chrome，或到 Google 搜尋「馬祖小站」後從搜尋結果進入再登入。
+                        你目前可能在 LINE 內建瀏覽器中。Google 登入在 LINE 內建瀏覽器常會被阻擋或無法完成。請先點 LINE 右下角選單，選擇「在瀏覽器中開啟」；若找不到，再用 iPhone Safari 或 Android Chrome 搜尋「馬祖小站」後進入。
                       </p>
                     </div>
                     <div className="flex flex-col gap-2 sm:flex-row">
