@@ -4003,6 +4003,23 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
 
                   {isEditingProfile ? (
                     <form onSubmit={handleUpdateProfile} className="space-y-6">
+                      <div className="rounded-2xl border border-bio-glow/20 bg-bio-glow/5 p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-bold text-text-main">大頭照</p>
+                          <p className="text-xs text-text-muted mt-1">
+                            可重新選圖、調整圓形範圍，通過圖片審核後才會更新。
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => avatarUpdateInputRef.current?.click()}
+                          disabled={isUploadingAvatar || isSavingAvatarCrop}
+                          className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-bio-glow text-deep-ocean text-sm font-black shadow-lg shadow-bio-glow/10 hover:bg-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                          {isUploadingAvatar || isSavingAvatarCrop ? '處理中...' : '更換大頭照'}
+                        </button>
+                      </div>
                       <div className="space-y-4">
                         <div>
                           <label className="text-[0.625rem] text-text-muted font-bold uppercase tracking-widest px-1 block mb-1">暱稱 (暱稱一旦設定將鎖定 3 個月)</label>
