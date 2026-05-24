@@ -1468,10 +1468,24 @@ export default function App() {
   return saved ? parseInt(saved) : DEFAULT_FONT_SIZE;
 });
 
-const [onlineCount, setOnlineCount] = useState(1);
+const [stationNow, setStationNow] = useState(() => new Date());
 const isProfileSetupRequired = Boolean(user && profile && !profile.isProfileSetup);
 const needsPolicyAcceptance = Boolean(user && profile && !hasAcceptedLatestPolicies(profile));
 const isOnboarding = Boolean(user && profile && (isProfileSetupRequired || needsPolicyAcceptance));
+const stationDate = new Intl.DateTimeFormat('zh-TW', {
+  timeZone: 'Asia/Taipei',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  weekday: 'short',
+}).format(stationNow);
+const stationClock = new Intl.DateTimeFormat('zh-TW', {
+  timeZone: 'Asia/Taipei',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hour12: false,
+}).format(stationNow);
 
   useEffect(() => {
     localStorage.setItem('matsu-font-size', fontSize.toString());
@@ -1508,13 +1522,12 @@ const isOnboarding = Boolean(user && profile && (isProfileSetupRequired || needs
   }, [showNotifications, showSettingsMenu]);
 
 useEffect(() => {
-  const base = Math.floor(posts.length / 2);
-  const fluctuation = Math.floor(Math.random() * 5);
+  const timer = window.setInterval(() => {
+    setStationNow(new Date());
+  }, 1000);
 
-  const randomOnline = Math.max(3, base + fluctuation);
-
-  setOnlineCount(randomOnline);
-}, [posts]);
+  return () => window.clearInterval(timer);
+}, []);
 
   useEffect(() => {
     const unsubscribeWeather = onSnapshot(doc(db, 'transportStatus', 'weather'), (snapshot) => {
@@ -4742,25 +4755,39 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
         {/* Right Sidebar - PC Only */}
         <aside className="hidden lg:block shrink-0 w-72 space-y-6">
           <div className="sticky top-24 space-y-6">
-            {/* Islanders Stats */}
-            <div className="glass-card rounded-3xl p-6 border-line">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xs font-bold text-text-muted uppercase tracking-widest">活躍島民</h3>
-                <div className="flex items-center gap-1.5">
-                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  <span className="text-[0.625rem] text-emerald-500 font-mono">LIVE</span>
-                </div>
+            {/* Station Clock */}
+            <div className="relative overflow-hidden rounded-3xl border border-bio-glow/25 bg-[#05070b]/95 p-5 shadow-[0_0_34px_rgba(0,229,255,0.08)]">
+              <div className="pointer-events-none absolute inset-0 opacity-40">
+                <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-bio-glow to-transparent" />
+                <div className="absolute -right-12 -top-12 h-32 w-32 rounded-full bg-bio-glow/10 blur-2xl" />
+                <div className="absolute -bottom-16 left-4 h-24 w-24 rounded-full bg-[#f6d44a]/10 blur-2xl" />
+                <div className="absolute inset-0 bg-[linear-gradient(rgba(0,229,255,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(246,212,74,0.04)_1px,transparent_1px)] bg-[size:18px_18px]" />
               </div>
-              <div className="space-y-4">
-                <div className="flex items-center gap-3">
-                  <div className="flex -space-x-2">
-                    {[1, 2, 3, 4, 5].map(i => (
-                      <div key={i} className="w-8 h-8 rounded-full border-2 border-deep-ocean bg-mist flex items-center justify-center overflow-hidden">
-                        <img src={`https://api.dicebear.com/7.x/bottts/svg?seed=islander${i}`} className="w-full h-full opacity-60" />
-                      </div>
-                    ))}
+
+              <div className="relative">
+                <div className="mb-4 flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-xs font-bold uppercase tracking-[0.28em] text-[#f6d44a]">小站時間</h3>
+                    <p className="mt-1 text-[0.625rem] font-mono uppercase tracking-[0.22em] text-bio-glow/70">Taiwan UTC+8</p>
                   </div>
-                  <p className="text-[0.625rem] text-text-muted font-medium">🟢 目前 {onlineCount} 位島民在線</p>
+                  <div className="rounded-xl border border-bio-glow/30 bg-bio-glow/10 p-2 text-bio-glow shadow-[0_0_18px_rgba(0,229,255,0.18)]">
+                    <Clock className="h-4 w-4" />
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-black/35 px-4 py-3">
+                  <div className="mb-1 flex items-center gap-2 text-[0.625rem] font-mono text-text-muted">
+                    <Calendar className="h-3 w-3 text-[#f6d44a]" />
+                    <span>{stationDate}</span>
+                  </div>
+                  <div className="font-mono text-3xl font-black tabular-nums tracking-[0.08em] text-bio-glow drop-shadow-[0_0_14px_rgba(0,229,255,0.45)]">
+                    {stationClock}
+                  </div>
+                </div>
+
+                <div className="mt-3 flex items-center justify-between text-[0.625rem] font-mono uppercase tracking-[0.18em]">
+                  <span className="text-text-muted">每秒更新</span>
+                  <span className="text-[#f6d44a]">Matsu Station</span>
                 </div>
               </div>
             </div>
