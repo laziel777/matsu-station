@@ -1256,6 +1256,7 @@ const ReactionButton = ({
                 title={currentReaction === reaction ? '再點一次取消反應' : `使用 ${reaction} 反應`}
               >
                 {reaction}
+                <span className="sr-only">{visibleReactionCounts.find(item => item.reaction === reaction)?.count || 0} 個反應</span>
               </button>
             ))}
           </motion.div>
@@ -2342,6 +2343,21 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
     await openAvatarCropper(file, 'profile');
   };
 
+  const getAvatarFailureMessage = (error: any) => {
+    const code = String(error?.code || '');
+    const message = String(error?.message || '');
+
+    if (code.includes('resource-exhausted') || message.includes('頭像更新次數已達上限')) {
+      return '今日頭像更新次數已達上限（5 次），請明天再試。';
+    }
+
+    if (message.includes('無法作為頭像')) {
+      return '這張圖片無法作為頭像，請更換其他圖片。';
+    }
+
+    return '頭像審核暫時無法完成，請稍後再試。';
+  };
+
   const saveAvatarCrop = async () => {
     if (!avatarCropSrc || !avatarCropMode || !user) return;
     setIsUploadingAvatar(true);
@@ -2384,7 +2400,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
       setAvatarCropSrc('');
     } catch (error) {
       console.error('Avatar upload failed', error);
-      alert('頭像上傳失敗');
+      alert(getAvatarFailureMessage(error));
     } finally {
       setIsUploadingAvatar(false);
       setIsSavingAvatarCrop(false);
@@ -2496,6 +2512,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
     setPostError(null);
     setPostingMessage('正在發布到馬祖小站...');
     setUploadProgress(8);
+    const uploadedImages: Array<{ url: string; path: string }> = [];
 
     try {
       const rawContent = newPostContent.trim();
@@ -2522,7 +2539,6 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
       setUploadProgress(25);
 
       // 1) 上傳圖片
-      const uploadedImages: Array<{ url: string; path: string }> = [];
       for (let i = 0; i < selectedImages.length; i++) {
         const file = selectedImages[i];
         const safeFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -2535,7 +2551,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
       const uploadedUrls = uploadedImages.map(image => image.url);
       const uploadedPaths = uploadedImages.map(image => image.path);
 
-      setPostingMessage('正在發布到馬祖小站...');
+      setPostingMessage(selectedImages.length > 0 ? '小站正在檢查圖片...' : '正在發布到馬祖小站...');
       setUploadProgress(82);
 
       // 2) 由伺服器建立內容；明顯高風險會先進入站務審核，不直接公開原文。
@@ -2582,6 +2598,15 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
       }, 500);
     } catch (error: any) {
       console.error('Failed to post', error);
+      if (uploadedImages.length > 0) {
+        await Promise.all(uploadedImages.map(async image => {
+          try {
+            await deleteObject(ref(storage, image.path));
+          } catch (cleanupError) {
+            console.warn('Rejected post image cleanup failed', cleanupError);
+          }
+        }));
+      }
       setPostError(getSubmissionErrorMessage(error, '發文失敗，請稍後再試。'));
       setIsPosting(false);
       setUploadProgress(0);

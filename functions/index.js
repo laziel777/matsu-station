@@ -42,6 +42,9 @@ const SERVER_NEW_ACCOUNT_WINDOW_MS = 30 * 60 * 1000;
 const SERVER_DAILY_POST_LIMIT = 20;
 const SERVER_DAILY_COMMENT_LIMIT = DAILY_COMMENT_LIMIT;
 const SERVER_DAILY_REPORT_LIMIT = 30;
+const SERVER_DAILY_AVATAR_UPDATE_LIMIT = 5;
+const SERVER_DAILY_POST_IMAGE_LIMIT = 5;
+const SERVER_POST_IMAGE_COOLDOWN_MS = 60 * 1000;
 const SERVER_MAX_POST_IMAGES = 1;
 const ACCOUNT_CONTROL_VERSION = "account-control-v1-2026-05-22";
 const AI_PATROL_QUEUE_REVIEW_COPY = "此內容可能涉及高風險資訊，目前正在由站長審核中。";
@@ -3637,6 +3640,7 @@ exports.reviewAvatarImage = onCall(
     if (!/^https:\/\//i.test(imageUrl) || imageUrl.length > 2000) {
       throw new HttpsError("invalid-argument", "頭像圖片網址不正確。");
     }
+    const avatarQuota = await assertDailyAvatarQuota(uid);
 
     let response;
     try {
@@ -3689,6 +3693,9 @@ exports.reviewAvatarImage = onCall(
       imageUrl,
       provider: "openai",
       model: "omni-moderation-latest",
+      quotaDayKey: avatarQuota.dayKey,
+      quotaCount: avatarQuota.count,
+      quotaLimit: avatarQuota.limit,
       flagged,
       maxScore,
       allowed: !blocked,
@@ -3698,7 +3705,7 @@ exports.reviewAvatarImage = onCall(
     });
 
     if (blocked) {
-      throw new HttpsError("failed-precondition", "這張頭像可能不適合公開顯示，請換一張照片。");
+      throw new HttpsError("failed-precondition", "這張圖片無法作為頭像，請更換其他圖片。");
     }
 
     return {
@@ -3766,6 +3773,105 @@ function sanitizeSubmittedPostImages(data, uid) {
     imageUrl: imageUrls[0] || "",
     imagePath: imagePaths[0] || "",
   };
+}
+
+async function reviewImageWithOpenAI({ uid, imageUrl, imagePath, purpose }) {
+  let response;
+  try {
+    response = await fetch("https://api.openai.com/v1/moderations", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${getOpenAIKey()}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "omni-moderation-latest",
+        input: [
+          {
+            type: "text",
+            text: purpose === "post"
+              ? "請審核這張社群貼文圖片。禁止色情裸露、暴力血腥、仇恨、騷擾、威脅、自傷、明顯違法、兒少不當內容或其他不適合公開社群平台展示的圖片。"
+              : "請審核這張社群網站大頭照。禁止色情裸露、暴力血腥、仇恨、騷擾、威脅、自傷、明顯違法或兒少不當內容。",
+          },
+          { type: "image_url", image_url: { url: imageUrl } },
+        ],
+      }),
+    });
+  } catch (error) {
+    console.error("OpenAI image moderation request failed", { uid, imagePath, purpose, message: error?.message || String(error) });
+    throw new HttpsError("unavailable", "圖片審核暫時無法連線，請稍後再試。");
+  }
+
+  const raw = await response.text();
+  if (!response.ok) {
+    console.error("OpenAI image moderation failed", { uid, imagePath, purpose, status: response.status, body: raw.slice(0, 500) });
+    throw new HttpsError("unavailable", "圖片審核暫時忙碌，請稍後再試。");
+  }
+
+  let result;
+  try {
+    result = JSON.parse(raw);
+  } catch (error) {
+    console.error("OpenAI image moderation JSON parse failed", { uid, imagePath, purpose, message: error?.message || String(error) });
+    throw new HttpsError("internal", "圖片審核回應格式異常。");
+  }
+
+  const moderation = Array.isArray(result?.results) ? result.results[0] || {} : {};
+  const categoryScores = moderation.category_scores || {};
+  const flagged = moderation.flagged === true;
+  const maxScore = Object.values(categoryScores).reduce((max, value) => {
+    const score = Number(value);
+    return Number.isFinite(score) ? Math.max(max, score) : max;
+  }, 0);
+
+  return {
+    flagged,
+    maxScore,
+    blocked: flagged || maxScore >= 0.72,
+    categories: moderation.categories || {},
+    categoryScores,
+  };
+}
+
+async function reviewSubmittedPostImages(uid, submittedImages) {
+  const imageUrls = Array.isArray(submittedImages?.imageUrls) ? submittedImages.imageUrls : [];
+  const imagePaths = Array.isArray(submittedImages?.imagePaths) ? submittedImages.imagePaths : [];
+  if (!imageUrls.length) return [];
+
+  let quota = null;
+  try {
+    quota = await assertDailyPostImageQuota(uid);
+    const reviews = [];
+    for (let index = 0; index < imageUrls.length; index += 1) {
+      const imageUrl = imageUrls[index];
+      const imagePath = imagePaths[index] || "";
+      const review = await reviewImageWithOpenAI({ uid, imageUrl, imagePath, purpose: "post" });
+      await db.collection("postImageReviews").add({
+        uid,
+        imagePath,
+        imageUrl,
+        provider: "openai",
+        model: "omni-moderation-latest",
+        quotaDayKey: quota.dayKey,
+        quotaCount: quota.count,
+        quotaLimit: quota.limit,
+        flagged: review.flagged,
+        maxScore: review.maxScore,
+        allowed: !review.blocked,
+        categories: review.categories,
+        categoryScores: review.categoryScores,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      reviews.push(review);
+      if (review.blocked) {
+        throw new HttpsError("failed-precondition", "這張圖片可能不適合公開發布，請更換圖片或改成純文字發文。");
+      }
+    }
+    return reviews;
+  } catch (error) {
+    await deleteStoragePaths(imagePaths);
+    throw error;
+  }
 }
 
 async function deleteStoragePaths(imagePaths) {
@@ -3933,6 +4039,80 @@ async function assertDailyPostQuota(uid, profileData = {}) {
       ...(usageSnap.exists ? {} : { createdAt: now }),
     }, { merge: true });
   });
+}
+
+async function assertDailyAvatarQuota(uid) {
+  if (!uid || uid === STATION_MASTER_UID) {
+    return { dayKey: getTaipeiDayKey(), count: 0, limit: Number.POSITIVE_INFINITY };
+  }
+
+  const dayKey = getTaipeiDayKey();
+  const usageRef = db.doc(`userUsage/${uid}/days/${dayKey}`);
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  let nextCount = 1;
+
+  await db.runTransaction(async (transaction) => {
+    const usageSnap = await transaction.get(usageRef);
+    const usage = usageSnap.exists ? usageSnap.data() || {} : {};
+    const avatarUpdateCount = Math.max(0, Number(usage.avatarUpdateCount || 0));
+
+    if (avatarUpdateCount >= SERVER_DAILY_AVATAR_UPDATE_LIMIT) {
+      throw new HttpsError("resource-exhausted", `今日頭像更新次數已達上限（${SERVER_DAILY_AVATAR_UPDATE_LIMIT} 次），請明天再試。`);
+    }
+
+    nextCount = avatarUpdateCount + 1;
+    transaction.set(usageRef, {
+      uid,
+      dayKey,
+      avatarUpdateCount: admin.firestore.FieldValue.increment(1),
+      avatarLastUpdateAt: now,
+      updatedAt: now,
+      ...(usageSnap.exists ? {} : { createdAt: now }),
+    }, { merge: true });
+  });
+
+  return { dayKey, count: nextCount, limit: SERVER_DAILY_AVATAR_UPDATE_LIMIT };
+}
+
+async function assertDailyPostImageQuota(uid) {
+  if (!uid || uid === STATION_MASTER_UID) {
+    return { dayKey: getTaipeiDayKey(), count: 0, limit: Number.POSITIVE_INFINITY };
+  }
+
+  const dayKey = getTaipeiDayKey();
+  const usageRef = db.doc(`userUsage/${uid}/days/${dayKey}`);
+  const nowMs = Date.now();
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  let nextCount = 1;
+
+  await db.runTransaction(async (transaction) => {
+    const usageSnap = await transaction.get(usageRef);
+    const usage = usageSnap.exists ? usageSnap.data() || {} : {};
+    const postImageReviewCount = Math.max(0, Number(usage.postImageReviewCount || 0));
+    const lastPostImageReviewAtMs = Math.max(0, Number(usage.lastPostImageReviewAtMs || 0));
+
+    if (lastPostImageReviewAtMs && nowMs - lastPostImageReviewAtMs < SERVER_POST_IMAGE_COOLDOWN_MS) {
+      const secondsLeft = Math.ceil((SERVER_POST_IMAGE_COOLDOWN_MS - (nowMs - lastPostImageReviewAtMs)) / 1000);
+      throw new HttpsError("resource-exhausted", `圖片發文需間隔 1 分鐘，請再等約 ${secondsLeft} 秒。`);
+    }
+
+    if (postImageReviewCount >= SERVER_DAILY_POST_IMAGE_LIMIT) {
+      throw new HttpsError("resource-exhausted", `今日圖片發文已達上限（${SERVER_DAILY_POST_IMAGE_LIMIT} 張），請明天再試。`);
+    }
+
+    nextCount = postImageReviewCount + 1;
+    transaction.set(usageRef, {
+      uid,
+      dayKey,
+      postImageReviewCount: admin.firestore.FieldValue.increment(1),
+      lastPostImageReviewAtMs: nowMs,
+      lastPostImageReviewAt: now,
+      updatedAt: now,
+      ...(usageSnap.exists ? {} : { createdAt: now }),
+    }, { merge: true });
+  });
+
+  return { dayKey, count: nextCount, limit: SERVER_DAILY_POST_IMAGE_LIMIT };
 }
 
 async function assertDailyCommentQuota(uid) {
@@ -4165,7 +4345,7 @@ exports.createCommunityContent = onCall(
     region: REGION,
     timeoutSeconds: 120,
     memory: "512MiB",
-    secrets: ["GEMINI_API_KEY"],
+    secrets: ["GEMINI_API_KEY", "OPENAI_API_KEY"],
   },
   async (request) => {
     const uid = requireSignedIn(request);
@@ -4202,7 +4382,13 @@ exports.createCommunityContent = onCall(
       imagePath = submittedImages.imagePath;
       content = sanitizeSubmittedText(request.data?.content, SERVER_POST_CHAR_LIMIT, { allowEmpty: imageUrls.length > 0 });
       category = normalizeSubmittedCategory(request.data?.category);
-      await assertDailyPostQuota(uid, profile.raw);
+      try {
+        await reviewSubmittedPostImages(uid, submittedImages);
+        await assertDailyPostQuota(uid, profile.raw);
+      } catch (error) {
+        await deleteStoragePaths(imagePaths);
+        throw error;
+      }
 
       sourceRef = db.collection("posts").doc();
       postId = sourceRef.id;
