@@ -1503,6 +1503,9 @@ const stationClock = new Intl.DateTimeFormat('zh-TW', {
     setActiveAccentId(DEFAULT_ACCENT_ID);
     setFontSize(DEFAULT_FONT_SIZE);
     localStorage.removeItem('matsu-theme');
+    localStorage.removeItem('matsu-theme-mode');
+    localStorage.removeItem('matsu-theme-accent');
+    localStorage.removeItem('matsu-font-size');
   };
 
   useEffect(() => {
@@ -1669,7 +1672,7 @@ useEffect(() => {
     const savedAccent = localStorage.getItem('matsu-theme-accent');
     if (savedAccent) return savedAccent;
     const legacyTheme = localStorage.getItem('matsu-theme');
-    return legacyTheme ? (LEGACY_ACCENT_MAP[legacyTheme] || legacyTheme) : 'bio-glow';
+    return legacyTheme ? (LEGACY_ACCENT_MAP[legacyTheme] || legacyTheme) : DEFAULT_ACCENT_ID;
   });
   
   const [selectedImages, setSelectedImages] = useState<File[]>([]);
@@ -4756,18 +4759,18 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
         <aside className="hidden lg:block shrink-0 w-72 space-y-6">
           <div className="sticky top-24 space-y-6">
             {/* Station Clock */}
-            <div className="relative overflow-hidden rounded-3xl border border-bio-glow/25 bg-[#05070b]/95 p-5 shadow-[0_0_34px_rgba(0,229,255,0.08)]">
+            <div className="station-clock-card relative overflow-hidden rounded-3xl p-5">
               <div className="pointer-events-none absolute inset-0 opacity-40">
-                <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-bio-glow to-transparent" />
-                <div className="absolute -right-12 -top-12 h-32 w-32 rounded-full bg-bio-glow/10 blur-2xl" />
-                <div className="absolute -bottom-16 left-4 h-24 w-24 rounded-full bg-[#f6d44a]/10 blur-2xl" />
-                <div className="absolute inset-0 bg-[linear-gradient(rgba(0,229,255,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(246,212,74,0.04)_1px,transparent_1px)] bg-[size:18px_18px]" />
+                <div className="station-clock-line absolute inset-x-0 top-0 h-px" />
+                <div className="station-clock-aura absolute -right-12 -top-12 h-32 w-32 rounded-full blur-2xl" />
+                <div className="station-clock-warm-aura absolute -bottom-16 left-4 h-24 w-24 rounded-full blur-2xl" />
+                <div className="station-clock-grid absolute inset-0" />
               </div>
 
               <div className="relative">
                 <div className="mb-4 flex items-start justify-between gap-3">
                   <div>
-                    <h3 className="text-xs font-bold uppercase tracking-[0.28em] text-[#f6d44a]">小站時間</h3>
+                    <h3 className="station-clock-label text-xs font-bold uppercase tracking-[0.28em]">小站時間</h3>
                     <p className="mt-1 text-[0.625rem] font-mono uppercase tracking-[0.22em] text-bio-glow/70">Taiwan UTC+8</p>
                   </div>
                   <div className="rounded-xl border border-bio-glow/30 bg-bio-glow/10 p-2 text-bio-glow shadow-[0_0_18px_rgba(0,229,255,0.18)]">
@@ -4775,9 +4778,9 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-white/10 bg-black/35 px-4 py-3">
+                <div className="station-clock-display rounded-2xl px-4 py-3">
                   <div className="mb-1 flex items-center gap-2 text-[0.625rem] font-mono text-text-muted">
-                    <Calendar className="h-3 w-3 text-[#f6d44a]" />
+                    <Calendar className="station-clock-label h-3 w-3" />
                     <span>{stationDate}</span>
                   </div>
                   <div className="font-mono text-3xl font-black tabular-nums tracking-[0.08em] text-bio-glow drop-shadow-[0_0_14px_rgba(0,229,255,0.45)]">
@@ -4787,7 +4790,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
 
                 <div className="mt-3 flex items-center justify-between text-[0.625rem] font-mono uppercase tracking-[0.18em]">
                   <span className="text-text-muted">每秒更新</span>
-                  <span className="text-[#f6d44a]">Matsu Station</span>
+                  <span className="station-clock-label">Matsu Station</span>
                 </div>
               </div>
             </div>
