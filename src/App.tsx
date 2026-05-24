@@ -183,60 +183,127 @@ function PolicyStandalonePage({ page }: { page: SitePolicyPage }) {
 }
 
 function DevLogStandalonePage() {
-  const chapters = [
+  const manifestoSections = [
     {
-      title: '為什麼想做',
-      body: '一開始只是覺得，馬祖是不是也可以有一個比較像自己家的交流角落。不是只看熱鬧，也不是只丟爆料，而是生活、交通、照片、問題、想法都能慢慢放在一起。',
+      title: '為什麼會有馬祖小站？',
+      paragraphs: [
+        '因為總覺得，馬祖應該值得有一個自己的交流空間。',
+        '不是只有演算法，不是只有短影音，也不是只有情緒對立。而是一個還能慢慢聊天、交換資訊、留下地方記錄的地方。',
+        '這個網站目前還在 Beta 測試。很多功能還沒完成，很多做法也還在摸索。有些地方可能很陽春，有些地方可能偶爾出問題，有些功能可能今天有、明天又被改掉。',
+        '但它會繼續被慢慢蓋下去。',
+      ],
     },
     {
-      title: '一路邊學邊做',
-      body: '小站不是一次做好的。登入、發文、留言、圖片、通知、檢舉、規範、後台整理，很多東西都是遇到問題後一點一點補起來。',
+      title: '關於討論',
+      paragraphs: [
+        '馬祖小站不希望變成完全沒管理的混亂平台，也不希望變成動不動就全面封鎖的高壓平台。',
+        '前台盡量保留正常公共討論。站方也會協助處理高風險內容。有些內容可能會被標記、遮蔽、暫停公開或進一步審核。',
+        '系統可能協助整理與提醒風險，但那不代表法律判決。真正的處理，仍會保留人工判斷與上下文考量。',
+        '這套東西還在慢慢調整。我們不保證永遠正確，但希望能在「自由討論」與「避免傷害」之間找到平衡。',
+      ],
     },
     {
-      title: '希望留下什麼',
-      body: '希望這裡能保留馬祖人的日常，也保留一個小地方自己慢慢長出工具的過程。做得不完美，但會繼續修、繼續改。',
+      title: '關於這個網站',
+      paragraphs: [
+        '這個網站目前仍主要由個人維護。',
+        '有時候你半夜看到功能更新，可能是有人熬夜修 Bug。有時候看到介面突然改版，可能是站長睡前突然覺得哪裡很醜。有時候某個功能突然消失，可能是它剛剛壞掉了。',
+        '這裡不是完美的平台。但希望它是一個還有人情味、還有人願意慢慢維護、還願意保護地方討論的地方。',
+      ],
     },
+  ];
+
+  const islandNotes = [
+    '今天的天氣',
+    '船班有沒有停航',
+    '飛機有沒有飛',
+    '哪裡塞車',
+    '哪間店好吃',
+    '哪裡又停電',
+    '最近島上發生了什麼事',
+    '對公共議題的看法',
+    '對生活的抱怨與分享',
   ];
 
   return (
     <div className="min-h-screen overflow-hidden bg-deep-ocean text-text-main font-sans">
       <div className="pointer-events-none fixed inset-0">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_18%,color-mix(in_srgb,var(--primary-glow)_16%,transparent),transparent_34%),linear-gradient(135deg,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:auto,28px_28px]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_18%,color-mix(in_srgb,var(--primary-glow)_16%,transparent),transparent_34%),radial-gradient(circle_at_88%_8%,rgba(246,212,74,0.12),transparent_28%),linear-gradient(135deg,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:auto,auto,28px_28px]" />
         <div className="absolute right-[-12%] top-[-12%] h-[28rem] w-[28rem] rounded-full bg-bio-glow/10 blur-3xl" />
+        <div className="absolute bottom-[-18%] left-[-10%] h-[24rem] w-[24rem] rounded-full bg-coral/10 blur-3xl" />
       </div>
 
-      <main className="relative z-10 mx-auto flex min-h-screen w-full max-w-4xl flex-col px-5 py-8 sm:py-12">
+      <main className="relative z-10 mx-auto flex min-h-screen w-full max-w-5xl flex-col px-5 py-8 sm:py-12">
         <a href="/" className="mb-8 inline-flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-bio-glow hover:text-text-main">
           <Waves className="h-4 w-4" />
           返回馬祖小站
         </a>
 
-        <section className="space-y-5 border-b border-line pb-8">
-          <p className="text-[0.625rem] font-black uppercase tracking-[0.3em] text-bio-glow">小站開發誌</p>
-          <h1 className="font-display text-4xl font-black tracking-tight text-text-main sm:text-6xl">
-            這個小站
-            <span className="block text-bio-glow">怎麼長出來的</span>
-          </h1>
-          <p className="max-w-2xl text-sm leading-7 text-text-muted sm:text-base">
-            這裡會慢慢放一些馬祖小站的開發紀錄：為什麼開始做、遇到什麼問題、改了哪些功能，以及這個小小地方交流站怎麼被一點一點磨出來。
-          </p>
+        <section className="grid gap-8 border-b border-line pb-10 lg:grid-cols-[1.1fr_0.9fr] lg:items-end">
+          <div className="space-y-5">
+            <p className="text-[0.625rem] font-black uppercase tracking-[0.3em] text-bio-glow">小站開發誌</p>
+            <h1 className="font-display text-4xl font-black tracking-tight text-text-main sm:text-6xl">
+              開發中的小島
+              <span className="block text-bio-glow">給登島的你</span>
+            </h1>
+            <p className="max-w-2xl text-sm leading-7 text-text-muted sm:text-base">
+              這年頭的網路很有趣。不是太吵，就是太安靜。有些地方什麼都不能講，有些地方則是什麼內容都被丟上來。
+            </p>
+            <p className="max-w-2xl text-sm leading-7 text-text-muted sm:text-base">
+              有人高喊自由，最後變成洗版與獵巫；有人高喊安全，最後變成一言堂。於是大家開始習慣少講話、少討論、少惹事。
+            </p>
+            <p className="max-w-2xl text-sm leading-7 text-text-main sm:text-base">
+              久了以後，連地方社群都快消失了。所以才有了這座還在施工中的小島。
+            </p>
+          </div>
+
+          <aside className="rounded-[2rem] border border-bio-glow/15 bg-bio-glow/5 p-5">
+            <p className="font-mono text-[0.625rem] font-black uppercase tracking-[0.28em] text-bio-glow">Matsu Station</p>
+            <p className="mt-3 text-sm leading-7 text-text-muted">
+              這裡不是大型商業平台，也不是失控的匿名角落。馬祖小站比較像是一個還在慢慢長大的地方社群。
+            </p>
+          </aside>
         </section>
 
-        <section className="grid gap-4 py-8 sm:grid-cols-3">
-          {chapters.map((chapter, index) => (
-            <article key={chapter.title} className="rounded-[1.5rem] border border-line bg-mist/65 p-5">
+        <section className="grid gap-5 py-10 lg:grid-cols-[0.82fr_1.18fr]">
+          <div className="rounded-[2rem] border border-line bg-mist/65 p-6">
+            <h2 className="text-xl font-black text-text-main">馬祖很小</h2>
+            <p className="mt-4 text-sm leading-7 text-text-muted">
+              小到很多事情，其實大家都互相認識。也因為這樣，地方討論有時候會慢慢消失。有些人不敢講，有些地方不能講，有些平台只剩洗版、轉傳、情緒與互相攻擊。
+            </p>
+            <p className="mt-4 text-sm leading-7 text-text-muted">
+              所以我想試著做一個地方。不一定很大，不一定很完美，甚至可能偶爾會壞掉。但至少，還能讓人討論一些真正生活裡會遇到的事。
+            </p>
+          </div>
+
+          <div className="grid gap-2 sm:grid-cols-3">
+            {islandNotes.map(note => (
+              <div key={note} className="rounded-2xl border border-line bg-mist/45 px-4 py-3 text-sm font-bold text-text-main">
+                {note}
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="space-y-5 border-t border-line py-10">
+          {manifestoSections.map((section, index) => (
+            <article key={section.title} className="rounded-[2rem] border border-line bg-mist/55 p-6">
               <p className="font-mono text-[0.625rem] font-black text-bio-glow">0{index + 1}</p>
-              <h2 className="mt-3 text-lg font-black text-text-main">{chapter.title}</h2>
-              <p className="mt-3 text-sm leading-7 text-text-muted">{chapter.body}</p>
+              <h2 className="mt-2 text-2xl font-black text-text-main">{section.title}</h2>
+              <div className="mt-4 space-y-4 text-sm leading-7 text-text-muted">
+                {section.paragraphs.map((paragraph, paragraphIndex) => (
+                  <p key={paragraphIndex}>{paragraph}</p>
+                ))}
+              </div>
             </article>
           ))}
         </section>
 
         <section className="rounded-[2rem] border border-bio-glow/15 bg-bio-glow/5 p-6">
-          <h2 className="text-xl font-black text-text-main">目前先記到這裡</h2>
+          <h2 className="text-xl font-black text-text-main">如果你願意留下來</h2>
           <p className="mt-3 text-sm leading-7 text-text-muted">
-            小站還在 Beta 測試中，很多地方會繼續調整。之後這裡可以放比較完整的時間線，例如第一次上線、圖片功能、檢舉系統、站務文件、在地資訊整理等等。
+            謝謝你一起參與這座還在施工中的小島。希望有一天，它能真的成為一個活著的馬祖社群。
           </p>
+          <p className="mt-5 font-display text-2xl font-black text-bio-glow">馬祖小站 Matsu Station</p>
           <a
             href="/"
             className="mt-5 inline-flex items-center gap-2 rounded-2xl bg-bio-glow px-5 py-3 text-sm font-black text-deep-ocean transition-all hover:bg-white active:scale-95"
