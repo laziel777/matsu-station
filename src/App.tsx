@@ -249,6 +249,47 @@ const compressImageFile = async (file: File, options: Record<string, unknown>) =
   return imageCompression(file, options);
 };
 
+const readFileAsDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(String(reader.result || ''));
+  reader.onerror = () => reject(reader.error || new Error('Failed to read image file.'));
+  reader.readAsDataURL(file);
+});
+
+const loadImageElement = (src: string) => new Promise<HTMLImageElement>((resolve, reject) => {
+  const image = new Image();
+  image.onload = () => resolve(image);
+  image.onerror = () => reject(new Error('Failed to load image.'));
+  image.src = src;
+});
+
+async function createAvatarCropBlob(src: string, scale: number, offsetX: number, offsetY: number) {
+  const image = await loadImageElement(src);
+  const size = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Canvas is not available.');
+
+  context.fillStyle = '#0a0c10';
+  context.fillRect(0, 0, size, size);
+
+  const coverScale = Math.max(size / image.width, size / image.height) * scale;
+  const width = image.width * coverScale;
+  const height = image.height * coverScale;
+  const x = (size - width) / 2 + offsetX * size * 0.42;
+  const y = (size - height) / 2 + offsetY * size * 0.42;
+  context.drawImage(image, x, y, width, height);
+
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(blob => {
+      if (blob) resolve(blob);
+      else reject(new Error('Failed to export avatar image.'));
+    }, 'image/jpeg', 0.9);
+  });
+}
+
 const POST_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 const POST_IMAGE_ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const AVATAR_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
@@ -1595,6 +1636,12 @@ useEffect(() => {
   const avatarInputRef = React.useRef<HTMLInputElement>(null);
   const avatarUpdateInputRef = React.useRef<HTMLInputElement>(null);
   const termsScrollRef = React.useRef<HTMLDivElement>(null);
+  const [avatarCropMode, setAvatarCropMode] = useState<'setup' | 'profile' | null>(null);
+  const [avatarCropSrc, setAvatarCropSrc] = useState('');
+  const [avatarCropScale, setAvatarCropScale] = useState(1);
+  const [avatarCropX, setAvatarCropX] = useState(0);
+  const [avatarCropY, setAvatarCropY] = useState(0);
+  const [isSavingAvatarCrop, setIsSavingAvatarCrop] = useState(false);
 
   useEffect(() => {
     if (showTerms) {
@@ -1753,10 +1800,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
     }
   };
 
-  const handleAvatarSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file || !user) return;
+  const openAvatarCropper = async (file: File, mode: 'setup' | 'profile') => {
     if (!AVATAR_IMAGE_ALLOWED_TYPES.includes(file.type)) {
       alert('頭像格式目前只支援 JPG、PNG、WebP。');
       return;
@@ -1766,24 +1810,24 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
       return;
     }
 
-    setIsUploadingAvatar(true);
     try {
-      const options = {
-        maxSizeMB: 0.2, // Small for avatar
-        maxWidthOrHeight: 400,
-        useWebWorker: true,
-      };
-      const compressedFile = await compressImageFile(file, options);
-      const fileRef = ref(storage, `avatars/${user.uid}/${Date.now()}_avatar.jpg`);
-      const snapshot = await uploadBytes(fileRef, compressedFile);
-      const url = await getDownloadURL(snapshot.ref);
-      setSetupPhoto(url);
+      const src = await readFileAsDataUrl(file);
+      setAvatarCropSrc(src);
+      setAvatarCropMode(mode);
+      setAvatarCropScale(1);
+      setAvatarCropX(0);
+      setAvatarCropY(0);
     } catch (error) {
-      console.error('Avatar upload failed', error);
-      alert('頭像上傳失敗');
-    } finally {
-      setIsUploadingAvatar(false);
+      console.error('Avatar preview failed', error);
+      alert('無法讀取這張頭像圖片，請換一張試試。');
     }
+  };
+
+  const handleAvatarSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !user) return;
+    await openAvatarCropper(file, 'setup');
   };
 
   const BANNED_WORDS = [
@@ -2300,35 +2344,40 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file || !user) return;
-    if (!AVATAR_IMAGE_ALLOWED_TYPES.includes(file.type)) {
-      alert('頭像格式目前只支援 JPG、PNG、WebP。');
-      return;
-    }
-    if (file.size > AVATAR_IMAGE_MAX_BYTES) {
-      alert('頭像圖片請選擇 5MB 以下的檔案。');
-      return;
-    }
+    await openAvatarCropper(file, 'profile');
+  };
 
+  const saveAvatarCrop = async () => {
+    if (!avatarCropSrc || !avatarCropMode || !user) return;
     setIsUploadingAvatar(true);
+    setIsSavingAvatarCrop(true);
     try {
-      const options = {
+      const croppedBlob = await createAvatarCropBlob(avatarCropSrc, avatarCropScale, avatarCropX, avatarCropY);
+      const croppedFile = new File([croppedBlob], 'avatar.jpg', { type: 'image/jpeg' });
+      const compressedFile = await compressImageFile(croppedFile, {
         maxSizeMB: 0.2,
-        maxWidthOrHeight: 400,
+        maxWidthOrHeight: 512,
         useWebWorker: true,
-      };
-      const compressedFile = await compressImageFile(file, options);
+      });
       const fileRef = ref(storage, `avatars/${user.uid}/${Date.now()}_avatar.jpg`);
       const snapshot = await uploadBytes(fileRef, compressedFile);
       const url = await getDownloadURL(snapshot.ref);
-      setEditPhotoURL(url);
-      await updateAvatarData(url);
-      setViewingProfile(prev => prev ? { ...prev, photoURL: url } : prev);
-      alert('大頭照已更新。');
+      if (avatarCropMode === 'setup') {
+        setSetupPhoto(url);
+      } else {
+        setEditPhotoURL(url);
+        await updateAvatarData(url);
+        setViewingProfile(prev => prev ? { ...prev, photoURL: url } : prev);
+        alert('大頭照已更新。');
+      }
+      setAvatarCropMode(null);
+      setAvatarCropSrc('');
     } catch (error) {
       console.error('Avatar upload failed', error);
       alert('頭像上傳失敗');
     } finally {
       setIsUploadingAvatar(false);
+      setIsSavingAvatarCrop(false);
     }
   };
 
@@ -2710,6 +2759,123 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
 
   return (
     <div className="min-h-screen bg-deep-ocean text-text-main font-sans">
+      <AnimatePresence>
+        {avatarCropMode && avatarCropSrc && (
+          <motion.div
+            className="fixed inset-0 z-[180] flex items-center justify-center bg-black/70 p-4 backdrop-blur-md"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.div
+              initial={{ scale: 0.96, y: 16 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.96, y: 16 }}
+              className="w-full max-w-md rounded-[2rem] border border-line bg-deep-ocean p-5 shadow-2xl"
+            >
+              <div className="mb-4 flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-[0.625rem] font-bold uppercase tracking-widest text-bio-glow">調整大頭照</p>
+                  <h3 className="mt-1 text-lg font-bold text-text-main">把臉或重點移到圓框裡</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAvatarCropMode(null);
+                    setAvatarCropSrc('');
+                  }}
+                  className="rounded-full border border-line bg-mist p-2 text-text-muted hover:text-text-main"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="mx-auto h-64 w-64 overflow-hidden rounded-full border-4 border-bio-glow/70 bg-mist shadow-[0_0_40px_rgba(0,217,232,0.18)]">
+                <img
+                  src={avatarCropSrc}
+                  alt="頭像裁切預覽"
+                  className="h-full w-full object-cover"
+                  style={{
+                    transform: `translate(${avatarCropX * 42}%, ${avatarCropY * 42}%) scale(${avatarCropScale})`,
+                    transformOrigin: 'center',
+                  }}
+                />
+              </div>
+
+              <div className="mt-5 space-y-4">
+                <label className="block space-y-2">
+                  <span className="text-xs font-bold text-text-muted">縮放</span>
+                  <input
+                    type="range"
+                    min="1"
+                    max="2.5"
+                    step="0.01"
+                    value={avatarCropScale}
+                    onChange={event => setAvatarCropScale(Number(event.target.value))}
+                    className="w-full accent-cyan-400"
+                  />
+                </label>
+                <label className="block space-y-2">
+                  <span className="text-xs font-bold text-text-muted">左右位置</span>
+                  <input
+                    type="range"
+                    min="-1"
+                    max="1"
+                    step="0.01"
+                    value={avatarCropX}
+                    onChange={event => setAvatarCropX(Number(event.target.value))}
+                    className="w-full accent-cyan-400"
+                  />
+                </label>
+                <label className="block space-y-2">
+                  <span className="text-xs font-bold text-text-muted">上下位置</span>
+                  <input
+                    type="range"
+                    min="-1"
+                    max="1"
+                    step="0.01"
+                    value={avatarCropY}
+                    onChange={event => setAvatarCropY(Number(event.target.value))}
+                    className="w-full accent-cyan-400"
+                  />
+                </label>
+              </div>
+
+              <div className="mt-5 grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAvatarCropScale(1);
+                    setAvatarCropX(0);
+                    setAvatarCropY(0);
+                  }}
+                  className="rounded-xl border border-line bg-mist px-3 py-3 text-xs font-bold text-text-main hover:bg-white/10"
+                >
+                  重設
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAvatarCropMode(null);
+                    setAvatarCropSrc('');
+                  }}
+                  className="rounded-xl border border-line bg-mist px-3 py-3 text-xs font-bold text-text-muted hover:text-text-main"
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  disabled={isSavingAvatarCrop}
+                  onClick={saveAvatarCrop}
+                  className="rounded-xl bg-bio-glow px-3 py-3 text-xs font-black text-deep-ocean transition-opacity disabled:opacity-50"
+                >
+                  {isSavingAvatarCrop ? '儲存中' : '使用'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
       {accountRestrictionNotice && (
         <div className={`fixed left-3 right-3 top-3 z-[120] rounded-2xl border p-4 shadow-2xl backdrop-blur-xl sm:left-1/2 sm:right-auto sm:w-[min(560px,calc(100vw-2rem))] sm:-translate-x-1/2 ${
           accountRestrictionNotice.tone === 'danger'
