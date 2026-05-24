@@ -182,6 +182,57 @@ function PolicyStandalonePage({ page }: { page: SitePolicyPage }) {
   );
 }
 
+function LandingSignalScene({ stationDate, stationClock }: { stationDate: string; stationClock: string }) {
+  const statusItems = [
+    ['小站狀態', 'Beta 試航中'],
+    ['站內內容', '登入後開啟'],
+    ['在地資訊', '航班 / 船班 / 氣象入口待命'],
+  ];
+
+  return (
+    <div className="landing-signal-scene relative overflow-hidden rounded-[2rem] border border-line bg-mist/70 p-5">
+      <div className="pointer-events-none absolute inset-0">
+        <div className="landing-signal-grid absolute inset-0" />
+        <div className="landing-signal-scan absolute inset-x-0 top-0 h-20" />
+        <div className="landing-fog landing-fog-a absolute left-[-18%] top-[18%] h-24 w-[140%]" />
+        <div className="landing-fog landing-fog-b absolute left-[-8%] top-[42%] h-20 w-[120%]" />
+        <div className="absolute bottom-0 left-0 right-0 h-28 bg-gradient-to-t from-deep-ocean via-deep-ocean/70 to-transparent" />
+      </div>
+
+      <div className="relative min-h-[270px]">
+        <div className="absolute left-3 top-2">
+          <p className="font-mono text-[0.625rem] font-black uppercase tracking-[0.28em] text-bio-glow">Island Signal</p>
+          <p className="mt-1 text-xs font-bold text-text-muted">Matsu Station / Beta Voyage</p>
+        </div>
+
+        <div aria-hidden="true" className="absolute inset-x-2 bottom-14 h-32">
+          <div className="landing-horizon absolute inset-x-0 top-12 h-px" />
+          <div className="landing-island landing-island-back absolute bottom-0 left-[8%] h-20 w-[46%]" />
+          <div className="landing-island landing-island-front absolute bottom-0 right-[4%] h-28 w-[58%]" />
+          <div className="landing-harbor-light absolute bottom-20 left-[18%]" />
+          <div className="landing-harbor-light absolute bottom-14 left-[38%]" />
+          <div className="landing-harbor-light warm absolute bottom-24 right-[24%]" />
+          <div className="landing-radar absolute bottom-20 right-[16%]" />
+        </div>
+
+        <div className="absolute bottom-0 left-0 right-0 grid gap-2 sm:grid-cols-3">
+          {statusItems.map(([label, value]) => (
+            <div key={label} className="rounded-2xl border border-bio-glow/15 bg-deep-ocean/70 px-3 py-2 backdrop-blur-md">
+              <p className="font-mono text-[0.5625rem] font-black uppercase tracking-[0.18em] text-bio-glow/80">{label}</p>
+              <p className="mt-1 text-[0.6875rem] font-bold text-text-main">{value}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="absolute right-3 top-3 rounded-2xl border border-line bg-deep-ocean/70 px-3 py-2 text-right backdrop-blur-md">
+          <p className="font-mono text-[0.625rem] font-black text-bio-glow">{stationClock}</p>
+          <p className="mt-0.5 text-[0.5625rem] font-bold text-text-muted">{stationDate}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function DevLogStandalonePage() {
   const manifestoSections = [
     {
@@ -3051,6 +3102,8 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
           </section>
 
           <aside className="space-y-4">
+            <LandingSignalScene stationDate={stationDate} stationClock={stationClock} />
+
             <div className="station-clock-card relative overflow-hidden rounded-[2rem] p-6">
               <div className="pointer-events-none absolute inset-0 opacity-40">
                 <div className="station-clock-line absolute inset-x-0 top-0 h-px" />
@@ -3059,8 +3112,8 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
               </div>
               <div className="relative space-y-5">
                 <div>
-                  <p className="station-clock-label text-xs font-black uppercase tracking-[0.28em]">小站入口</p>
-                  <h2 className="mt-2 text-2xl font-black text-text-main">登入後就能進來</h2>
+                  <p className="station-clock-label text-xs font-black uppercase tracking-[0.28em]">登島入口</p>
+                  <h2 className="mt-2 text-2xl font-black text-text-main">進來看看島上訊號</h2>
                   <p className="mt-2 text-sm leading-relaxed text-text-muted">
                     用 Google 登入後，就可以看貼文、留言、發照片、追蹤島民，也能幫忙回報需要站方注意的內容。
                   </p>
@@ -3069,9 +3122,9 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                   <div className="flex items-start gap-3">
                     <Shield className="mt-0.5 h-5 w-5 shrink-0 text-bio-glow" />
                     <div>
-                      <p className="text-sm font-black text-text-main">希望這裡舒服一點</p>
+                      <p className="text-sm font-black text-text-main">試航中的小島</p>
                       <p className="mt-1 text-xs leading-relaxed text-text-muted">
-                        大家可以好好講話，也可以有不同意見；真的太誇張的內容，站方會盡量處理。
+                        這裡還在打磨，但會繼續往前開。大家可以好好講話，也可以有不同意見。
                       </p>
                     </div>
                   </div>
