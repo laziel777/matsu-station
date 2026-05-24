@@ -1642,6 +1642,7 @@ useEffect(() => {
   const [avatarCropX, setAvatarCropX] = useState(0);
   const [avatarCropY, setAvatarCropY] = useState(0);
   const [isSavingAvatarCrop, setIsSavingAvatarCrop] = useState(false);
+  const [avatarSaveStatus, setAvatarSaveStatus] = useState('');
 
   useEffect(() => {
     if (showTerms) {
@@ -2351,6 +2352,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
     if (!avatarCropSrc || !avatarCropMode || !user) return;
     setIsUploadingAvatar(true);
     setIsSavingAvatarCrop(true);
+    setAvatarSaveStatus('整理圖片中...');
     try {
       const croppedBlob = await createAvatarCropBlob(avatarCropSrc, avatarCropScale, avatarCropX, avatarCropY);
       const croppedFile = new File([croppedBlob], 'avatar.jpg', { type: 'image/jpeg' });
@@ -2359,10 +2361,12 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
         maxWidthOrHeight: 512,
         useWebWorker: true,
       });
+      setAvatarSaveStatus('上傳圖片中...');
       const fileRef = ref(storage, `avatars/${user.uid}/${Date.now()}_avatar.jpg`);
       const snapshot = await uploadBytes(fileRef, compressedFile);
       const url = await getDownloadURL(snapshot.ref);
       try {
+        setAvatarSaveStatus('小站審核中...');
         const reviewAvatarImage = httpsCallable(functions, 'reviewAvatarImage');
         await reviewAvatarImage({ imageUrl: url, imagePath: snapshot.ref.fullPath });
       } catch (error) {
@@ -2373,6 +2377,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
         }
         throw error;
       }
+      setAvatarSaveStatus('更新頭像中...');
       if (avatarCropMode === 'setup') {
         setSetupPhoto(url);
       } else {
@@ -2389,6 +2394,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
     } finally {
       setIsUploadingAvatar(false);
       setIsSavingAvatarCrop(false);
+      setAvatarSaveStatus('');
     }
   };
 
@@ -2795,6 +2801,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                     setAvatarCropMode(null);
                     setAvatarCropSrc('');
                   }}
+                  disabled={isSavingAvatarCrop}
                   className="rounded-full border border-line bg-mist p-2 text-text-muted hover:text-text-main"
                 >
                   <X className="h-4 w-4" />
@@ -2812,6 +2819,12 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                   }}
                 />
               </div>
+              {isSavingAvatarCrop && (
+                <div className="mt-4 rounded-2xl border border-bio-glow/25 bg-bio-glow/10 px-4 py-3 text-center">
+                  <p className="text-sm font-black text-bio-glow">{avatarSaveStatus || '小站審核中...'}</p>
+                  <p className="mt-1 text-xs text-text-muted">請稍候，通過後才會公開更新頭像。</p>
+                </div>
+              )}
 
               <div className="mt-5 space-y-4">
                 <label className="block space-y-2">
@@ -2823,6 +2836,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                     step="0.01"
                     value={avatarCropScale}
                     onChange={event => setAvatarCropScale(Number(event.target.value))}
+                    disabled={isSavingAvatarCrop}
                     className="w-full accent-cyan-400"
                   />
                 </label>
@@ -2835,6 +2849,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                     step="0.01"
                     value={avatarCropX}
                     onChange={event => setAvatarCropX(Number(event.target.value))}
+                    disabled={isSavingAvatarCrop}
                     className="w-full accent-cyan-400"
                   />
                 </label>
@@ -2847,6 +2862,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                     step="0.01"
                     value={avatarCropY}
                     onChange={event => setAvatarCropY(Number(event.target.value))}
+                    disabled={isSavingAvatarCrop}
                     className="w-full accent-cyan-400"
                   />
                 </label>
@@ -2855,22 +2871,24 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
               <div className="mt-5 grid grid-cols-3 gap-2">
                 <button
                   type="button"
+                  disabled={isSavingAvatarCrop}
                   onClick={() => {
                     setAvatarCropScale(1);
                     setAvatarCropX(0);
                     setAvatarCropY(0);
                   }}
-                  className="rounded-xl border border-line bg-mist px-3 py-3 text-xs font-bold text-text-main hover:bg-white/10"
+                  className="rounded-xl border border-line bg-mist px-3 py-3 text-xs font-bold text-text-main hover:bg-white/10 disabled:opacity-50"
                 >
                   重設
                 </button>
                 <button
                   type="button"
+                  disabled={isSavingAvatarCrop}
                   onClick={() => {
                     setAvatarCropMode(null);
                     setAvatarCropSrc('');
                   }}
-                  className="rounded-xl border border-line bg-mist px-3 py-3 text-xs font-bold text-text-muted hover:text-text-main"
+                  className="rounded-xl border border-line bg-mist px-3 py-3 text-xs font-bold text-text-muted hover:text-text-main disabled:opacity-50"
                 >
                   取消
                 </button>
@@ -2880,7 +2898,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                   onClick={saveAvatarCrop}
                   className="rounded-xl bg-bio-glow px-3 py-3 text-xs font-black text-deep-ocean transition-opacity disabled:opacity-50"
                 >
-                  {isSavingAvatarCrop ? '儲存中' : '使用'}
+                  {isSavingAvatarCrop ? '審核中' : '使用'}
                 </button>
               </div>
             </motion.div>
