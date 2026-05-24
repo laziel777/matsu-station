@@ -182,6 +182,57 @@ function PolicyStandalonePage({ page }: { page: SitePolicyPage }) {
   );
 }
 
+function LandingSignalScene({ stationDate, stationClock }: { stationDate: string; stationClock: string }) {
+  const statusItems = [
+    ['小站狀態', 'Beta 試航中'],
+    ['站內內容', '登入後開啟'],
+    ['在地資訊', '航班 / 船班 / 氣象入口待命'],
+  ];
+
+  return (
+    <div className="landing-signal-scene relative overflow-hidden rounded-[2rem] border border-line bg-mist/70 p-5">
+      <div className="pointer-events-none absolute inset-0">
+        <div className="landing-signal-grid absolute inset-0" />
+        <div className="landing-signal-scan absolute inset-x-0 top-0 h-20" />
+        <div className="landing-fog landing-fog-a absolute left-[-18%] top-[18%] h-24 w-[140%]" />
+        <div className="landing-fog landing-fog-b absolute left-[-8%] top-[42%] h-20 w-[120%]" />
+        <div className="absolute bottom-0 left-0 right-0 h-28 bg-gradient-to-t from-deep-ocean via-deep-ocean/70 to-transparent" />
+      </div>
+
+      <div className="relative min-h-[270px]">
+        <div className="absolute left-3 top-2">
+          <p className="font-mono text-[0.625rem] font-black uppercase tracking-[0.28em] text-bio-glow">Island Signal</p>
+          <p className="mt-1 text-xs font-bold text-text-muted">Matsu Station / Beta Voyage</p>
+        </div>
+
+        <div aria-hidden="true" className="absolute inset-x-2 bottom-14 h-32">
+          <div className="landing-horizon absolute inset-x-0 top-12 h-px" />
+          <div className="landing-island landing-island-back absolute bottom-0 left-[8%] h-20 w-[46%]" />
+          <div className="landing-island landing-island-front absolute bottom-0 right-[4%] h-28 w-[58%]" />
+          <div className="landing-harbor-light absolute bottom-20 left-[18%]" />
+          <div className="landing-harbor-light absolute bottom-14 left-[38%]" />
+          <div className="landing-harbor-light warm absolute bottom-24 right-[24%]" />
+          <div className="landing-radar absolute bottom-20 right-[16%]" />
+        </div>
+
+        <div className="absolute bottom-0 left-0 right-0 grid gap-2 sm:grid-cols-3">
+          {statusItems.map(([label, value]) => (
+            <div key={label} className="rounded-2xl border border-bio-glow/15 bg-deep-ocean/70 px-3 py-2 backdrop-blur-md">
+              <p className="font-mono text-[0.5625rem] font-black uppercase tracking-[0.18em] text-bio-glow/80">{label}</p>
+              <p className="mt-1 text-[0.6875rem] font-bold text-text-main">{value}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="absolute right-3 top-3 rounded-2xl border border-line bg-deep-ocean/70 px-3 py-2 text-right backdrop-blur-md">
+          <p className="font-mono text-[0.625rem] font-black text-bio-glow">{stationClock}</p>
+          <p className="mt-0.5 text-[0.5625rem] font-bold text-text-muted">{stationDate}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function DevLogStandalonePage() {
   const manifestoSections = [
     {
@@ -2987,16 +3038,6 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
         <div className="pointer-events-none fixed inset-0">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_18%,color-mix(in_srgb,var(--primary-glow)_18%,transparent),transparent_34%),radial-gradient(circle_at_82%_12%,rgba(246,212,74,0.12),transparent_30%),linear-gradient(135deg,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:auto,auto,28px_28px]" />
           <div className="absolute bottom-[-18%] right-[-8%] h-[34rem] w-[34rem] rounded-full bg-bio-glow/10 blur-3xl" />
-          <div className="landing-bg-grid absolute inset-0" />
-          <div className="landing-bg-fog landing-bg-fog-a absolute left-[-18%] top-[24%] h-28 w-[140%]" />
-          <div className="landing-bg-fog landing-bg-fog-b absolute left-[-12%] top-[54%] h-24 w-[130%]" />
-          <div className="landing-bg-horizon absolute inset-x-0 bottom-[18%] h-px" />
-          <div className="landing-bg-island landing-bg-island-back absolute bottom-[6%] left-[3%] h-28 w-[48%]" />
-          <div className="landing-bg-island landing-bg-island-front absolute bottom-[5%] right-[2%] h-36 w-[60%]" />
-          <div className="landing-bg-light absolute bottom-[24%] left-[22%]" />
-          <div className="landing-bg-light absolute bottom-[17%] left-[42%]" />
-          <div className="landing-bg-light warm absolute bottom-[27%] right-[24%]" />
-          <div className="absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-deep-ocean via-deep-ocean/70 to-transparent" />
         </div>
 
         <header className="relative z-10 mx-auto flex max-w-6xl items-center justify-between px-5 py-5">
@@ -3061,6 +3102,8 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
           </section>
 
           <aside className="space-y-4">
+            <LandingSignalScene stationDate={stationDate} stationClock={stationClock} />
+
             <div className="station-clock-card relative overflow-hidden rounded-[2rem] p-6">
               <div className="pointer-events-none absolute inset-0 opacity-40">
                 <div className="station-clock-line absolute inset-x-0 top-0 h-px" />
