@@ -3932,9 +3932,9 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                    initial={{ opacity: 0, y: 10 }}
                    animate={{ opacity: 1, y: 0 }}
                    exit={{ opacity: 0, y: 10 }}
-                   className="absolute top-full left-0 right-0 mt-2 p-4 glass-card rounded-2xl z-50 shadow-2xl border-line max-h-[70vh] overflow-y-auto"
+                   className="absolute top-full left-0 right-0 mt-2 p-4 dropdown-panel rounded-2xl z-50 max-h-[70vh] overflow-y-auto"
                  >
-                   <div className="rounded-xl bg-mist-light border border-line p-3 mb-4">
+                   <div className="rounded-xl bg-mist border border-line p-3 mb-4">
                      <div className="flex items-center justify-between gap-3">
                        <div className="min-w-0">
                          <p className="text-[0.625rem] text-text-muted font-bold uppercase tracking-widest">智慧搜尋</p>
@@ -3976,7 +3976,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                                  document.getElementById(`post-${post.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
                                }, 80);
                              }}
-                             className="w-full text-left p-2.5 rounded-xl hover:bg-mist-light transition-colors"
+                             className="w-full text-left p-2.5 rounded-xl hover:bg-mist transition-colors"
                            >
                              <div className="flex items-center justify-between gap-3">
                                <span className="text-xs font-bold text-text-main truncate">{post.authorName}</span>
@@ -3998,7 +3998,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                      </div>
                    )}
                    {normalizedSearchQuery && searchPreviewPosts.length === 0 && (
-                     <div className="mb-4 rounded-xl border border-line bg-mist-light p-3">
+                     <div className="mb-4 rounded-xl border border-line bg-mist p-3">
                        <p className="text-sm font-bold text-text-main">目前沒有符合的動態</p>
                        <p className="text-[0.6875rem] text-text-muted leading-relaxed mt-1">可以換個關鍵字，或用下方分類快速瀏覽。</p>
                      </div>
@@ -4019,7 +4019,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                              setSearchQuery('');
                              setIsSearchFocused(false);
                            }}
-                           className="flex items-center gap-2 rounded-xl border border-line bg-mist-light px-2.5 py-2 text-left hover:border-bio-glow/40 hover:text-bio-glow transition-all"
+                           className="flex items-center gap-2 rounded-xl border border-line bg-mist px-2.5 py-2 text-left hover:border-bio-glow/40 hover:text-bio-glow transition-all"
                          >
                            <span className="text-sm">{cat.icon}</span>
                            <span className="text-[0.6875rem] font-bold text-text-main truncate">{cat.name}</span>
@@ -4040,7 +4040,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                            setSearchQuery(topic.label);
                            setIsSearchFocused(false);
                          }}
-                         className="w-full flex items-center justify-between p-2.5 rounded-xl hover:bg-mist-light group/topic transition-all text-left cursor-pointer"
+                         className="w-full flex items-center justify-between p-2.5 rounded-xl hover:bg-mist group/topic transition-all text-left cursor-pointer"
                        >
                          <div className="flex items-center gap-3">
                            <span className="text-xs font-mono text-bio-glow opacity-60">#</span>
