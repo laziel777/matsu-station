@@ -2834,6 +2834,134 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
     );
   }
 
+  if (!user) {
+    return (
+      <div className="min-h-screen overflow-hidden bg-deep-ocean text-text-main font-sans">
+        <div className="pointer-events-none fixed inset-0">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_18%,color-mix(in_srgb,var(--primary-glow)_18%,transparent),transparent_34%),radial-gradient(circle_at_82%_12%,rgba(246,212,74,0.12),transparent_30%),linear-gradient(135deg,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:auto,auto,28px_28px]" />
+          <div className="absolute bottom-[-18%] right-[-8%] h-[34rem] w-[34rem] rounded-full bg-bio-glow/10 blur-3xl" />
+        </div>
+
+        <header className="relative z-10 mx-auto flex max-w-6xl items-center justify-between px-5 py-5">
+          <a href="/" className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-line bg-mist shadow-lg shadow-bio-glow/10">
+              <Waves className="h-6 w-6 text-bio-glow" />
+            </div>
+            <div>
+              <p className="font-display text-lg font-black tracking-tight text-text-main">馬祖小站</p>
+              <p className="font-mono text-[0.625rem] uppercase tracking-[0.24em] text-bio-glow">Matsu Station</p>
+            </div>
+          </a>
+          <a
+            href={LINE_OFFICIAL_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-xl border border-line bg-mist/60 px-3 py-2 text-xs font-bold text-text-muted transition-colors hover:border-bio-glow/40 hover:text-text-main"
+          >
+            官方 LINE
+          </a>
+        </header>
+
+        <main className="relative z-10 mx-auto grid min-h-[calc(100vh-92px)] max-w-6xl items-center gap-8 px-5 pb-12 lg:grid-cols-[1.08fr_0.92fr]">
+          <section className="space-y-7">
+            <div className="inline-flex items-center gap-2 rounded-full border border-bio-glow/20 bg-bio-glow/10 px-3 py-1.5 text-[0.625rem] font-black uppercase tracking-[0.22em] text-bio-glow">
+              <span className="h-1.5 w-1.5 rounded-full bg-bio-glow shadow-[0_0_10px_var(--primary-glow)]" />
+              Beta 測試中
+            </div>
+
+            <div className="space-y-4">
+              <h1 className="font-display text-4xl font-black tracking-tight text-text-main sm:text-6xl">
+                給馬祖鄉親的
+                <span className="block text-bio-glow">在地交流空間</span>
+              </h1>
+              <p className="max-w-2xl text-sm leading-7 text-text-muted sm:text-base">
+                馬祖小站目前為 Beta 測試版。登入後可以發文、留言、分享圖片、追蹤島民與回報問題；站內內容僅開放登入使用者瀏覽，避免被路人搬運、截圖或脫離脈絡傳播。
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <button
+                onClick={handleLogin}
+                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-bio-glow px-6 py-4 text-sm font-black text-deep-ocean shadow-lg shadow-bio-glow/20 transition-all hover:bg-white active:scale-95"
+              >
+                <LogIn className="h-4 w-4" />
+                使用 Google 登入
+              </button>
+              <a
+                href="/community-guidelines"
+                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-line bg-mist/70 px-6 py-4 text-sm font-bold text-text-main transition-all hover:border-bio-glow/40 hover:bg-mist"
+              >
+                先看社群規範
+                <ChevronRight className="h-4 w-4" />
+              </a>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-3">
+              {[
+                ['不要公開個資', '避免身分證、住址、車牌、私密截圖等內容。'],
+                ['不要未證實重大指控', '地方討論可以尖銳，但請避免把傳聞包裝成事實。'],
+                ['遇到問題可回報', '請截圖並透過官方 LINE 聯絡站方。'],
+              ].map(([title, body]) => (
+                <div key={title} className="rounded-2xl border border-line bg-mist/55 p-4">
+                  <p className="text-xs font-black text-text-main">{title}</p>
+                  <p className="mt-2 text-[0.6875rem] leading-relaxed text-text-muted">{body}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <aside className="space-y-4">
+            <div className="station-clock-card relative overflow-hidden rounded-[2rem] p-6">
+              <div className="pointer-events-none absolute inset-0 opacity-40">
+                <div className="station-clock-line absolute inset-x-0 top-0 h-px" />
+                <div className="station-clock-aura absolute -right-14 -top-14 h-36 w-36 rounded-full blur-2xl" />
+                <div className="station-clock-grid absolute inset-0" />
+              </div>
+              <div className="relative space-y-5">
+                <div>
+                  <p className="station-clock-label text-xs font-black uppercase tracking-[0.28em]">小站入口</p>
+                  <h2 className="mt-2 text-2xl font-black text-text-main">登入後進入島內</h2>
+                  <p className="mt-2 text-sm leading-relaxed text-text-muted">
+                    這裡不是公開爆料牆，而是有規範、有檢舉、有站務紀錄的地方社群空間。
+                  </p>
+                </div>
+                <div className="station-clock-display rounded-2xl p-4">
+                  <div className="flex items-start gap-3">
+                    <Shield className="mt-0.5 h-5 w-5 shrink-0 text-bio-glow" />
+                    <div>
+                      <p className="text-sm font-black text-text-main">前台自由討論，後台風險治理</p>
+                      <p className="mt-1 text-xs leading-relaxed text-text-muted">
+                        AI 只協助標記風險，最後仍由站方依脈絡與規範處理。
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-[2rem] border border-line bg-mist/75 p-6">
+              <p className="text-[0.625rem] font-black uppercase tracking-[0.24em] text-bio-glow">小站開發誌</p>
+              <h2 className="mt-2 text-xl font-black text-text-main">一個人把想法做成平台</h2>
+              <p className="mt-3 text-sm leading-7 text-text-muted">
+                從 React、Firebase、Gemini、LINE、Vercel、Cloudflare，到圖片審核與游騎兵後台，這裡會慢慢整理馬祖小站怎麼被做出來，以及為什麼要做成「自由發言 + 風險治理」。
+              </p>
+            </div>
+          </aside>
+        </main>
+
+        <footer className="relative z-10 border-t border-line px-5 py-6">
+          <div className="mx-auto flex max-w-6xl flex-wrap gap-4 text-xs font-bold text-text-muted">
+            <a href="/terms" className="hover:text-bio-glow">服務條款</a>
+            <a href="/privacy" className="hover:text-bio-glow">隱私權政策</a>
+            <a href="/community-guidelines" className="hover:text-bio-glow">社群規範</a>
+            <a href="/moderation" className="hover:text-bio-glow">檢舉與審核說明</a>
+            <a href="/support" className="hover:text-bio-glow">贊助與支持</a>
+          </div>
+        </footer>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-deep-ocean text-text-main font-sans">
       <AnimatePresence>
@@ -4538,30 +4666,6 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
               </div>
             </div>
           </div>
-
-          {/* Welcome Section */}
-          {!user && (
-            <motion.div 
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="bg-gradient-to-br from-blue-900 to-indigo-950 text-white p-8 rounded-[2rem] shadow-2xl space-y-4 mb-4 relative overflow-hidden border border-white/5"
-            >
-              <div className="relative z-10">
-                <h2 className="text-3xl font-bold font-display opacity-90">歡迎來到馬祖小站</h2>
-                <p className="text-stone-300 max-w-md text-sm leading-relaxed">
-                   馬祖小站目前為 Beta 測試版，歡迎馬祖鄉親協助測試。<br />發言由使用者自行負責；若有檢舉或需要協助查看的內容，站長會依規範處理並留下站務紀錄。<br />若遇到問題，請截圖回報馬祖小站 LINE 官方帳號。
-                </p>
-                <button 
-                  onClick={handleLogin}
-                  className="mt-6 bg-bio-glow text-deep-ocean px-6 py-3 rounded-xl font-bold hover:bg-white transition-all flex items-center gap-2 shadow-lg shadow-bio-glow/20"
-                >
-                  探索馬祖的另一面
-                </button>
-              </div>
-              <div className="absolute -bottom-20 -right-20 w-80 h-80 bg-blue-500/20 rounded-full blur-[80px]" />
-              <Waves className="absolute bottom-[-20px] right-[-20px] w-64 h-64 text-white/5" />
-            </motion.div>
-          )}
 
           {/* Post Form */}
           {user && hasAcceptedLatestPolicies(profile) && (
