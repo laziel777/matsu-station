@@ -1723,7 +1723,7 @@ const RECOMMENDATION_VERSION = "multi-risk-safety-weight-v3-2026-05-21";
 const MORNING_REPORT_VERSION = "governance-pulse-v3";
 const SAFE_MODE_REPORT_THRESHOLD = 8;
 const LOCKDOWN_REPORT_THRESHOLD = 20;
-const FINAL_MODERATION_CASE_STATUSES = new Set(["approved", "released", "hidden", "removed", "deleted", "dismissed", "reviewed"]);
+const FINAL_MODERATION_CASE_STATUSES = new Set(["approved", "released", "hidden", "removed", "deleted", "dev_test_archived", "dismissed", "reviewed"]);
 const ACTIVE_MODERATION_CASE_STATUSES = new Set(["pending", "pending_review", "masked", "quarantined"]);
 
 function isModerationCaseResolved(caseData = {}) {
@@ -1738,7 +1738,7 @@ function isModerationCaseActive(caseData = {}) {
 }
 
 function isClosedSourceStatus(status = "") {
-  return ["approved", "released", "hidden", "removed", "deleted"].includes(String(status || ""));
+  return ["approved", "released", "hidden", "removed", "deleted", "dev_test_archived"].includes(String(status || ""));
 }
 
 function getPublicModerationNoticeForStatus(status = "") {
@@ -7623,12 +7623,16 @@ async function syncReportModerationCase({ reportId = "", sourcePath = "", review
   }, { merge: true });
 
   if (reportRef) {
+    const reportNextStatus = ["pending", "pending_review"].includes(String(nextStatus || ""))
+      ? "queued"
+      : "closed";
     await reportRef.set({
       sourcePath: resolvedSourcePath,
       moderationCaseId: sourceKey,
-      status: String(reportData.status || "pending") === "closed" ? "closed" : "queued",
+      status: String(reportData.status || "pending") === "closed" ? "closed" : reportNextStatus,
       syncedAt: now,
       processedAt: reportData.processedAt || now,
+      ...(reportNextStatus === "closed" ? { closedAt: now, closedBy: reviewerId || "station_master" } : {}),
     }, { merge: true });
   }
 
@@ -7665,9 +7669,94 @@ exports.rangerSyncReportCase = onCall(
   }
 );
 
-async function updateSourceByAction(caseData, action) {
-  const sourceRef = db.doc(caseData.sourcePath);
+async function closeReportsForSource({ sourcePath = "", caseId = "", reviewerId = "", status = "closed" } = {}) {
+  const normalizedSourcePath = String(sourcePath || "").trim();
+  const normalizedCaseId = String(caseId || "").trim();
+  if (!normalizedSourcePath && !normalizedCaseId) return 0;
+
+  const snapshots = [];
+  if (normalizedSourcePath) {
+    snapshots.push(await db.collection("reports").where("sourcePath", "==", normalizedSourcePath).limit(120).get());
+    try {
+      const sourceMeta = parseManagedSourcePath(normalizedSourcePath);
+      const targetId = sourceMeta.replyId || sourceMeta.commentId || sourceMeta.postId || "";
+      if (targetId) {
+        snapshots.push(await db.collection("reports").where("targetId", "==", targetId).limit(120).get());
+      }
+    } catch (error) {
+      logger.warn("Could not parse source path while closing reports.", {
+        sourcePath: normalizedSourcePath,
+        message: error?.message || String(error),
+      });
+    }
+  }
+  if (normalizedCaseId) {
+    snapshots.push(await db.collection("reports").where("moderationCaseId", "==", normalizedCaseId).limit(120).get());
+  }
+
+  const refs = new Map();
+  snapshots.forEach((snapshot) => {
+    snapshot.docs.forEach((doc) => refs.set(doc.ref.path, doc.ref));
+  });
+
+  if (!refs.size) return 0;
+
   const now = admin.firestore.FieldValue.serverTimestamp();
+  let batch = db.batch();
+  let batchCount = 0;
+  let total = 0;
+  for (const ref of refs.values()) {
+    batch.set(ref, {
+      ...(normalizedSourcePath ? { sourcePath: normalizedSourcePath } : {}),
+      ...(normalizedCaseId ? { moderationCaseId: normalizedCaseId } : {}),
+      status,
+      processedAt: now,
+      closedAt: now,
+      closedBy: reviewerId || "station_master",
+    }, { merge: true });
+    batchCount += 1;
+    total += 1;
+    if (batchCount >= 450) {
+      await batch.commit();
+      batch = db.batch();
+      batchCount = 0;
+    }
+  }
+  if (batchCount) await batch.commit();
+  return total;
+}
+
+async function updateSourceByAction(caseData, action) {
+  const sourcePath = String(caseData?.sourcePath || "").trim();
+  const now = admin.firestore.FieldValue.serverTimestamp();
+
+  if (action === "archive_dev_test") {
+    if (sourcePath) {
+      const sourceRef = db.doc(sourcePath);
+      const sourceSnap = await sourceRef.get();
+      if (sourceSnap.exists) {
+        await sourceRef.set({
+          ...getPublicSourceInternalFieldDeletePatch(),
+          moderationStatus: "dev_test_archived",
+          moderationReason: "開發測試資料封存",
+          moderationPublicNotice: getPublicModerationNoticeForStatus("hidden"),
+          moderationReviewNotice: admin.firestore.FieldValue.delete(),
+          moderationMaskNotice: admin.firestore.FieldValue.delete(),
+          content: "",
+          quarantinedContentPreview: PUBLIC_HIDDEN_PREVIEW,
+          ...(caseData.sourceType === "post" ? { imageUrl: "", imagePath: "", imageUrls: [], imagePaths: [] } : {}),
+          moderationUpdatedAt: now,
+        }, { merge: true });
+      }
+    }
+    return "dev_test_archived";
+  }
+
+  if (!sourcePath) {
+    throw new HttpsError("failed-precondition", "Source path is missing.");
+  }
+
+  const sourceRef = db.doc(sourcePath);
 
   if (["release", "quarantine", "remove"].includes(action)) {
     const sourceSnap = await sourceRef.get();
@@ -7758,7 +7847,7 @@ exports.rangerModerationAction = onCall(
     const caseId = String(request.data?.caseId || "").trim();
     const action = String(request.data?.action || "").trim();
     const adminNote = String(request.data?.adminNote || "").trim().slice(0, 500);
-    const allowedActions = ["mark_reviewed", "dismiss", "release", "quarantine", "remove", "delete_case"];
+    const allowedActions = ["mark_reviewed", "dismiss", "release", "quarantine", "remove", "archive_dev_test", "delete_case"];
 
     if (!caseId || !allowedActions.includes(action)) {
       throw new HttpsError("invalid-argument", "Invalid moderation action.");
@@ -7790,6 +7879,7 @@ exports.rangerModerationAction = onCall(
       const canDeleteArchivedCase =
         !sourceExists ||
         caseData?.status === "deleted" ||
+        caseData?.status === "dev_test_archived" ||
         caseData?.recommendedAction === "author_deleted";
 
       if (!canDeleteArchivedCase) {
@@ -7819,10 +7909,18 @@ exports.rangerModerationAction = onCall(
       updatedAt: now,
     }, { merge: true });
 
+    const closedReports = await closeReportsForSource({
+      sourcePath: String(caseData?.sourcePath || "").trim(),
+      caseId,
+      reviewerId,
+      status: "closed",
+    });
+
     return {
       ok: true,
       caseId,
       status: nextStatus,
+      closedReports,
     };
   }
 );
@@ -7876,8 +7974,10 @@ async function applyDirectContentAction({ sourcePath, action, reviewerId, reason
       !sourceSnap.exists ||
       sourceDataForCheck.moderationStatus === "deleted" ||
       sourceDataForCheck.moderationStatus === "image_deleted" ||
+      sourceDataForCheck.moderationStatus === "dev_test_archived" ||
       existingCase.status === "deleted" ||
       existingCase.status === "image_deleted" ||
+      existingCase.status === "dev_test_archived" ||
       existingCase.recommendedAction === "author_deleted";
 
     if (!canDeleteArchivedCase) {
@@ -7946,10 +8046,12 @@ async function applyDirectContentAction({ sourcePath, action, reviewerId, reason
     ? "pending_review"
     : action === "hide" || action === "hide_image"
       ? "hidden"
-      : action === "delete"
-        ? "deleted"
-        : action === "delete_image"
-          ? "image_deleted"
+    : action === "delete"
+      ? "deleted"
+      : action === "delete_image"
+        ? "image_deleted"
+        : action === "archive_dev_test"
+          ? "dev_test_archived"
           : action === "mask"
             ? "masked"
             : "approved";
@@ -7958,6 +8060,7 @@ async function applyDirectContentAction({ sourcePath, action, reviewerId, reason
     hide: `站長隱藏此內容：${moderationReason}`,
     delete: "站長從後台完全刪除此內容。",
     restore: "站長已恢復此內容公開顯示。",
+    archive_dev_test: "站長已將此內容標記為開發測試資料並封存。",
     mask: "站長已將此內容維持遮罩，但允許使用者自行展開。",
   }[action];
   const actionLegalRisk = {
@@ -7965,6 +8068,7 @@ async function applyDirectContentAction({ sourcePath, action, reviewerId, reason
     hide: "內容已隱藏並保留治理紀錄，可供後續申訴與安全稽核。",
     delete: "目標文件已刪除，治理紀錄保留於站長後台。",
     restore: "內容經站長裁決恢復顯示，處理紀錄保留供後續追蹤。",
+    archive_dev_test: "早期開發或測試資料已封存，不再列入待裁決或高風險熱點，仍保留紀錄。",
     mask: "內容保留但不主動放大，平台保留注意與治理痕跡。",
   }[action];
 
@@ -7983,7 +8087,7 @@ async function applyDirectContentAction({ sourcePath, action, reviewerId, reason
         : "圖片已由站長復原，後續仍保留裁決紀錄與風險快照。"
   );
 
-  if (!["review", "hide", "delete", "restore", "mask", "hide_image", "restore_image", "delete_image", "delete_case"].includes(action)) {
+  if (!["review", "hide", "delete", "restore", "mask", "archive_dev_test", "hide_image", "restore_image", "delete_image", "delete_case"].includes(action)) {
     throw new HttpsError("invalid-argument", "Unsupported content action.");
   }
 
@@ -8022,6 +8126,20 @@ async function applyDirectContentAction({ sourcePath, action, reviewerId, reason
       moderationStatus: "hidden",
       moderationReason,
       moderationPublicNotice: getPublicModerationNoticeForStatus("hidden"),
+      content: "",
+      quarantinedContentPreview: PUBLIC_HIDDEN_PREVIEW,
+      ...(sourceMeta.sourceType === "post" ? { imageUrl: "", imagePath: "", imageUrls: [], imagePaths: [] } : {}),
+    }, { merge: true });
+  }
+
+  if (action === "archive_dev_test") {
+    await sourceRef.set({
+      ...basePatch,
+      moderationStatus: "dev_test_archived",
+      moderationReason: moderationReason || "開發測試資料封存",
+      moderationPublicNotice: getPublicModerationNoticeForStatus("hidden"),
+      moderationReviewNotice: admin.firestore.FieldValue.delete(),
+      moderationMaskNotice: admin.firestore.FieldValue.delete(),
       content: "",
       quarantinedContentPreview: PUBLIC_HIDDEN_PREVIEW,
       ...(sourceMeta.sourceType === "post" ? { imageUrl: "", imagePath: "", imageUrls: [], imagePaths: [] } : {}),
@@ -8170,11 +8288,21 @@ async function applyDirectContentAction({ sourcePath, action, reviewerId, reason
     }
   }
 
+  const closedReports = isPendingReviewAction
+    ? 0
+    : await closeReportsForSource({
+      sourcePath,
+      caseId: sourceKey,
+      reviewerId,
+      status: "closed",
+    });
+
   return {
     ok: true,
     sourcePath,
     status: nextStatus,
     publicCaseId,
+    closedReports,
   };
 }
 
@@ -8267,7 +8395,7 @@ exports.rangerContentAction = onCall(
     const action = String(request.data?.action || "").trim();
     const reason = String(request.data?.reason || "").trim();
 
-    if (!sourcePath || !["review", "hide", "delete", "restore", "mask", "hide_image", "restore_image", "delete_image", "delete_case"].includes(action)) {
+    if (!sourcePath || !["review", "hide", "delete", "restore", "mask", "archive_dev_test", "hide_image", "restore_image", "delete_image", "delete_case"].includes(action)) {
       throw new HttpsError("invalid-argument", "Invalid content action.");
     }
 

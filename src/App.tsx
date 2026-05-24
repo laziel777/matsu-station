@@ -328,6 +328,7 @@ type ModerationStatus =
   | 'image_hidden'
   | 'image_deleted'
   | 'deleted'
+  | 'dev_test_archived'
   | 'appealed'
   | 'quarantined'
   | 'removed'
@@ -616,10 +617,42 @@ const isModerationMasked = (status?: string) => status === 'masked';
 const isImageModerationHidden = (status?: string) => status === 'image_hidden' || status === 'image_deleted';
 
 const isModerationRestricted = (status?: string) => {
-  return ['pending_review', 'hidden', 'deleted', 'quarantined', 'removed'].includes(String(status || ''));
+  return ['pending_review', 'hidden', 'deleted', 'dev_test_archived', 'quarantined', 'removed'].includes(String(status || ''));
 };
 
 const isModerationHidden = isModerationRestricted;
+
+const isAuthorDeletedModeration = (status?: string, reason?: string, notice?: string) => {
+  if (status !== 'deleted') return false;
+  const rawReason = String(reason || '').trim();
+  const cleanNotice = String(notice || '').trim();
+  return rawReason === 'author_deleted' || rawReason.includes('作者自行刪除') || cleanNotice === AUTHOR_DELETED_COPY;
+};
+
+const isFullyRemovedFromFrontend = (status?: string, reason?: string, notice?: string) => {
+  const normalizedStatus = String(status || '');
+  if (normalizedStatus === 'dev_test_archived') return true;
+  if (normalizedStatus !== 'deleted') return false;
+  return !isAuthorDeletedModeration(normalizedStatus, reason, notice);
+};
+
+const getModerationNoticeForVisibility = (item: {
+  moderationPublicNotice?: string;
+  moderationReviewNotice?: string;
+  moderationMaskNotice?: string;
+}) => item.moderationPublicNotice || item.moderationReviewNotice || item.moderationMaskNotice;
+
+const shouldShowPostOnFrontend = (post: Post) => !isFullyRemovedFromFrontend(
+  post.moderationStatus,
+  post.moderationReason,
+  getModerationNoticeForVisibility(post),
+);
+
+const shouldShowCommentOnFrontend = (comment: Comment | CommentReply) => !isFullyRemovedFromFrontend(
+  comment.moderationStatus,
+  comment.moderationReason,
+  getModerationNoticeForVisibility(comment),
+);
 
 const normalizeModerationReviewNotice = (notice?: string) => {
   const cleanNotice = String(notice || '').trim();
@@ -632,7 +665,7 @@ const getPublicModerationNotice = (status?: string, notice?: string) => {
   if (!cleanNotice || INTERNAL_MODERATION_TERMS.test(cleanNotice)) {
     if (status === 'masked') return MEDIUM_MASK_COPY;
     if (status === 'pending_review' || status === 'quarantined') return HIGH_REVIEW_COPY;
-    if (status === 'hidden' || status === 'deleted' || status === 'removed') return HIDDEN_PUBLIC_COPY;
+    if (status === 'hidden' || status === 'deleted' || status === 'dev_test_archived' || status === 'removed') return HIDDEN_PUBLIC_COPY;
     return '';
   }
   return cleanNotice;
@@ -651,7 +684,7 @@ const getPublicGovernanceSummary = (record: GovernanceRecord) => {
   if (status === 'approved' || status === 'released') return '站方已完成查看，此內容目前可正常公開。';
   if (status === 'masked') return MEDIUM_MASK_COPY;
   if (status === 'pending_review' || status === 'quarantined') return HIGH_REVIEW_COPY;
-  if (status === 'hidden' || status === 'removed' || status === 'deleted') return HIDDEN_PUBLIC_COPY;
+  if (status === 'hidden' || status === 'removed' || status === 'deleted' || status === 'dev_test_archived') return HIDDEN_PUBLIC_COPY;
   return '此紀錄保留供你查詢站務處理狀態。';
 };
 
@@ -672,7 +705,7 @@ const getModerationTombstoneText = (
   const cleanNotice = getPublicModerationNotice(status, notice);
   if (status === 'masked') return cleanNotice || MEDIUM_MASK_COPY;
   if (status === 'pending_review' || status === 'quarantined') return normalizeModerationReviewNotice(notice);
-  if (status === 'hidden' || status === 'deleted' || status === 'removed') {
+  if (status === 'hidden' || status === 'deleted' || status === 'dev_test_archived' || status === 'removed') {
     const label = contentType === 'post' ? '此貼文' : '此留言';
     const rawReason = String(reason || '').trim();
     if (rawReason === 'author_deleted' || rawReason.includes('作者自行刪除') || cleanNotice === AUTHOR_DELETED_COPY) {
@@ -685,9 +718,10 @@ const getModerationTombstoneText = (
   return '這則內容暫時由站長查看中。';
 };
 
-const getModerationTombstoneTitle = (status?: string) => {
+const getModerationTombstoneTitle = (status?: string, reason?: string, notice?: string) => {
+  if (isAuthorDeletedModeration(status, reason, notice)) return '內容已由作者刪除';
   if (status === 'pending_review' || status === 'quarantined') return '站長審核中';
-  if (status === 'hidden' || status === 'deleted' || status === 'removed') return '內容已由站方處理';
+  if (status === 'hidden' || status === 'deleted' || status === 'dev_test_archived' || status === 'removed') return '內容已由站方處理';
   if (status === 'masked') return '內容已遮罩';
   return '站務處理中';
 };
@@ -732,16 +766,17 @@ function ModerationTombstoneNotice({
   isAuthor?: boolean;
   compact?: boolean;
 }) {
+  const isAuthorDeleted = isAuthorDeletedModeration(status, reason, notice);
   return (
     <div className={`${compact ? 'rounded-xl px-3 py-2' : 'rounded-2xl px-4 py-3'} border border-amber-500/20 bg-amber-500/10`}>
       <div className="flex items-center gap-2 text-amber-300">
         <Shield className={compact ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
-        <p className={`${compact ? 'text-xs' : 'text-sm'} font-black`}>{getModerationTombstoneTitle(status)}</p>
+        <p className={`${compact ? 'text-xs' : 'text-sm'} font-black`}>{getModerationTombstoneTitle(status, reason, notice)}</p>
       </div>
       <p className={`${compact ? 'mt-1 text-xs' : 'mt-1.5 text-sm'} font-bold text-amber-200/95`}>
         {getModerationTombstoneText(status, reason, contentType, notice)}
       </p>
-      {isAuthor && (
+      {isAuthor && !isAuthorDeleted && (
         <p className={`${compact ? 'mt-1 text-[0.5625rem]' : 'mt-2 text-[0.625rem]'} text-amber-200/80`}>
           可到功能選單的「站務紀錄」查詢依據條款與處理狀態。
         </p>
@@ -1998,7 +2033,9 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
     try {
       const q = query(collection(db, 'posts'), orderBy('createdAt', 'desc'));
       const unsubscribe = onSnapshot(q, (snapshot) => {
-        const postsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
+        const postsData = snapshot.docs
+          .map(doc => ({ id: doc.id, ...doc.data() } as Post))
+          .filter(shouldShowPostOnFrontend);
         setPosts(postsData);
       }, (error) => {
         // Log but don't hard crash to avoid white screen
@@ -2935,11 +2972,12 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
       post.aiSummary,
     ].some(value => String(value || '').toLowerCase().includes(normalizedSearchQuery));
   };
-  const searchResultCount = normalizedSearchQuery ? posts.filter(postMatchesSearch).length : posts.length;
+  const frontendVisiblePosts = posts.filter(shouldShowPostOnFrontend);
+  const searchResultCount = normalizedSearchQuery ? frontendVisiblePosts.filter(postMatchesSearch).length : frontendVisiblePosts.length;
   const isFollowingFeedActive = activeCategory === FOLLOWING_FEED_CATEGORY;
   const followingAuthorIdSet = new Set(followingAuthorIds);
 
-  const filteredPosts = posts
+  const filteredPosts = frontendVisiblePosts
     .filter(post => {
       const matchesSearch = postMatchesSearch(post);
       const matchesPersonalFeed = !isFollowingFeedActive || followingAuthorIdSet.has(post.authorId);
@@ -2958,8 +2996,8 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
     ? (followingAuthorIds.length === 0 ? '可以到島民個人頁申請追蹤，對方同意後，這裡就會出現對方的貼文。' : '你追蹤的島民目前還沒有符合條件的新貼文。')
     : '';
   const searchCategoryShortcuts = POST_TAGS.slice(0, 8);
-  const searchPreviewPosts = normalizedSearchQuery ? posts.filter(postMatchesSearch).slice(0, 3) : [];
-  const viewingProfilePosts = viewingProfile ? posts.filter(post => post.authorId === viewingProfile.uid) : [];
+  const searchPreviewPosts = normalizedSearchQuery ? frontendVisiblePosts.filter(postMatchesSearch).slice(0, 3) : [];
+  const viewingProfilePosts = viewingProfile ? frontendVisiblePosts.filter(post => post.authorId === viewingProfile.uid) : [];
   const visibleProfilePosts = profileTab === 'posts' ? viewingProfilePosts : profileLikedPosts;
   const isViewingOwnProfile = Boolean(user && viewingProfile && user.uid === viewingProfile.uid);
   const canViewProfileSocialLists = Boolean(viewingProfile && (isViewingOwnProfile || isFollowingProfile));
@@ -5961,7 +5999,9 @@ function PostCard({
       const q = query(collection(db, 'posts', post.id, 'comments'), orderBy('createdAt', 'desc'));
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const nextComments = sortTopLevelComments(
-          snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Comment))
+          snapshot.docs
+            .map(doc => ({ id: doc.id, ...doc.data() } as Comment))
+            .filter(shouldShowCommentOnFrontend)
         );
         const liveCommentIds = new Set(nextComments.map(comment => comment.id));
 
@@ -6008,10 +6048,12 @@ function PostCard({
           );
 
           repliesUnsubscribeRef.current[comment.id] = onSnapshot(repliesQuery, (repliesSnapshot) => {
-            const replies = repliesSnapshot.docs.map(replyDoc => ({
-              id: replyDoc.id,
-              ...replyDoc.data(),
-            } as CommentReply));
+            const replies = repliesSnapshot.docs
+              .map(replyDoc => ({
+                id: replyDoc.id,
+                ...replyDoc.data(),
+              } as CommentReply))
+              .filter(shouldShowCommentOnFrontend);
 
             if (user) {
               Promise.all(
