@@ -1057,14 +1057,16 @@ const AdminAvatar = ({ className = "w-10 h-10" }: { className?: string }) => {
 
 const UserAvatar = ({ p, className = "w-10 h-10" }: { p?: { islanderId?: string, photoURL?: string, displayName?: string, role?: string }, className?: string }) => {
   if (!p) return <div className={`${className} bg-stone-800 rounded-xl`} />;
-  
-  // Station master styling must only come from trusted role checks.
-  if (p.role === 'admin') {
-    return <AdminAvatar className={className} />;
-  }
+
+  const hasCustomPhoto = Boolean(p.photoURL && p.photoURL !== DEFAULT_ISLANDER_PHOTO);
 
   // Handle default islander photo
-  if (p.photoURL === DEFAULT_ISLANDER_PHOTO || !p.photoURL) {
+  if (!hasCustomPhoto) {
+    // Station master styling must only come from trusted role checks.
+    if (p.role === 'admin') {
+      return <AdminAvatar className={className} />;
+    }
+
     return <DefaultIslanderAvatar className={className} />;
   }
   
