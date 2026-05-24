@@ -6490,7 +6490,7 @@ function PostCard({
                       initial={{ opacity: 0, scale: 0.9, y: -10 }}
                       animate={{ opacity: 1, scale: 1, y: 0 }}
                       exit={{ opacity: 0, scale: 0.9, y: -10 }}
-                      className="absolute top-full right-0 mt-2 z-[100] min-w-[160px] bg-mist-medium border border-line rounded-xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] p-2 overflow-hidden"
+                      className="absolute top-full right-0 mt-2 z-[100] min-w-[180px] dropdown-panel rounded-xl p-2"
                       onClick={(e) => e.stopPropagation()}
                     >
                       <div className="p-2 mb-1 border-b border-line">
