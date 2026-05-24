@@ -3088,7 +3088,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                 className="inline-flex items-center justify-center gap-2 rounded-2xl border border-[#06C755]/45 bg-[#06C755] px-6 py-4 text-sm font-black text-white shadow-lg shadow-[#06C755]/20 transition-all hover:bg-[#05b84f] active:scale-95"
               >
                 <MessageSquare className="h-4 w-4" />
-                官方 LINE 回報
+                官方 LINE
               </a>
             </div>
 
@@ -3115,8 +3115,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
               </div>
               <div className="relative space-y-5">
                 <div>
-                  <p className="station-clock-label text-xs font-black uppercase tracking-[0.28em]">小站入口</p>
-                  <h2 className="mt-2 text-2xl font-black text-text-main">登入後開始登島</h2>
+                  <h2 className="text-2xl font-black text-text-main">登入即可開始使用</h2>
                   <p className="mt-2 text-sm leading-relaxed text-text-muted">
                     用 Google 登入後，就能看貼文、留言、分享照片、追蹤島民，也可以把需要站方注意的內容回報給小站。
                   </p>
@@ -3125,7 +3124,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                   <div className="flex items-start gap-3">
                     <Shield className="mt-0.5 h-5 w-5 shrink-0 text-bio-glow" />
                     <div>
-                      <p className="text-sm font-black text-text-main">希望這裡好好說話</p>
+                      <p className="text-sm font-black text-text-main">維持友善與安全的討論環境</p>
                       <p className="mt-1 text-xs leading-relaxed text-text-muted">
                         可以分享生活，也可以有不同意見；但涉及個資、威脅、騷擾或明顯越界的內容，站方會盡量處理。
                       </p>
@@ -3137,7 +3136,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
 
             <div className="rounded-[2rem] border border-line bg-mist/75 p-6">
               <p className="text-[0.625rem] font-black uppercase tracking-[0.24em] text-bio-glow">小站開發誌</p>
-              <h2 className="mt-2 text-xl font-black text-text-main">想知道小站怎麼來的？</h2>
+              <h2 className="mt-2 text-xl font-black text-text-main">關於馬祖小站的建立</h2>
               <p className="mt-3 text-sm leading-7 text-text-muted">
                 這裡記著馬祖小站為什麼開始做、一路怎麼調整，以及這座還在試航中的小島想留下什麼。
               </p>
