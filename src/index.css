@@ -346,9 +346,43 @@
   color: #3730a3;
 }
 
+:root[data-theme-mode="light"] .flight-chip {
+  background:
+    linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(59, 130, 246, 0.045) 58%, rgba(255, 255, 255, 0.86)),
+    rgba(255, 255, 255, 0.92);
+  border-color: rgba(99, 102, 241, 0.26);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 10px 22px rgba(99, 102, 241, 0.08);
+}
+
+:root[data-theme-mode="light"] .flight-chip:hover {
+  background:
+    linear-gradient(135deg, rgba(99, 102, 241, 0.18), rgba(59, 130, 246, 0.07) 58%, rgba(255, 255, 255, 0.9)),
+    #ffffff;
+  border-color: rgba(99, 102, 241, 0.38);
+}
+
 :root[data-theme-mode="light"] .ferry-chip-icon,
 :root[data-theme-mode="light"] .ferry-chip-label {
   color: #065f46;
+}
+
+:root[data-theme-mode="light"] .ferry-chip {
+  background:
+    linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(20, 184, 166, 0.045) 58%, rgba(255, 255, 255, 0.86)),
+    rgba(255, 255, 255, 0.92);
+  border-color: rgba(16, 185, 129, 0.26);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 10px 22px rgba(16, 185, 129, 0.08);
+}
+
+:root[data-theme-mode="light"] .ferry-chip:hover {
+  background:
+    linear-gradient(135deg, rgba(16, 185, 129, 0.18), rgba(20, 184, 166, 0.07) 58%, rgba(255, 255, 255, 0.9)),
+    #ffffff;
+  border-color: rgba(16, 185, 129, 0.38);
 }
 
 .glow-text {
