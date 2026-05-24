@@ -41,7 +41,8 @@ const SERVER_POST_COOLDOWN_MS = 30 * 1000;
 const SERVER_NEW_ACCOUNT_WINDOW_MS = 30 * 60 * 1000;
 const SERVER_DAILY_POST_LIMIT = 20;
 const SERVER_DAILY_COMMENT_LIMIT = DAILY_COMMENT_LIMIT;
-const SERVER_DAILY_REPORT_LIMIT = 30;
+const SERVER_DAILY_REPORT_LIMIT = 20;
+const SERVER_REPORT_COOLDOWN_MS = 30 * 1000;
 const SERVER_DAILY_AVATAR_UPDATE_LIMIT = 5;
 const SERVER_DAILY_POST_IMAGE_LIMIT = 5;
 const SERVER_POST_IMAGE_COOLDOWN_MS = 60 * 1000;
@@ -3742,16 +3743,18 @@ function sanitizeSubmittedImageUrls(value) {
 function sanitizeSubmittedImagePaths(value, uid) {
   if (!Array.isArray(value)) return [];
   const prefix = `posts/${uid}/`;
+  const pathPattern = new RegExp(`^posts/${uid}/[0-9]{13}_[a-z0-9]{6,16}\\.(jpg|jpeg|png|webp)$`, "i");
   return value
     .map((item) => String(item || "").trim())
-    .filter((item) => item.startsWith(prefix) && item.length <= 500 && !item.includes(".."))
+    .filter((item) => item.startsWith(prefix) && item.length <= 500 && !item.includes("..") && pathPattern.test(item))
     .slice(0, SERVER_MAX_POST_IMAGES);
 }
 
 function sanitizeSubmittedAvatarPath(value, uid) {
   const path = String(value || "").trim();
   const prefix = `avatars/${uid}/`;
-  if (!path.startsWith(prefix) || path.includes("..") || path.length > 500) {
+  const pathPattern = new RegExp(`^avatars/${uid}/[0-9]{13}_avatar\\.jpg$`, "i");
+  if (!path.startsWith(prefix) || path.includes("..") || path.length > 500 || !pathPattern.test(path)) {
     throw new HttpsError("invalid-argument", "頭像路徑不正確。");
   }
   return path;
@@ -5180,11 +5183,18 @@ async function assertDailyReportQuota(uid, dayKey) {
 
   const usageRef = db.doc(`userUsage/${uid}/days/${dayKey}`);
   const now = admin.firestore.FieldValue.serverTimestamp();
+  const nowMs = Date.now();
 
   await db.runTransaction(async (transaction) => {
     const usageSnap = await transaction.get(usageRef);
     const usage = usageSnap.exists ? usageSnap.data() || {} : {};
     const reportCount = Math.max(0, Number(usage.reportCount || 0));
+    const lastReportAtMs = Math.max(0, Number(usage.lastReportAtMs || 0));
+
+    if (lastReportAtMs && nowMs - lastReportAtMs < SERVER_REPORT_COOLDOWN_MS) {
+      const secondsLeft = Math.ceil((SERVER_REPORT_COOLDOWN_MS - (nowMs - lastReportAtMs)) / 1000);
+      throw new HttpsError("resource-exhausted", `檢舉送出太頻繁，請再等 ${secondsLeft} 秒。`);
+    }
 
     if (reportCount >= SERVER_DAILY_REPORT_LIMIT) {
       throw new HttpsError("resource-exhausted", `今天檢舉次數已達 ${SERVER_DAILY_REPORT_LIMIT} 次，請稍後再試或透過 LINE 回報站長。`);
@@ -5194,6 +5204,8 @@ async function assertDailyReportQuota(uid, dayKey) {
       uid,
       dayKey,
       reportCount: admin.firestore.FieldValue.increment(1),
+      lastReportAtMs: nowMs,
+      lastReportAt: now,
       updatedAt: now,
       ...(usageSnap.exists ? {} : { createdAt: now }),
     }, { merge: true });

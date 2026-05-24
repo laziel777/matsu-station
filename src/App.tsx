@@ -435,6 +435,17 @@ const POST_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 const POST_IMAGE_ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const AVATAR_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 const AVATAR_IMAGE_ALLOWED_TYPES = POST_IMAGE_ALLOWED_TYPES;
+const POST_IMAGE_EXTENSION_BY_TYPE: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+};
+
+const createStorageSafeImageFileName = (file: File) => {
+  const extension = POST_IMAGE_EXTENSION_BY_TYPE[file.type] || 'jpg';
+  const randomPart = Math.random().toString(36).slice(2, 10);
+  return `${Date.now()}_${randomPart}.${extension}`;
+};
 
 const BACKGROUND_MODES = [
   { id: 'dark', name: '深色背景', description: '夜間閱讀', previewBackground: '#0A0C10', previewText: '#FAFAF9' },
@@ -2803,8 +2814,8 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
       // 1) 上傳圖片
       for (let i = 0; i < selectedImages.length; i++) {
         const file = selectedImages[i];
-        const safeFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-        const fileRef = ref(storage, `posts/${user.uid}/${Date.now()}_${safeFileName}`);
+        const safeFileName = createStorageSafeImageFileName(file);
+        const fileRef = ref(storage, `posts/${user.uid}/${safeFileName}`);
         const snapshot = await uploadBytes(fileRef, file);
         const url = await getDownloadURL(snapshot.ref);
         uploadedImages.push({ url, path: snapshot.ref.fullPath });
@@ -6500,7 +6511,9 @@ function PostCard({
     } catch (err: any) {
       console.error(err);
 
-      if (err.message.includes('permission-denied') || err.message.includes('insufficient permissions')) {
+      if (err.message.includes('resource-exhausted')) {
+        alert(err.message || '檢舉送出太頻繁，請稍後再試。');
+      } else if (err.message.includes('permission-denied') || err.message.includes('insufficient permissions')) {
         alert("檢舉失敗：目前功能權限暫時限制寫入，請稍後再試或透過官方 LINE 回報。");
       } else {
         alert('檢舉失敗，請稍後再試。');

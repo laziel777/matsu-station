@@ -17,12 +17,20 @@ service firebase.storage {
 
     match /avatars/{userId}/{fileName} {
       allow read: if true;
-      allow write: if isOwner(userId) && isPostImageUpload(1048576);
+      allow create: if isOwner(userId)
+                    && fileName.matches('[0-9]{13}_avatar\\.jpg')
+                    && isPostImageUpload(1048576);
+      allow delete: if isOwner(userId);
+      allow update: if false;
     }
 
     match /posts/{userId}/{fileName} {
       allow read: if true;
-      allow write: if isOwner(userId) && isPostImageUpload(10485760);
+      allow create: if isOwner(userId)
+                    && fileName.matches('[0-9]{13}_[a-z0-9]{6,16}\\.(jpg|jpeg|png|webp)')
+                    && isPostImageUpload(10485760);
+      allow delete: if isOwner(userId);
+      allow update: if false;
     }
 
     match /{allPaths=**} {
