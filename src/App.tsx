@@ -6231,14 +6231,14 @@ function PostCard({
               <motion.div 
                 key={idx}
                 whileHover={{ scale: 1.02 }}
-                className={`overflow-hidden rounded-2xl border border-line shadow-lg ${
+                className={`flex max-h-[70vh] items-center justify-center overflow-hidden rounded-2xl border border-line bg-deep-ocean/70 shadow-lg sm:max-h-[640px] ${
                   trustedImageUrls.length === 3 && idx === 0 ? 'sm:col-span-2' : ''
                 }`}
               >
                 <img 
                   src={url} 
                   alt="" 
-                  className="w-full h-full object-cover max-h-[400px] hover:opacity-90 transition-opacity cursor-zoom-in" 
+                  className="h-auto max-h-[70vh] w-full object-contain transition-opacity hover:opacity-90 cursor-zoom-in sm:max-h-[640px]"
                   referrerPolicy="no-referrer"
                   onClick={() => window.open(url, '_blank')}
                 />
