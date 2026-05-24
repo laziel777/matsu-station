@@ -44,10 +44,16 @@ const PROFILE_TABS = [
   { id: 'liked', label: '按讚內容' },
 ] as const;
 
+const DEVLOG_PATH = '/devlog';
+
+const normalizePath = (pathname: string) => pathname.replace(/\/+$/, '') || '/';
+
 const getPolicyPageByPath = (pathname: string) => {
-  const normalizedPath = pathname.replace(/\/+$/, '') || '/';
+  const normalizedPath = normalizePath(pathname);
   return SITE_POLICY_PAGES.find(page => page.path === normalizedPath) || null;
 };
+
+const isDevLogPath = (pathname: string) => normalizePath(pathname) === DEVLOG_PATH;
 
 function PolicySections({
   sectionIds,
@@ -171,6 +177,74 @@ function PolicyStandalonePage({ page }: { page: SitePolicyPage }) {
         <div className="space-y-8 text-sm leading-relaxed text-text-muted">
           <PolicySections sectionIds={page.sectionIds} showVersionCards={page.path === '/terms'} />
         </div>
+      </main>
+    </div>
+  );
+}
+
+function DevLogStandalonePage() {
+  const chapters = [
+    {
+      title: '為什麼想做',
+      body: '一開始只是覺得，馬祖是不是也可以有一個比較像自己家的交流角落。不是只看熱鬧，也不是只丟爆料，而是生活、交通、照片、問題、想法都能慢慢放在一起。',
+    },
+    {
+      title: '一路邊學邊做',
+      body: '小站不是一次做好的。登入、發文、留言、圖片、通知、檢舉、規範、後台整理，很多東西都是遇到問題後一點一點補起來。',
+    },
+    {
+      title: '希望留下什麼',
+      body: '希望這裡能保留馬祖人的日常，也保留一個小地方自己慢慢長出工具的過程。做得不完美，但會繼續修、繼續改。',
+    },
+  ];
+
+  return (
+    <div className="min-h-screen overflow-hidden bg-deep-ocean text-text-main font-sans">
+      <div className="pointer-events-none fixed inset-0">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_18%,color-mix(in_srgb,var(--primary-glow)_16%,transparent),transparent_34%),linear-gradient(135deg,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:auto,28px_28px]" />
+        <div className="absolute right-[-12%] top-[-12%] h-[28rem] w-[28rem] rounded-full bg-bio-glow/10 blur-3xl" />
+      </div>
+
+      <main className="relative z-10 mx-auto flex min-h-screen w-full max-w-4xl flex-col px-5 py-8 sm:py-12">
+        <a href="/" className="mb-8 inline-flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-bio-glow hover:text-text-main">
+          <Waves className="h-4 w-4" />
+          返回馬祖小站
+        </a>
+
+        <section className="space-y-5 border-b border-line pb-8">
+          <p className="text-[0.625rem] font-black uppercase tracking-[0.3em] text-bio-glow">小站開發誌</p>
+          <h1 className="font-display text-4xl font-black tracking-tight text-text-main sm:text-6xl">
+            這個小站
+            <span className="block text-bio-glow">怎麼長出來的</span>
+          </h1>
+          <p className="max-w-2xl text-sm leading-7 text-text-muted sm:text-base">
+            這裡會慢慢放一些馬祖小站的開發紀錄：為什麼開始做、遇到什麼問題、改了哪些功能，以及這個小小地方交流站怎麼被一點一點磨出來。
+          </p>
+        </section>
+
+        <section className="grid gap-4 py-8 sm:grid-cols-3">
+          {chapters.map((chapter, index) => (
+            <article key={chapter.title} className="rounded-[1.5rem] border border-line bg-mist/65 p-5">
+              <p className="font-mono text-[0.625rem] font-black text-bio-glow">0{index + 1}</p>
+              <h2 className="mt-3 text-lg font-black text-text-main">{chapter.title}</h2>
+              <p className="mt-3 text-sm leading-7 text-text-muted">{chapter.body}</p>
+            </article>
+          ))}
+        </section>
+
+        <section className="rounded-[2rem] border border-bio-glow/15 bg-bio-glow/5 p-6">
+          <h2 className="text-xl font-black text-text-main">目前先記到這裡</h2>
+          <p className="mt-3 text-sm leading-7 text-text-muted">
+            小站還在 Beta 測試中，很多地方會繼續調整。之後這裡可以放比較完整的時間線，例如第一次上線、圖片功能、檢舉系統、站務文件、在地資訊整理等等。
+          </p>
+          <a
+            href="/"
+            className="mt-5 inline-flex items-center gap-2 rounded-2xl bg-bio-glow px-5 py-3 text-sm font-black text-deep-ocean transition-all hover:bg-white active:scale-95"
+          >
+            回到小站入口
+            <ChevronRight className="h-4 w-4" />
+          </a>
+        </section>
       </main>
     </div>
   );
@@ -2777,7 +2851,13 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
     return parts.join(' / ');
   };
   const ferryScheduleRows = getFerryScheduleRows();
-  const activePolicyPage = getPolicyPageByPath(window.location.pathname);
+  const activePath = window.location.pathname;
+  const showDevLogPage = isDevLogPath(activePath);
+  const activePolicyPage = getPolicyPageByPath(activePath);
+
+  if (showDevLogPage) {
+    return <DevLogStandalonePage />;
+  }
 
   if (activePolicyPage) {
     return <PolicyStandalonePage page={activePolicyPage} />;
@@ -2936,14 +3016,22 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
               <p className="text-[0.625rem] font-black uppercase tracking-[0.24em] text-bio-glow">小站開發誌</p>
               <h2 className="mt-2 text-xl font-black text-text-main">這個小站怎麼長出來的</h2>
               <p className="mt-3 text-sm leading-7 text-text-muted">
-                從一個「馬祖是不是也可以有自己的交流空間」開始，站長一路邊學邊做。之後會慢慢整理開發紀錄，留下這個小站一路被磨出來的過程。
+                從一個「馬祖是不是也可以有自己的交流空間」開始，站長一路邊學邊做。之後會慢慢整理開發紀錄。
               </p>
+              <a
+                href={DEVLOG_PATH}
+                className="mt-5 inline-flex items-center gap-2 rounded-2xl border border-bio-glow/25 bg-bio-glow/10 px-4 py-3 text-xs font-black text-bio-glow transition-all hover:bg-bio-glow hover:text-deep-ocean active:scale-95"
+              >
+                查看小站開發誌
+                <ChevronRight className="h-3.5 w-3.5" />
+              </a>
             </div>
           </aside>
         </main>
 
         <footer className="relative z-10 border-t border-line px-5 py-6">
           <div className="mx-auto flex max-w-6xl flex-wrap gap-4 text-xs font-bold text-text-muted">
+            <a href={DEVLOG_PATH} className="hover:text-bio-glow">小站開發誌</a>
             <a href="/terms" className="hover:text-bio-glow">服務條款</a>
             <a href="/privacy" className="hover:text-bio-glow">隱私權政策</a>
             <a href="/community-guidelines" className="hover:text-bio-glow">社群規範</a>
