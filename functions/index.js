@@ -4396,6 +4396,9 @@ exports.createCommunityContent = onCall(
     let imageUrl = "";
     let imagePath = "";
     let baseDoc = {};
+    const mentionedNames = sanitizeArray(request.data?.mentionedNames)
+      .map((name) => name.slice(0, 40))
+      .slice(0, 12);
 
     if (sourceType === "post") {
       const submittedImages = sanitizeSubmittedPostImages(request.data || {}, uid);
@@ -4432,6 +4435,7 @@ exports.createCommunityContent = onCall(
         imagePath,
         imageUrls,
         imagePaths,
+        mentionedNames,
       };
     } else if (sourceType === "comment") {
       postId = sanitizeSubmittedId(request.data?.postId, "貼文");
@@ -4452,6 +4456,7 @@ exports.createCommunityContent = onCall(
         likesCount: 0,
         repliesCount: 0,
         serverQuotaChecked: true,
+        mentionedNames,
       };
     } else if (sourceType === "reply") {
       postId = sanitizeSubmittedId(request.data?.postId, "貼文");
@@ -4476,6 +4481,7 @@ exports.createCommunityContent = onCall(
         content,
         likesCount: 0,
         serverQuotaChecked: true,
+        mentionedNames,
       };
     } else {
       throw new HttpsError("invalid-argument", "不支援的內容類型。");

@@ -380,6 +380,12 @@ interface MentionSuggestion {
   role?: 'user' | 'admin';
 }
 
+interface ResolvedMentionUser {
+  uid?: string;
+  islanderId?: string;
+  displayName?: string;
+}
+
 const EMPTY_PROFILE_STATS: ProfileStats = {
   postCount: 0,
   followingCount: 0,
@@ -489,6 +495,7 @@ interface Post {
   moderationPublicCaseId?: string;
   moderationRiskLevel?: 'low' | 'medium' | 'high' | 'critical' | string;
   moderationRiskScore?: number;
+  mentionedNames?: string[];
   category?: string;
   aiSafe?: boolean;
   aiRisk?: number;
@@ -547,6 +554,7 @@ interface Comment {
   moderationPublicCaseId?: string;
   moderationRiskLevel?: 'low' | 'medium' | 'high' | 'critical' | string;
   moderationRiskScore?: number;
+  mentionedNames?: string[];
   likesCount?: number;
   repliesCount?: number;
   replies?: CommentReply[];
@@ -568,6 +576,7 @@ interface CommentReply {
   moderationPublicCaseId?: string;
   moderationRiskLevel?: 'low' | 'medium' | 'high' | 'critical' | string;
   moderationRiskScore?: number;
+  mentionedNames?: string[];
   likesCount?: number;
   createdAt: any;
 }
@@ -812,6 +821,7 @@ const prepareUserContent = (text: string) => text.trim();
 type CreateCommunityContentPayload = {
   sourceType: 'post' | 'comment' | 'reply';
   content: string;
+  mentionedNames?: string[];
   category?: string;
   imageUrl?: string;
   imagePath?: string;
@@ -991,6 +1001,30 @@ const extractMentionNames = (text: string) => {
   return Array.from(new Set(matches.map(cleanMentionName).filter(Boolean)));
 };
 
+const getMentionAliasSet = (users: ResolvedMentionUser[]) => {
+  const aliases = new Set<string>();
+  users.forEach(user => {
+    [user.displayName, user.islanderId].forEach(value => {
+      const cleanValue = cleanMentionName(String(value || ''));
+      if (cleanValue) aliases.add(cleanValue);
+    });
+  });
+  return aliases;
+};
+
+const resolveMentionRecipientsForText = async (text: string) => {
+  const mentionNames = extractMentionNames(text);
+  if (mentionNames.length === 0) return { users: [] as ResolvedMentionUser[], names: [] as string[] };
+
+  const resolveMentions = httpsCallable(functions, 'resolveMentionRecipients');
+  const result = await resolveMentions({ names: mentionNames });
+  const users = Array.isArray((result.data as any)?.users) ? (result.data as any).users as ResolvedMentionUser[] : [];
+  return {
+    users,
+    names: Array.from(getMentionAliasSet(users)),
+  };
+};
+
 const getActiveMentionRange = (value: string, caretIndex: number | null) => {
   if (caretIndex === null) return null;
   const beforeCaret = value.slice(0, caretIndex);
@@ -1005,10 +1039,12 @@ const getActiveMentionRange = (value: string, caretIndex: number | null) => {
   };
 };
 
-const renderContentWithMentions = (text: string) => {
+const renderContentWithMentions = (text: string, validMentionNames: string[] = []) => {
+  const validMentionNameSet = new Set(validMentionNames.map(cleanMentionName).filter(Boolean));
   const mentionPattern = /(@[^\s@]+)/g;
   return text.split(mentionPattern).map((part, index) => {
     if (!part.startsWith('@')) return part;
+    if (!validMentionNameSet.has(cleanMentionName(part))) return part;
 
     return (
       <span key={`${part}-${index}`} className="mention-highlight rounded px-1 font-bold">
@@ -1027,6 +1063,7 @@ const sendMentionNotifications = async ({
   commentId,
   replyId,
   sourceLabel,
+  resolvedUsers,
 }: {
   text: string;
   senderId: string;
@@ -1036,15 +1073,10 @@ const sendMentionNotifications = async ({
   commentId?: string;
   replyId?: string;
   sourceLabel: string;
+  resolvedUsers?: ResolvedMentionUser[];
 }) => {
-  const mentionNames = extractMentionNames(text);
-  if (mentionNames.length === 0) return;
-
   const notifiedRecipients = new Set<string>();
-
-  const resolveMentions = httpsCallable(functions, 'resolveMentionRecipients');
-  const result = await resolveMentions({ names: mentionNames });
-  const recipients = Array.isArray((result.data as any)?.users) ? (result.data as any).users : [];
+  const recipients = resolvedUsers || (await resolveMentionRecipientsForText(text)).users;
 
   for (const mentionedUser of recipients) {
     const recipientId = typeof mentionedUser.uid === 'string' ? mentionedUser.uid : '';
@@ -2866,11 +2898,13 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
 
       // 2) 由伺服器建立內容；明顯高風險會先進入站務審核，不直接公開原文。
       const cleanContent = prepareUserContent(rawContent);
+      const resolvedMentions = await resolveMentionRecipientsForText(cleanContent);
       const senderName = profile?.displayName || user.displayName || '匿名島民';
       const postCategory = newPostCategory;
       const createdPost = await submitCommunityContent({
         sourceType: 'post',
         content: cleanContent,
+        mentionedNames: resolvedMentions.names,
         category: postCategory,
         imageUrl: uploadedUrls[0] || '',
         imagePath: uploadedPaths[0] || '',
@@ -2887,6 +2921,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
             postId: createdPost.id,
             category: postCategory,
             sourceLabel: '貼文中',
+            resolvedUsers: resolvedMentions.users,
           });
         } catch (mentionErr) {
           console.warn('Post mention notification failed:', mentionErr);
@@ -6242,11 +6277,13 @@ function PostCard({
       }
 
       const cleanComment = prepareUserContent(newComment);
+      const resolvedMentions = await resolveMentionRecipientsForText(cleanComment);
       const senderName = profile?.displayName || user.displayName || '匿名島民';
       const createdComment = await submitCommunityContent({
         sourceType: 'comment',
         postId: post.id,
         content: cleanComment,
+        mentionedNames: resolvedMentions.names,
       });
 
       setNewComment('');
@@ -6278,6 +6315,7 @@ function PostCard({
             category: post.category,
             commentId: createdComment.id,
             sourceLabel: '留言中',
+            resolvedUsers: resolvedMentions.users,
           });
         } catch (mentionErr) {
           console.warn('Mention notification failed:', mentionErr);
@@ -6464,6 +6502,7 @@ function PostCard({
       }
 
       const cleanReply = prepareUserContent(replyText);
+      const resolvedMentions = await resolveMentionRecipientsForText(cleanReply);
       const senderName = profile?.displayName || user.displayName || '匿名島民';
 
       const createdReply = await submitCommunityContent({
@@ -6471,6 +6510,7 @@ function PostCard({
         postId: post.id,
         commentId: comment.id,
         content: cleanReply,
+        mentionedNames: resolvedMentions.names,
       });
 
       setReplyInputs(previous => ({ ...previous, [comment.id]: '' }));
@@ -6505,6 +6545,7 @@ function PostCard({
             commentId: comment.id,
             replyId: createdReply.id,
             sourceLabel: '留言回覆中',
+            resolvedUsers: resolvedMentions.users,
           });
         } catch (mentionErr) {
           console.warn('Reply mention notification failed:', mentionErr);
@@ -6785,7 +6826,7 @@ function PostCard({
             )}
             {postContentVisible && (
               <div className="user-content-text text-text-main/90 leading-relaxed whitespace-pre-wrap selection:bg-blue-500/30">
-                {renderContentWithMentions(post.content)}
+                {renderContentWithMentions(post.content, post.mentionedNames)}
               </div>
             )}
           </>
@@ -6980,7 +7021,7 @@ function PostCard({
                           />
                         ) : (
                           <p className="user-content-text-sm text-text-main/90 leading-relaxed whitespace-pre-wrap">
-                            {renderContentWithMentions(comment.content)}
+                            {renderContentWithMentions(comment.content, comment.mentionedNames)}
                           </p>
                         )}
                         {!isModerationHidden(comment.moderationStatus) && (!isModerationMasked(comment.moderationStatus) || expandedMaskedComments[comment.id]) && (
@@ -7090,7 +7131,7 @@ function PostCard({
                               />
                             ) : (
                               <p className="user-content-text-xs text-text-main/90 leading-relaxed whitespace-pre-wrap">
-                                {renderContentWithMentions(reply.content)}
+                                {renderContentWithMentions(reply.content, reply.mentionedNames)}
                               </p>
                             )}
                             {!isModerationHidden(reply.moderationStatus) && (!isModerationMasked(reply.moderationStatus) || expandedMaskedReplies[reply.id]) && (
