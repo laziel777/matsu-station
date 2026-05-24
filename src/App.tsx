@@ -3081,9 +3081,9 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
 
             <div className="rounded-[2rem] border border-line bg-mist/75 p-6">
               <p className="text-[0.625rem] font-black uppercase tracking-[0.24em] text-bio-glow">小站開發誌</p>
-              <h2 className="mt-2 text-xl font-black text-text-main">這個小站怎麼長出來的</h2>
+              <h2 className="mt-2 text-xl font-black text-text-main">想知道小站怎麼來的？</h2>
               <p className="mt-3 text-sm leading-7 text-text-muted">
-                從一個「馬祖是不是也可以有自己的交流空間」開始，站長一路邊學邊做。之後會慢慢整理開發紀錄。
+                這裡記著馬祖小站為什麼開始做、一路怎麼慢慢改，以及這座還在施工中的小島想留下什麼。
               </p>
               <a
                 href={DEVLOG_PATH}
