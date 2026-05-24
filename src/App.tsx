@@ -2922,9 +2922,9 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                   <div className="flex items-start gap-3">
                     <Shield className="mt-0.5 h-5 w-5 shrink-0 text-bio-glow" />
                     <div>
-                      <p className="text-sm font-black text-text-main">前台自由討論，後台風險治理</p>
+                      <p className="text-sm font-black text-text-main">自由討論，也有人看顧秩序</p>
                       <p className="mt-1 text-xs leading-relaxed text-text-muted">
-                        AI 只協助標記風險，最後仍由站方依脈絡與規範處理。
+                        小站會依脈絡、檢舉與社群規範處理高風險內容，避免正常討論被少數問題內容拖下水。
                       </p>
                     </div>
                   </div>
@@ -2936,7 +2936,7 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
               <p className="text-[0.625rem] font-black uppercase tracking-[0.24em] text-bio-glow">小站開發誌</p>
               <h2 className="mt-2 text-xl font-black text-text-main">一個人把想法做成平台</h2>
               <p className="mt-3 text-sm leading-7 text-text-muted">
-                從 React、Firebase、Gemini、LINE、Vercel、Cloudflare，到圖片審核與游騎兵後台，這裡會慢慢整理馬祖小站怎麼被做出來，以及為什麼要做成「自由發言 + 風險治理」。
+                從一個地方討論空間的想法開始，到登入、發文、留言、圖片、檢舉、站務紀錄與在地資訊整理，這裡會慢慢留下馬祖小站怎麼被做出來，以及為什麼要做成「自由討論 + 有人看顧」。
               </p>
             </div>
           </aside>
