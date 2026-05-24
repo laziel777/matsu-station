@@ -2871,11 +2871,11 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
 
             <div className="space-y-4">
               <h1 className="font-display text-4xl font-black tracking-tight text-text-main sm:text-6xl">
-                給馬祖鄉親的
-                <span className="block text-bio-glow">在地交流空間</span>
+                馬祖人自己的
+                <span className="block text-bio-glow">小小交流站</span>
               </h1>
               <p className="max-w-2xl text-sm leading-7 text-text-muted sm:text-base">
-                馬祖小站目前為 Beta 測試版。登入後可以發文、留言、分享圖片、追蹤島民與回報問題；站內內容僅開放登入使用者瀏覽，避免被路人搬運、截圖或脫離脈絡傳播。
+                這裡可以聊生活、問事情、分享照片，也可以看看最近大家在馬祖關心什麼。小站還在 Beta 測試中，先登入後再進來逛，讓站內討論留在比較熟悉的範圍裡。
               </p>
             </div>
 
@@ -2891,9 +2891,9 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
 
             <div className="grid gap-3 sm:grid-cols-3">
               {[
-                ['不要公開個資', '避免身分證、住址、車牌、私密截圖等內容。'],
-                ['不要未證實重大指控', '地方討論可以尖銳，但請避免把傳聞包裝成事實。'],
-                ['遇到問題可回報', '請截圖並透過官方 LINE 聯絡站方。'],
+                ['聊天可以直接', '但不要公開別人的個資、私訊截圖或住址車牌。'],
+                ['討論可以尖銳', '但聽說的事情先留點餘地，不要把傳聞說成確定事實。'],
+                ['看到問題就回報', '如果遇到怪怪的內容或功能壞掉，截圖傳給官方 LINE。'],
               ].map(([title, body]) => (
                 <div key={title} className="rounded-2xl border border-line bg-mist/55 p-4">
                   <p className="text-xs font-black text-text-main">{title}</p>
@@ -2913,18 +2913,18 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
               <div className="relative space-y-5">
                 <div>
                   <p className="station-clock-label text-xs font-black uppercase tracking-[0.28em]">小站入口</p>
-                  <h2 className="mt-2 text-2xl font-black text-text-main">登入後進入島內</h2>
+                  <h2 className="mt-2 text-2xl font-black text-text-main">登入後就能進來</h2>
                   <p className="mt-2 text-sm leading-relaxed text-text-muted">
-                    這裡不是公開爆料牆，而是有規範、有檢舉、有站務紀錄的地方社群空間。
+                    用 Google 登入後，就可以看貼文、留言、發照片、追蹤島民，也能幫忙回報需要站方注意的內容。
                   </p>
                 </div>
                 <div className="station-clock-display rounded-2xl p-4">
                   <div className="flex items-start gap-3">
                     <Shield className="mt-0.5 h-5 w-5 shrink-0 text-bio-glow" />
                     <div>
-                      <p className="text-sm font-black text-text-main">自由討論，也有人看顧秩序</p>
+                      <p className="text-sm font-black text-text-main">希望這裡舒服一點</p>
                       <p className="mt-1 text-xs leading-relaxed text-text-muted">
-                        小站會依脈絡、檢舉與社群規範處理高風險內容，避免正常討論被少數問題內容拖下水。
+                        大家可以好好講話，也可以有不同意見；真的太誇張的內容，站方會盡量處理。
                       </p>
                     </div>
                   </div>
@@ -2934,9 +2934,9 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
 
             <div className="rounded-[2rem] border border-line bg-mist/75 p-6">
               <p className="text-[0.625rem] font-black uppercase tracking-[0.24em] text-bio-glow">小站開發誌</p>
-              <h2 className="mt-2 text-xl font-black text-text-main">一個人把想法做成平台</h2>
+              <h2 className="mt-2 text-xl font-black text-text-main">這個小站怎麼長出來的</h2>
               <p className="mt-3 text-sm leading-7 text-text-muted">
-                從一個地方討論空間的想法開始，到登入、發文、留言、圖片、檢舉、站務紀錄與在地資訊整理，這裡會慢慢留下馬祖小站怎麼被做出來，以及為什麼要做成「自由討論 + 有人看顧」。
+                從一個「馬祖是不是也可以有自己的交流空間」開始，站長一路邊學邊做。之後會慢慢整理開發紀錄，留下這個小站一路被磨出來的過程。
               </p>
             </div>
           </aside>
