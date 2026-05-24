@@ -2951,6 +2951,36 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
     }
   };
 
+  const getStationShareUrl = () => {
+    const isLocalhost = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+    return isLocalhost ? 'https://www.matsustation.com/' : `${window.location.origin}/`;
+  };
+
+  const handleShareStation = async () => {
+    const shareUrl = getStationShareUrl();
+    const shareData = {
+      title: '馬祖小站 Matsu Station',
+      text: '馬祖在地交流與資訊小站，歡迎一起登島看看。',
+      url: shareUrl,
+    };
+
+    if (navigator.share) {
+      try {
+        await navigator.share(shareData);
+        return;
+      } catch (err) {
+        if ((err as Error).name === 'AbortError') return;
+      }
+    }
+
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      alert('已複製馬祖小站連結。');
+    } catch (err) {
+      alert(`分享連結：${shareUrl}`);
+    }
+  };
+
   const copyToClipboard = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
@@ -3141,15 +3171,25 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
               <p className="font-mono text-[0.625rem] uppercase tracking-[0.24em] text-bio-glow">Matsu Station</p>
             </div>
           </a>
-          <a
-            href={LINE_OFFICIAL_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 rounded-xl border border-[#06C755]/40 bg-[#06C755]/15 px-3 py-2 text-xs font-black text-[#06C755] shadow-lg shadow-[#06C755]/10 transition-all hover:border-[#06C755]/70 hover:bg-[#06C755]/25 hover:text-white"
-          >
-            <MessageSquare className="h-3.5 w-3.5" />
-            官方 LINE
-          </a>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleShareStation}
+              className="inline-flex items-center gap-2 rounded-xl border border-bio-glow/35 bg-bio-glow/10 px-3 py-2 text-xs font-black text-bio-glow shadow-lg shadow-bio-glow/10 transition-all hover:border-bio-glow/70 hover:bg-bio-glow/20 hover:text-white"
+            >
+              <Share2 className="h-3.5 w-3.5" />
+              分享小站
+            </button>
+            <a
+              href={LINE_OFFICIAL_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 rounded-xl border border-[#06C755]/40 bg-[#06C755]/15 px-3 py-2 text-xs font-black text-[#06C755] shadow-lg shadow-[#06C755]/10 transition-all hover:border-[#06C755]/70 hover:bg-[#06C755]/25 hover:text-white"
+            >
+              <MessageSquare className="h-3.5 w-3.5" />
+              官方 LINE
+            </a>
+          </div>
         </header>
 
         <main className="relative z-10 mx-auto grid min-h-[calc(100vh-92px)] max-w-6xl items-center gap-8 px-5 pb-12 lg:grid-cols-[1.08fr_0.92fr]">
@@ -3164,9 +3204,6 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                 馬祖人自己的
                 <span className="block text-bio-glow">小小交流站</span>
               </h1>
-              <p className="max-w-2xl text-sm leading-7 text-text-muted sm:text-base">
-                這裡可以聊生活、問事情、分享照片，也可以看看最近大家在馬祖關心什麼。小站還在 Beta 測試中，先登入後再進來逛，讓站內討論留在比較熟悉的範圍裡。
-              </p>
             </div>
 
             <div className="flex flex-col gap-3 sm:flex-row">
@@ -3186,6 +3223,14 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                 <MessageSquare className="h-4 w-4" />
                 官方 LINE
               </a>
+              <button
+                type="button"
+                onClick={handleShareStation}
+                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-bio-glow/35 bg-bio-glow/10 px-6 py-4 text-sm font-black text-bio-glow shadow-lg shadow-bio-glow/10 transition-all hover:border-bio-glow/70 hover:bg-bio-glow/20 hover:text-white active:scale-95"
+              >
+                <Share2 className="h-4 w-4" />
+                分享馬祖小站
+              </button>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-3">
@@ -3883,6 +3928,15 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
 
             {/* Mobile Actions */}
               <div className="flex items-center gap-3 sm:hidden">
+                <button
+                  type="button"
+                  onClick={handleShareStation}
+                  aria-label="分享馬祖小站"
+                  title="分享馬祖小站"
+                  className="p-2 text-text-muted transition-all hover:text-bio-glow active:scale-95"
+                >
+                  <Share2 className="w-5 h-5" />
+                </button>
                 <div className="relative" data-dropdown-root>
                   <button 
                     onClick={() => {
@@ -4208,6 +4262,15 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
           </div>
 
           <div className="hidden sm:flex items-center gap-4">
+            <button
+              type="button"
+              onClick={handleShareStation}
+              className="inline-flex items-center gap-2 rounded-xl border border-bio-glow/25 bg-bio-glow/10 px-3 py-2 text-xs font-black text-bio-glow transition-all hover:border-bio-glow/60 hover:bg-bio-glow/20 hover:text-white active:scale-95"
+              title="分享馬祖小站"
+            >
+              <Share2 className="w-4 h-4" />
+              分享小站
+            </button>
             <div className="relative" data-dropdown-root>
               <button 
                 onClick={() => {
