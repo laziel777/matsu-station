@@ -1096,7 +1096,6 @@ const ReactionButton = ({
   const rootRef = React.useRef<HTMLDivElement | null>(null);
   const menuRef = React.useRef<HTMLDivElement | null>(null);
   const [menuPosition, setMenuPosition] = useState<{ top: number; left: number; placement: 'top' | 'bottom' } | null>(null);
-  const reactionIconSizeClass = compact ? 'h-6 w-6 text-sm' : 'h-7 w-7 text-base';
   const visibleReactionCounts = REACTION_OPTIONS
     .map(reaction => ({ reaction, count: reactionCounts[reaction] || 0 }))
     .filter(item => item.count > 0);
@@ -1173,30 +1172,25 @@ const ReactionButton = ({
       <button
         type="button"
         onClick={() => setIsOpen(previous => !previous)}
-        className={`group inline-flex items-center rounded-full border border-line bg-mist/35 font-bold text-text-muted shadow-sm transition-all hover:border-bio-glow/30 hover:bg-mist-light/70 hover:text-text-main active:scale-105 ${
-          compact ? 'gap-1 px-1 py-0.5 text-[0.6875rem]' : 'gap-1.5 px-1.5 py-1 text-xs'
+        className={`inline-flex shrink-0 items-center justify-center rounded-full border shadow-sm transition-all hover:border-bio-glow/40 hover:bg-mist-light/70 active:scale-95 ${
+          compact ? 'h-8 w-8' : 'h-9 w-9'
+        } ${
+          currentReaction
+            ? 'border-bio-glow/35 bg-bio-glow/10 text-bio-glow'
+            : 'border-line bg-mist/35 text-text-muted hover:text-bio-glow'
         }`}
         title="選擇表情反應"
+        aria-label={`選擇表情反應，${count} 個反應`}
       >
-        <span
-          className={`inline-flex shrink-0 items-center justify-center rounded-full border shadow-inner transition-all group-hover:-translate-y-px ${
-            reactionIconSizeClass
-          } ${
-            currentReaction
-              ? 'border-bio-glow/25 bg-bio-glow/10 text-bio-glow'
-              : 'border-white/10 bg-deep-ocean/55 text-text-muted/90 group-hover:text-bio-glow'
-          }`}
-        >
-          <span className="leading-none">
-            {currentReaction || <Heart className={compact ? 'h-3.5 w-3.5' : 'h-4 w-4'} />}
-          </span>
-        </span>
-        {!currentReaction && !compact && (
-          <span className="hidden pr-1 text-[0.625rem] font-black tracking-widest text-text-muted/70 transition-colors group-hover:text-bio-glow/90 sm:inline">
-            反應
-          </span>
+        {currentReaction ? (
+          <span className={compact ? 'text-base leading-none' : 'text-lg leading-none'}>{currentReaction}</span>
+        ) : (
+          <Heart
+            className={compact ? 'h-4 w-4' : 'h-[1.125rem] w-[1.125rem]'}
+            fill="none"
+            strokeWidth={2.1}
+          />
         )}
-        {visibleReactionCounts.length === 0 && count > 0 && <span>{count}</span>}
       </button>
 
       {currentReaction && (
