@@ -5450,13 +5450,15 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
       </footer>
 
       {/* Mobile Bottom Navigation */}
-      <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-line bg-deep-ocean/95 backdrop-blur-xl md:hidden">
+      <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-line bg-deep-ocean/95 backdrop-blur-xl md:hidden" data-dropdown-root>
         <div className="grid grid-cols-4 px-2 py-2">
           <button
             type="button"
             onClick={() => {
               setActiveCategory('全部');
               setSearchQuery('');
+              setShowNotifications(false);
+              setIsMobileMenuOpen(false);
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
             className="flex flex-col items-center gap-1 rounded-xl px-2 py-1.5 text-[0.625rem] font-bold text-text-muted hover:text-bio-glow active:scale-95"
@@ -5471,6 +5473,8 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
                 handleLogin();
                 return;
               }
+              setShowNotifications(false);
+              setIsMobileMenuOpen(false);
               document.getElementById('post-form')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }}
             className="flex flex-col items-center gap-1 rounded-xl px-2 py-1.5 text-[0.625rem] font-bold text-text-muted hover:text-bio-glow active:scale-95"
@@ -5481,8 +5485,9 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
           <button
             type="button"
             onClick={() => {
-              setShowNotifications(!showNotifications);
+              setShowNotifications(previous => !previous);
               setShowSettingsMenu(false);
+              setIsMobileMenuOpen(false);
             }}
             className="relative flex flex-col items-center gap-1 rounded-xl px-2 py-1.5 text-[0.625rem] font-bold text-text-muted hover:text-bio-glow active:scale-95"
           >
@@ -5495,8 +5500,9 @@ const LOCAL_TOPIC_SHORTCUTS = Array.from(new Set(
           <button
             type="button"
             onClick={() => {
-              setIsMobileMenuOpen(true);
+              setIsMobileMenuOpen(previous => !previous);
               setShowNotifications(false);
+              setShowSettingsMenu(false);
             }}
             className="flex flex-col items-center gap-1 rounded-xl px-2 py-1.5 text-[0.625rem] font-bold text-text-muted hover:text-bio-glow active:scale-95"
           >
